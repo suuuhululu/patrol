@@ -71,3 +71,4 @@ git log -p -- docs/development/version-control.md
 - [PR 가이드](pull-request-guide.md)
 - [브랜치 네이밍 규칙](branch-naming.md)
 - [브랜치 사용 가이드](branch-guide.md)
+- [GitHub 인증 저장 가이드 — 반복 로그인 줄이기](git-authentication.md)
