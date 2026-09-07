@@ -35,6 +35,10 @@ docs/
 | [integration.md](integration.md) | 기동·연결·정상 및 장애 흐름·통합시험 |
 | [change_requests/README.md](change_requests/README.md) | 개발 단위 간 수정 요청 양식·처리 상태 |
 
+## 설계 기준
+
+[2026-09-07 PM 설계 결정](decisions/2026-09-07-design-baseline.md)에 따라 관제는 별도 노드, 시스템 모니터는 UI 전용으로 사용한다. 공용 메시지 패키지는 `patrol_interfaces`다. 최신 PM 결정과 System design의 확정 내용을 우선하며, 과거 문서의 TBD가 확정 사항을 대체하지 않는다. 진행표와 통합 일정은 PM이 별도로 수동 관리한다.
+
 ## 읽기 순서와 작성 원칙
 
 모든 개발자는 AGENTS → architecture → interfaces를 먼저 읽는다. 이후 scenarios의 UC 흐름, 담당 기능 문서와 integration을 읽는다. AMR1·AMR2는 amr.md를 공유하며 식별자·설정 차이만 구분한다. 관제 팀은 control_server.md, 시스템 모니터 팀은 monitoring_and_data.md를 담당한다. 두 팀의 기능은 통합 실행 시 PC 3에서 함께 실행하지만 개발 책임은 독립적이다.
@@ -43,7 +47,7 @@ docs/
 
 - **기준:** 제공 자료 또는 사용자가 명시한 결정. 구현 검증 완료라는 뜻은 아니다.
 - **제안:** 문서에 제시된 구현·운영 초안. 기존 결정으로 승격하지 않는다.
-- **TBD:** 합의나 추가 정보가 필요한 항목. 본문 근처의 ID와 문서 끝 표를 참조한다.
+- **TBD:** System design에서 확정되었는지 먼저 확인할 항목. 확정 내용이 있으면 낮은 버전의 미정 표기를 갱신하고, 원본도 미정인 경우에만 추가 정보를 확인한다. 본문 근처의 ID와 문서 끝 표를 참조한다.
 - 미결 목록을 따로 복제하는 TBD 파일은 만들지 않는다. 요청서는 실제 공용 변경 결정 또는 타 단위 수정 필요가 있을 때 생성한다.
 
 ## 코드와 Flowchart 관리
