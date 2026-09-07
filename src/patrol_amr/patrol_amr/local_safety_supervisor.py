@@ -32,6 +32,17 @@ import estop_guard as eg
 import motion_guard as mg
 
 
+def estop_transition_event(previous_stopped, current_stopped, verdict):
+    """Return the existing safety-log name for an accepted E-stop release."""
+    if (
+        verdict is eg.EStopVerdict.ACCEPTED
+        and previous_stopped
+        and not current_stopped
+    ):
+        return eg.EVENT_AUTO_RELEASED
+    return None
+
+
 class SafetyGate:
     """Pure composition of the three guards for one robot; no ROS dependency.
 
@@ -52,6 +63,11 @@ class SafetyGate:
     @property
     def robot_id(self) -> str:
         return self._token_guard.robot_id
+
+    @property
+    def estop_active(self) -> bool:
+        """Current reflected E-stop state; True is the fail-safe default."""
+        return self._estop_guard.stopped
 
     def observe_drive_token(
         self, token, holder_robot_id, lease_seconds, sequence, now
@@ -186,7 +202,8 @@ def create_node_class():
             self._publish_if_changed()
 
         def _on_estop(self, message) -> None:
-            self._gate.observe_estop(
+            previous_stopped = self._gate.estop_active
+            verdict = self._gate.observe_estop(
                 message.active,
                 message.cause,
                 message.physical,
@@ -200,6 +217,14 @@ def create_node_class():
                     message.release_condition_started_at.nanosec,
                 ),
             )
+            event = estop_transition_event(
+                previous_stopped, self._gate.estop_active, verdict
+            )
+            if event is not None:
+                self.get_logger().info(
+                    f'{event} robot_id={self._gate.robot_id} '
+                    f'source={message.source!r} sequence={message.sequence}'
+                )
             self._publish_if_changed()
 
         def _recheck(self) -> None:

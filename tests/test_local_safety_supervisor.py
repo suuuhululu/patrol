@@ -49,6 +49,35 @@ class DefaultStateTests(unittest.TestCase):
         self.assertFalse(g.motion_allowed(0.0))
 
 
+class EStopTransitionLogTests(unittest.TestCase):
+    def test_estop_active_exposes_reflected_state(self):
+        g = gate()
+        self.assertTrue(g.estop_active)
+        set_estop(g, False, sequence=1)
+        self.assertFalse(g.estop_active)
+
+    def test_accepted_release_selects_auto_released_log(self):
+        event = lss.estop_transition_event(
+            True, False, eg.EStopVerdict.ACCEPTED
+        )
+        self.assertEqual(event, eg.EVENT_AUTO_RELEASED)
+
+    def test_non_release_or_stale_observation_has_no_release_log(self):
+        cases = (
+            (True, True, eg.EStopVerdict.ACCEPTED),
+            (False, False, eg.EStopVerdict.ACCEPTED),
+            (False, True, eg.EStopVerdict.ACCEPTED),
+            (True, False, eg.EStopVerdict.STALE_SEQUENCE),
+        )
+        for previous, current, verdict in cases:
+            with self.subTest(
+                previous=previous, current=current, verdict=verdict
+            ):
+                self.assertIsNone(
+                    lss.estop_transition_event(previous, current, verdict)
+                )
+
+
 class CombinationTests(unittest.TestCase):
     def test_allowed_only_when_both_guards_permit(self):
         g = gate()
