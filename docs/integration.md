@@ -39,6 +39,10 @@ PC 4 ENTERING 또는 EXITING → permit=false → 관제의 기존 순찰 취소
 
 PARKED 또는 EXITED → permit=true → 관제가 상태·E-stop 등 재개 조건 확인 → Keepout OFF 성공 → token 발급 → RESUME_PATROL 순서다. 진입·출차 이벤트 쌍은 vision.md를 따른다. 중간 실패 시 다음 주행 단계를 진행하지 않고 해당 안전·실패 정책으로 처리한다.
 
+비전 이벤트의 P0 통합 기준은 [비전 수정 요청서](change_requests/CR-관제_09-07_17-53_비전_CameraState와_permit_반영.md)를 따른다. ENTERING·EXITED·EXITING은 유효 조건이 monotonic 시간 0.2초 연속 유지될 때 확정하고, 조건 이탈이나 미검출이 발생하면 확인 시간을 초기화한다. PARKED는 5초 체류 조건을 유지한다. cam_master는 permit 상태 변경 시 즉시 발행하고 동일 값을 5 Hz로 반복 발행한다.
+
+관제는 permit을 5초 동안 받지 못하면 timeout 경고를 발생시키되 마지막 값을 임의로 반전하지 않는다. 현재 Bool 계약에서 정상 수신 복구는 동일 값을 3회 연속 수신하고, 각 수신 간격이 0.5초 이하이며 첫 수신부터 세 번째 수신까지 로컬 monotonic 경과가 0.3초 이상일 때로 확인한다. 중간에 값이 달라지거나 시간 조건이 깨지면 첫 수신부터 다시 확인한다. cam_master 세션·발행 sequence까지 검증하는 방식은 Bool 필드만으로 구현할 수 없으므로 [비전 P1 권장안](vision_P1.md)의 별도 permit 메시지 채택 전에는 통합 기준으로 간주하지 않는다.
+
 빠른 permit 반전, 도착 확인 방식, Keepout ON 상태에서 탈출할 수 있는지 사전 검증은 TBD-INT-002·003이다.
 
 ### W-03 배터리·도킹·역할 교대
@@ -79,8 +83,8 @@ DOCKED 완료 센서와 CHARGING 상태가 2초 연속이면 도킹 성공과 �
 | IT-02 명령 확인·중복 | ACCEPTED/REJECTED 정상 응답, 각 5초 Check timeout, 동일 ID·payload 재전송, 동일 ID·다른 payload, 완료 뒤 재전송, 재시작 뒤 기록 검사 | ACCEPTED/EXECUTING/REJECTED와 최종 report 연결; timeout마다 동일 ID로 최대 2회 재전송; 중복 실행 없음; ID 충돌 거절; 완료 뒤 기존 report 재전달 | Q-14·15, TBD-IF-001 |
 | IT-03 토큰 검증 | 유효 token 이후 낮은/동일 message sequence·오래된 메시지·다른 holder·새 control session을 각각 주입 | AMR이 잘못된 권한을 수락하지 않고 lease가 부당 연장되지 않음; 새 control session에서 이전 token 폐기 | Q-01, TBD-IF-002 |
 | IT-04 토큰 만료·회수 | 활성 mission에서 갱신 중단, 이전 holder를 지정한 빈 token ID 회수, 실제 정지 조건 경계 시험 | 만료/회수 시 AMR 안전 정지·신규 주행 차단; 새 token만으로 자동 출발 없음; odometry 정지 조건 전 신규 holder 금지 | Q-01, TBD-AMR-006·INT-001 |
-| IT-05 CCTV 정상·중복 | 진입 쌍, 별도 출차 쌍, 동일 ID 반복, topic별 금지 enum 발행 | 비전 permit 일치, Q-13 중복 1회 처리, 금지 enum 폐기·로그 | Q-13, TBD-IF-005 |
-| IT-06 CCTV 단절 | permit true/false 각각에서 이벤트·permit 통신 단절 시험 | 마지막 permit 유지, 관제 timeout 판단·경고 발행, 모니터 수신 결과 표시·기록; 임의 반전 없음 | TBD-IF-010 |
+| IT-05 CCTV 정상·중복 | gate_cam·center_cam별 구조화 event ID와 source session·sequence, enum 0~4, 허용 상태를 검사한다. ENTERING·EXITED·EXITING은 0.2초 직전·경계·직후, 중간 조건 이탈·미검출을 주입한다. PARKED는 5초 체류와 confidence 계산 구간을 검사한다. 동일 ID 반복과 topic별 금지 enum도 발행한다. | `patrol_interfaces/msg/CameraState`, camera_id `gate_cam`·`center_cam`, 상태별 enum과 ID가 요청 계약에 일치한다. 0.2초 미만 또는 중간 단절에서는 이벤트가 없고 조건을 연속 충족한 경우에만 1회 발행한다. confidence는 일반 상태의 유효 0.2초 평균, PARKED의 마지막 유효 0.2초 평균이다. 중복은 1회만 처리하고 금지 enum은 폐기·기록한다. | [비전 P0 요청](change_requests/CR-관제_09-07_17-53_비전_CameraState와_permit_반영.md), Q-13, TBD-IF-005 |
+| IT-06 CCTV permit·단절·복구 | permit true/false 각각에서 상태 변경 즉시 발행과 5 Hz 반복 주기를 측정한다. 이후 permit 통신을 5초 미만·이상 중단하고, 동일 Bool 3회 수신의 간격·전체 경과 조건을 경계값으로 시험한다. | 변경 값은 즉시 전달되고 반복 주기는 5 Hz다. 5초 미만 단절은 timeout이 아니며 5초 도달 시 관제가 경고하고 마지막 permit을 유지한다. 동일 값 3회, 각 간격 ≤0.5초, 전체 경과 ≥0.3초를 모두 만족한 경우에만 정상 복구한다. 모니터는 관제 판단 결과를 표시·기록하고 임의로 permit을 반전하지 않는다. | [비전 P0 요청](change_requests/CR-관제_09-07_17-53_비전_CameraState와_permit_반영.md), TBD-IF-010 |
 | IT-07 대피·재개 | 순찰 중 permit false, 대피 완료 후 true | 관제·AMR W-02 순서 일치, 대피 중 token 유지, 도착 후 회수 | Q-08, TBD-INT-002·003 |
 | IT-08 Keepout 실패 | global/local 일부 적용 실패와 rollback 실패를 각각 주입 | 전체 snapshot 복구 또는 UNKNOWN·Safety Arbiter 정지 요청; 부분 성공을 commit하지 않음 | Q-07, TBD-CTRL-002 |
 | IT-09 안전구역 없음 | 후보 조건 불충족 지도/동선, 별도로 Keepout 탈출 불가 조건 | AMR 현 위치 정지, SAFE_ZONE_NOT_FOUND; 불가능 경로 주행 방지 확인 | Q-08, TBD-INT-003 |
