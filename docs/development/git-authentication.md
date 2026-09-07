@@ -1,160 +1,201 @@
-# GitHub 인증 저장 가이드
+# GitHub PAT 인증 저장 가이드 — 처음 시작하는 사람용
 
-매번 `git pull`·`git push`할 때 인증 정보를 입력하지 않도록 설정하는 방법이다. Ubuntu 24.04 개발 PC와 macOS에서 사용한다. 이 문서는 설정 절차이며, 문서 추가만으로 PC의 인증 설정이 바뀌지는 않는다.
+이 가이드는 **PAT를 한 번 입력하고, 이후 Git 작업에서는 PC가 기억하게 만드는 방법**이다. Ubuntu 24.04를 기준으로 설명하고 macOS 방법도 함께 제공한다.
 
-## 어떤 비밀번호인가요?
+PAT는 Personal Access Token의 줄임말로, **개인용 액세스 토큰**이라는 뜻이다. GitHub가 만들어 주는 긴 임시 비밀번호라고 생각하면 된다. SSH 개인키와는 다른 인증 수단이다. 이 문서에서는 SSH 키를 만들지 않는다.
 
-- GitHub HTTPS 인증: GitHub 계정 비밀번호 대신 브라우저 로그인 또는 토큰을 사용한다.
-- SSH 키 암호(passphrase): 개인키 보호용 암호이며 GitHub 계정 비밀번호와 다르다.
-- `sudo` 비밀번호: OS 관리자 인증이다. 이 가이드는 이를 없애지 않는다.
-- 웹 브라우저 로그인과 터미널 Git 인증은 별개다.
+## 0. 먼저 알아둘 것
 
-각 개발자는 각 PC의 본인 OS 계정에서 본인의 GitHub 계정을 사용한다. 팀원의 토큰이나 개인키를 복사해 공유하지 않는다.
+| 이름 | 쉬운 설명 |
+| --- | --- |
+| GitHub | 팀의 파일을 보관하는 온라인 공간 |
+| Git | 내 PC와 GitHub 사이에서 파일 이력을 관리하는 도구 |
+| 저장소(repository) | 프로젝트 파일을 모아 둔 공간. 우리 저장소는 `suuuhululu/patrol`이다. |
+| 터미널 | 명령어를 입력하는 창 |
+| PAT | GitHub 계정 비밀번호 대신 Git에 입력하는 인증 문자열 |
+| 키링·키체인 | PC가 비밀번호를 보관하는 잠금장치가 있는 저장 공간 |
 
-## 권장 방법: HTTPS + GitHub CLI
+준비물은 본인 GitHub 계정, `patrol` 협업 초대 수락, 인터넷 연결이다. **각자 자기 계정에서 토큰을 만든다. PM이나 다른 팀원의 토큰을 함께 쓰지 않는다.**
 
-현재 저장소의 HTTPS 주소를 유지할 수 있다. OS의 안전한 자격 증명 저장소를 사용할 수 있는 데스크톱 환경에 적합하다.
+아래 회색 상자의 명령어를 한 줄씩 복사하고 Enter를 누른다. `#`로 시작하는 줄은 설명이므로 입력하지 않아도 된다. 실제 토큰은 명령어에 끼워 넣지 않고, 나중에 나오는 `Password` 입력란에만 붙여 넣는다.
 
-### 1. 설치
+이 문서는 따라 하는 방법을 설명한다. 문서가 GitHub에 올라왔다고 PC 설정이 자동으로 바뀌지는 않는다.
+
+## 1. GitHub에서 PAT 만들기
+
+### 협업자로 참여한 팀원: Tokens (classic)
+
+현재 `patrol`은 개인 계정 소유의 비공개 저장소다. 다른 계정의 협업자로 참여하는 경우 fine-grained PAT 사용에 제한이 있어, 팀원은 classic PAT로 진행한다. Classic의 `repo` 권한은 이 저장소만이 아니라 본인이 접근할 수 있는 다른 비공개 저장소에도 적용될 수 있다. 만료일을 정하고 필요한 권한만 선택한다. 이 제한은 바뀔 수 있으므로 [GitHub PAT 공식 안내](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)를 기준으로 한다.
+
+1. 브라우저에서 GitHub에 **본인 계정으로** 로그인한다.
+2. 오른쪽 위 프로필 사진 → **Settings**를 누른다. 저장소의 Settings가 아니라 개인 계정 설정이다.
+3. 왼쪽 메뉴 아래의 **Developer settings**를 누른다.
+4. **Personal access tokens → Tokens (classic)**을 누른다.
+5. **Generate new token → Generate new token (classic)**을 누른다. 본인 확인 화면이 나오면 완료한다.
+6. **Note**에 `patrol-ubuntu-my-pc`처럼 용도를 적고, **Expiration**은 우선 `30 days`로 정한다.
+7. **Select scopes**에서 `repo`를 선택한다. `.github/workflows/` 파일도 수정할 담당자는 `workflow`도 선택한다. 문서·일반 코드 작업만 하는 사람은 추가하지 않는다.
+8. **Generate token**을 누른다. 표시된 긴 문자열을 복사해 본인의 비밀번호 관리자에 보관한다. 전체 문자열은 다시 볼 수 없으므로 잃어버리면 새로 발급한다.
+
+### 저장소 소유자: Fine-grained token 선택 가능
+
+저장소 소유자 `suuuhululu`는 **Personal access tokens → Fine-grained tokens → Generate new token**에서 만든다. 만료일은 30일, Resource owner는 본인, Repository access는 **Only select repositories → patrol**로 정한다. Repository permissions에서 **Contents: Read and write**를 선택한다. 워크플로 파일 변경 담당인 경우에만 **Workflows: Read and write**도 선택한다. PR은 브라우저에서 작성할 수 있다.
+
+토큰을 만들었다면 아래 PC 설정을 계속 진행한다. 토큰은 기존 계정의 접근 권한을 넘어서 권한을 주지 않으므로, 협업 초대를 먼저 수락해야 한다.
+
+## 2. 터미널에서 patrol 폴더 열기
+
+**Ubuntu:** 파일 앱에서 `patrol` 폴더를 열고 빈 곳을 마우스 오른쪽 버튼으로 눌러 ‘터미널에서 열기’를 선택한다. 해당 메뉴가 없으면 터미널을 열고 `cd` 뒤에 실제 폴더 경로를 입력한다.
+
+**현재 PM의 macOS:** 터미널에서 아래 명령으로 이동할 수 있다. 다른 사람은 자신의 경로를 사용한다.
 
 ```bash
-# Ubuntu 24.04: Ubuntu 패키지 저장소의 GitHub CLI 설치
-sudo apt update
-sudo apt install gh
-
-gh --version
+cd /Users/suhyun/Downloads/patrol
 ```
 
-패키지를 찾지 못하거나 최신 CLI가 필요하면 [공식 Linux 설치 안내](https://github.com/cli/cli/blob/trunk/docs/install_linux.md)를 따른다.
-
-macOS에서는 Homebrew가 이미 설치되어 있다면 `brew install gh`를 사용한다. 그 외에는 [GitHub CLI 공식 설치 페이지](https://cli.github.com/)를 따른다.
-
-### 2. 최초 로그인과 Git 연결
+위 경로는 이 문서를 작성한 PC의 예시이며 공용 경로가 아니다.
 
 ```bash
-gh auth login --hostname github.com --git-protocol https --web
-gh auth setup-git --hostname github.com
-gh auth status --hostname github.com
-```
-
-출력된 안내에 따라 브라우저에서 본인 계정으로 인증한다. Git 인증 연결 질문이 나오면 동의한다. `setup-git`은 Git이 CLI에 저장된 인증을 사용하도록 연결한다.
-
-CLI는 OS의 자격 증명 저장소 사용을 시도한다. 사용할 수 없으면 평문 파일로 저장될 수 있으므로 로그인 결과와 `gh auth status`의 저장 위치를 확인한다. 평문 저장 경고가 나오면 계속 사용하는 대신 OS 키링을 설정하거나 아래 SSH 방법을 선택한다. Ubuntu에서는 로그인한 데스크톱 세션의 키링이 잠겨 있지 않아야 한다. macOS에서는 Keychain을 사용한다. `--insecure-storage`는 사용하지 않는다. [CLI 로그인 안내](https://cli.github.com/manual/gh_auth_login)
-
-### 3. 저장소 접근 확인
-
-터미널에서 본인 PC의 `patrol` 폴더로 이동한 뒤 실행한다.
-
-```bash
+git status
 git remote -v
-git ls-remote origin HEAD
 ```
 
-이 절차의 원격 주소는 `https://github.com/suuuhululu/patrol.git`이다. 기존 주소가 다르면 용도를 확인한 뒤 이 저장소에서만 아래 명령을 실행한다.
+`not a git repository`가 나오면 프로젝트 폴더를 잘못 연 것이다. `.git`이 들어 있는 실제 `patrol` 폴더로 이동한다. 이 오류를 해결하려고 무작정 `git init`을 실행하지 않는다.
+
+아래 명령은 이 프로젝트의 GitHub 연결 주소를 HTTPS로 맞춘다.
 
 ```bash
 git remote set-url origin https://github.com/suuuhululu/patrol.git
 ```
 
-이후 새 터미널에서도 `git ls-remote origin HEAD`가 추가 로그인 없이 성공하는지 확인한다. 이 명령은 파일이나 원격 브랜치를 변경하지 않는다. 키링 잠금·토큰 만료·인증 취소·조직 정책 변경 시에는 다시 인증할 수 있다.
+아직 프로젝트가 없는 사람은 먼저 다음 3단계에서 Git과 저장 도구를 준비한 뒤, 원하는 상위 폴더에서 `git clone https://github.com/suuuhululu/patrol.git`으로 내려받고 `cd patrol`로 들어온다. clone 중 인증을 물으면 4단계의 설명대로 입력한다. 이후 저장 설정을 마치면 된다.
 
-## 대안: SSH 키 + ssh-agent
+## 3. PC가 토큰을 기억하도록 설정하기
 
-키링을 사용할 수 없는 원격 Ubuntu 세션 등에서는 SSH를 선택할 수 있다. 이 경우 저장소 주소도 SSH로 바꾼다. 암호를 없애는 대신 agent가 잠금 해제된 키를 기억하게 한다.
+**자신의 운영체제 한 가지만 선택한다.** 저장 도구는 한 번 준비하면 되고, 아래 Git 설정은 `patrol` 저장소 안에서 실행한다. `--local`은 이 프로젝트에만 적용한다는 뜻이다.
 
-### 1. 키 생성
+### Ubuntu 24.04 데스크톱
 
-기존 키를 먼저 확인한다. 아래 파일이 이미 있으면 덮어쓰지 말고 기존 키를 사용하거나 다른 이름을 정한다.
+Ubuntu의 비밀번호 보관함을 사용하는 `libsecret` 도구를 준비한다. 바탕화면에 로그인한 터미널에서 진행한다. 화면 없는 서버나 원격 터미널만 사용하는 환경은 아래 별도 설명을 참고한다.
 
-```bash
-ls -l ~/.ssh/id_ed25519_patrol*
-ssh-keygen -t ed25519 -C "your-github-email@example.com" -f ~/.ssh/id_ed25519_patrol
-```
-
-이메일 예시는 본인 값으로 바꾼다. 생성 과정에서 키 암호를 설정한다. 개인키 `id_ed25519_patrol`은 PC에 보관하고, GitHub에는 다음 공개키만 등록한다.
+먼저 필요한 프로그램을 설치한다.
 
 ```bash
-cat ~/.ssh/id_ed25519_patrol.pub
+sudo apt update
+sudo apt install git build-essential pkg-config libsecret-1-dev gnome-keyring seahorse
 ```
 
-GitHub의 Settings → SSH and GPG keys → New SSH key에서 Authentication Key로 등록한다. 이름에는 본인 PC를 구분할 수 있는 값을 사용한다. [SSH 키 생성 안내](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
+`sudo`가 묻는 비밀번호는 **Ubuntu 로그인 비밀번호**다. PAT를 입력하는 곳이 아니다. 입력해도 글자나 별표가 나타나지 않는 것은 정상이다.
 
-### 2. Ubuntu에서 agent에 등록
+다음은 Git에 포함된 저장 도구 소스를 개인 폴더로 복사해 실행 파일로 만드는 과정이다. 어느 폴더에서 실행해도 된다.
 
 ```bash
-ssh-add -l
+mkdir -p ~/.local/share/git-credential-libsecret
+cp /usr/share/doc/git/contrib/credential/libsecret/Makefile ~/.local/share/git-credential-libsecret/
+cp /usr/share/doc/git/contrib/credential/libsecret/git-credential-libsecret.c ~/.local/share/git-credential-libsecret/
+make -C ~/.local/share/git-credential-libsecret
 ```
 
-agent에 연결할 수 없다는 오류가 나오면 현재 셸에서 한 번 실행한다. 이미 agent가 있으면 새로 만들지 않는다.
+파일을 찾을 수 없거나 `make`가 오류로 끝나면 다음 설정을 진행하지 말고 오류를 확인한다. Ubuntu 패키지 구성에 따라 소스가 다를 수 있다. [Git 공식 libsecret 소스](https://github.com/git/git/tree/master/contrib/credential/libsecret)와 패키지 설치 상태를 담당자와 확인한다.
+
+다시 `patrol` 폴더의 터미널에서 실행한다.
 
 ```bash
-eval "$(ssh-agent -s)"
+git config --local --replace-all credential.https://github.com.helper ""
+git config --local --add credential.https://github.com.helper "$HOME/.local/share/git-credential-libsecret/git-credential-libsecret"
+git config --local credential.https://github.com.useHttpPath true
 ```
 
-키를 추가하고 암호를 한 번 입력한다.
+첫 줄은 이 저장소에서 이전 GitHub 인증 도구 대신 새 도구를 사용하도록 목록을 초기화한다. 기존에 저장된 비밀번호 자체를 지우는 명령은 아니다. 마지막 줄은 저장소 경로까지 구분하여 토큰을 기억하게 한다.
+
+인증할 때 보관함 잠금 해제 창이 나오면 Ubuntu 로그인 비밀번호를 입력한다. ‘암호 및 키(Passwords and Keys)’ 앱에서 로그인 보관함을 확인할 수 있다. **보관함 비밀번호를 빈 값으로 바꾸지는 않는다.**
+
+### macOS
+
+macOS에서는 기본 키체인 저장 도구를 사용한다. `patrol` 폴더 안에서 실행한다.
 
 ```bash
-ssh-add ~/.ssh/id_ed25519_patrol
+git config --local --replace-all credential.https://github.com.helper ""
+git config --local --add credential.https://github.com.helper osxkeychain
+git config --local credential.https://github.com.useHttpPath true
 ```
 
-같은 agent를 사용하는 동안 매번 암호를 입력하지 않는다. 새로 시작한 agent나 재부팅 후에는 다시 입력할 수 있다. 위 `eval`을 셸 시작 파일에 무조건 넣으면 터미널마다 agent가 생길 수 있다. 세션을 넘겨 유지하려면 데스크톱 키링 연동을 사용한다.
+키체인 접근 허용 창이 나오면 Git이 저장한 인증을 사용하도록 허용한다. 이때 macOS 로그인 비밀번호를 물을 수 있다. Ubuntu 설정 명령과 섞어서 실행하지 않는다.
 
-### 3. SSH 설정
+[Git 공식 저장 도구 설명](https://git-scm.com/doc/credential-helpers)에서 Linux의 libsecret과 macOS의 osxkeychain을 확인할 수 있다.
 
-`~/.ssh/config`의 기존 내용을 유지하면서 아래 항목을 추가한다. 이미 `Host github.com` 설정이 있으면 중복 생성하지 말고 해당 항목을 검토하여 반영한다.
+### 화면 없는 Ubuntu 서버라면
 
-```sshconfig
-Host github.com
-    HostName github.com
-    User git
-    IdentityFile ~/.ssh/id_ed25519_patrol
-    IdentitiesOnly yes
-    AddKeysToAgent yes
-```
-
-여러 GitHub 계정을 사용하는 PC는 Host 별칭을 분리해야 하므로 이 단일 계정 예시를 그대로 적용하지 않는다.
-
-macOS에서는 위 항목에 `UseKeychain yes`를 추가하고 Apple 기본 명령으로 등록한다. Ubuntu 설정에는 `UseKeychain`을 넣지 않는다.
+데스크톱 비밀번호 보관함을 사용할 수 없는 환경에서는 **메모리에만 잠시 저장**하는 방법을 사용할 수 있다. 영구 저장이 아니며, 재부팅하거나 8시간이 지나면 다시 PAT를 입력해야 한다.
 
 ```bash
-/usr/bin/ssh-add --apple-use-keychain ~/.ssh/id_ed25519_patrol
+git config --local --replace-all credential.https://github.com.helper ""
+git config --local --add credential.https://github.com.helper 'cache --timeout=28800'
+git config --local credential.https://github.com.useHttpPath true
 ```
 
-### 4. 접속 확인과 원격 주소 변경
+데스크톱 설정이 정상 동작하면 이 명령은 실행하지 않는다. [Git 자격 증명 저장 설명](https://git-scm.com/book/en/v2/Git-Tools-Credential-Storage)
+
+## 4. PAT를 딱 한 번 입력하기
+
+`patrol` 폴더에서 아래 명령을 실행한다. 파일을 수정하거나 업로드하지 않고 GitHub에 접근되는지만 확인한다.
 
 ```bash
-ssh -T git@github.com
-```
-
-최초 연결 시 호스트 지문을 [GitHub 공식 SSH 지문](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints)과 비교한 뒤 신뢰 여부를 결정한다. 본인 계정 이름과 인증 성공 메시지를 확인한다. GitHub는 셸 접속을 제공하지 않아 인증에 성공해도 이 명령의 종료 코드는 1일 수 있다.
-
-`patrol` 저장소 안에서 실행한다.
-
-```bash
-git remote set-url origin git@github.com:suuuhululu/patrol.git
 git ls-remote origin HEAD
 ```
 
-## 자주 발생하는 문제
+다음과 같은 질문이 나오면 입력한다.
 
-| 현상 | 확인 방법 |
+```text
+Username for 'https://github.com': 본인의 GitHub 로그인 아이디
+Password for 'https://...': 1단계에서 복사한 PAT
+```
+
+위 상자는 명령어가 아니라 화면 예시다. `Username`에는 표시 이름이나 이메일 대신 로그인 아이디를 입력한다. 예를 들어 통합 관리자는 `jonnykoh2008-ship-it`이다. **Password에는 GitHub 계정 비밀번호가 아닌 PAT를 붙여 넣는다.**
+
+Ubuntu 터미널에서는 `Ctrl + Shift + V`, macOS에서는 `Command + V`로 붙여 넣는다. 글자가 보이지 않아도 한 번 붙여 넣고 Enter를 누른다. 토큰을 여러 번 중복으로 붙여 넣지 않는다.
+
+성공하면 긴 영문·숫자와 `HEAD`가 표시된다. 이 프로젝트에는 이미 커밋이 있으므로 결과가 나온다. 인증 질문이 없고 성공했다면 이미 유효한 인증이 저장되어 있을 수 있다.
+
+## 5. 정말 기억하는지 확인하기
+
+새 터미널을 열고 `patrol` 폴더로 이동한 다음 같은 명령을 다시 실행한다.
+
+```bash
+git ls-remote origin HEAD
+```
+
+추가 입력 없이 결과가 나오면 설정이 완료된 것이다. 이후 `git pull`과 `git push`도 저장된 PAT를 사용한다. 단, 키링이 잠겼거나 PAT가 만료·취소되면 다시 인증해야 한다. 브랜치 보호나 리뷰 승인은 이 설정으로 생략되지 않는다.
+
+## 6. 막혔을 때 확인할 것
+
+| 화면 또는 상황 | 뜻과 해결 방법 |
 | --- | --- |
-| HTTPS에서 계속 인증을 요구함 | `gh auth status`와 `gh auth setup-git --hostname github.com` 확인. 키링 잠금 여부 확인. |
-| 잘못된 GitHub 계정으로 연결됨 | CLI 또는 SSH 인증 결과의 계정 확인. 각 계정의 저장소 접근 권한 확인. |
-| SSH에서 키 암호를 계속 요구함 | `ssh-add -l`과 현재 agent 연결 상태 확인. |
-| 저장소를 찾지 못하거나 접근이 거부됨 | Collaborator 초대 수락 여부, 본인 계정과 원격 주소 확인. |
-| workflow 권한 부족으로 푸시 거부됨 | 인증 저장과 권한은 별개다. 워크플로 변경에 필요한 권한만 별도로 검토한다. |
+| `Authentication failed` | PAT가 틀렸거나 만료됐을 수 있다. GitHub 계정 비밀번호를 넣지 않았는지 확인한다. |
+| `Repository not found` 또는 `403` | 주소, 협업 초대 수락, 토큰 권한, 로그인 계정을 확인한다. |
+| 계속 Username·Password를 물음 | 저장 도구 설치 성공 여부와 키링 잠금 상태를 확인한다. |
+| `workflow` 권한이 없다고 나옴 | `.github/workflows/` 수정 권한이 부족하다. 해당 작업 담당자만 권한을 추가한다. |
+| `could not read Username` | 입력을 받을 수 없는 실행 환경이다. 자동화 창 대신 직접 터미널에서 인증한다. |
+| `sudo`가 비밀번호를 물음 | GitHub 문제가 아니다. OS 로그인 비밀번호를 입력한다. |
+| 로그인을 했는데 커밋 작성자 설정 오류가 남 | 로그인과 작성자 표시는 별개다. 본인의 `user.name`·`user.email`을 설정한다. |
 
-`git config user.name`과 `user.email`은 커밋 작성자 표시이며 로그인 설정이 아니다. 토큰을 원격 URL에 넣거나 `credential.helper store`로 평문 저장하지 않는다. 토큰·개인키·키 암호는 저장소나 채팅에 기록하지 않는다.
+PAT를 잘못 저장했거나 새 토큰으로 교체할 때는 먼저 새 PAT를 준비한다. 아래 코드는 **이 프로젝트의 GitHub 인증 저장 항목을 제거**하여 다음 접속에서 다시 입력하게 한다.
 
-## 공식 참고 자료
+```bash
+printf 'protocol=https\nhost=github.com\npath=suuuhululu/patrol.git\n\n' | git credential reject
+git ls-remote origin HEAD
+```
 
-- [GitHub 인증 캐싱](https://docs.github.com/en/get-started/git-basics/caching-your-github-credentials-in-git)
-- [GitHub CLI의 Git 연결](https://cli.github.com/manual/gh_auth_setup-git)
-- [SSH 연결 테스트](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/testing-your-ssh-connection)
+인증은 성공하지만 **쓰기 권한**이 있는지도 확인해야 한다. 이를 시험하려고 `main`에 임의 커밋을 만들지 말고, 실제 작업 브랜치의 정상 푸시 과정에서 확인한다.
+
+## 7. 꼭 기억할 세 가지
+
+1. PAT는 비밀번호처럼 다룬다. 채팅, README, 소스 코드, 스크린샷에 넣지 않는다.
+2. `https://토큰@github.com/...`처럼 주소에 넣거나 `credential.helper store`로 일반 텍스트 파일에 저장하지 않는다.
+3. 토큰을 다른 사람에게 보여 줬다면 GitHub의 토큰 설정에서 해당 토큰을 삭제하고 새로 만든다.
 
 ## 관련 문서
 
+- [메인 문서의 Git 협업 가이드](../README.md#git-협업-가이드)
 - [버전 관리](version-control.md)
 - [PR 가이드](pull-request-guide.md)
 - [브랜치 네이밍](branch-naming.md)
