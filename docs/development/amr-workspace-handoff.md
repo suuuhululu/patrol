@@ -1,6 +1,6 @@
 # AMR 개발 워크스페이스 인수인계
 
-작성일: 2026-09-07 · 최종 갱신: 2026-09-07 21:50 KST · 작업 브랜치: `feat/amr-safety-status`
+작성일: 2026-09-07 · 최종 갱신: 2026-09-08 08:35 KST · 작업 브랜치: `feat/amr-safety-status`
 
 ## 1. 작업 범위와 현재 상태
 
@@ -17,15 +17,16 @@
 | 7 | `robot_status_state.py`: 독립 상태 축·현재/마지막 유효 pose snapshot | 구현·단위시험 완료, 사용자 검토 대기 |
 | 8 | `status_reporter.py` ROS 노드 (확정 입력 연결 범위) | 구현·단위시험·사용자 ROS 토픽 시험 통과 |
 | 9 | `patrol_amr` 패키지 설정·실행 등록·통합 | 구현·회귀시험·`ros2 launch` 통합 실행 확인 완료, 사용자 검토 대기 |
-| 10 | 단일 robot AMR 로컬 ROS 통합 스모크 시험(구현된 두 경로만) | 자동시험 PASS, 전체 시스템 IT는 미실행 |
+| 10 | 단일 robot AMR 로컬 ROS 통합 스모크 시험(구현된 두 경로만) | 자동시험 PASS·사용자 확인 완료(2026-09-08). 전체 시스템 IT는 미실행 |
 
 최종 ROS 노드는 `battery_monitor`, `local_safety_supervisor`, `status_reporter` 세 개다. guard와 state 파일은 해당 노드가 사용하는 일반 Python 모듈이다. 한 단계씩 구현하고 사용자 시험 통과 확인 전에는 다음 단계로 넘어가지 않는다.
 
-### 최신 재개 체크포인트 — 2026-09-07 21:35 KST
+### 최신 재개 체크포인트 — 2026-09-08 08:35 KST
 
-- 현재 로컬 HEAD는 `0efa7fa`(`feat(amr): sync interfaces to latest contract, add status_reporter and package`)이고 브랜치는 `feat/amr-safety-status`다. `origin/feat/amr-safety-status`보다 29개 커밋 앞서고 뒤처진 커밋은 없다. 작업 트리에는 이 문서의 갱신만 미커밋 상태로 남아 있다.
-- 이 커밋에 1~9단계 코드·메시지·시험·패키지 설정이 모두 들어갔다. 미추적 파일은 남아 있지 않으므로 다른 컴퓨터에서 clone/pull로 현재 상태를 재현할 수 있다. 다만 **아직 push하지 않았다.**
-- push는 별도 승인 사항이므로 실행하지 않았다. 다른 컴퓨터로 옮기기 전에 push해야 한다.
+- 현재 로컬 HEAD는 `9eb151f`(`test(amr): add stage 10 local integration smoke`)이고 브랜치는 `feat/amr-safety-status`다. `origin/feat/amr-safety-status`와 앞뒤 차이가 없다(`0 0`). 1~10단계가 모두 push되어 있으므로 다른 컴퓨터에서 clone/pull로 현재 상태를 재현할 수 있다.
+- 2026-09-08 08:29 KST 재검증: `colcon build --packages-select patrol_interfaces patrol_amr` `2 packages finished`, 단위시험 `Ran 89 tests`/`OK`, 10단계 스모크 `STAGE10_PASS`. `motion_allowed=false,true,false,true,false`, `battery_state=0,2,0`, `status_sequence=1..19`. 10단계는 사용자 확인까지 통과 처리했다.
+- 다음 작업은 11단계 코드가 아니라 **TBD-IF-009 계약 결정**이다. 근거와 제안은 [요청서](../change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md)에 있고 아래 10.2절에 요약했다.
+- 아래 이력 항목의 `0efa7fa` 언급은 당시 기록이며 현재 HEAD가 아니다.
 - 2026-09-07 20:32 KST 재검증에서 `patrol_interfaces` 빌드는 `1 package finished`, 전체 단위시험은 `Ran 89 tests`와 `OK`, `git diff --check`는 출력 없이 통과했다.
 - 6단계 사용자 ROS 토픽 시험 중 drive_token의 `DEADLINE` 불일치와 E-stop의 `DURABILITY` 불일치를 확인했다. drive_token 구독측 deadline 문제는 `13f0412`에서 수정했고, E-stop은 계약에 맞는 QoS 옵션을 시험 명령에 지정해야 한다.
 - 위 수정 이후 17:19 KST 사용자 재시험에서 노드의 최초 `motion_allowed=false`, echo 수신, QoS를 맞춘 E-stop 해제 메시지의 구독자 매칭과 1회 발행까지 확인했다. 이 시점의 `false` 유지는 DriveToken을 아직 입력하지 않았으므로 정상이다.
@@ -63,9 +64,9 @@ git diff --stat
 
 첫 명령은 잘못된 공백이 없으면 아무것도 출력하지 않는다. 두 번째는 추적 중인 수정 파일의 변경량을 요약한다. `git diff --stat`에는 새 미추적 파일이 나타나지 않으므로 반드시 앞 단계의 `git status`도 함께 본다.
 
-3. 1~9단계 코드는 `0efa7fa`에 모두 커밋돼 있으나 아직 push하지 않았다. 별도 승인에 따라 push한다. push 전에는 새 컴퓨터에서 같은 상태를 재현할 수 없다. 이후 커밋을 더 쌓으면 이 절의 `0efa7fa`를 실제 최신 해시로 갱신한다.
+3. 1~10단계 코드는 `9eb151f`까지 커밋·push가 끝났다. 새 커밋을 더 쌓으면 push한 뒤 이 절의 해시를 갱신한다.
 
-4. push 완료 후에만 다음 3절의 clone·브랜치 전환 순서를 새 컴퓨터에서 실행한다.
+4. 새 컴퓨터에서는 다음 3절의 clone·브랜치 전환 순서를 실행한다. 미push 커밋이 남아 있으면 그것부터 push한다.
 
 ## 2. 새 컴퓨터 준비
 
@@ -755,11 +756,11 @@ TBD-AMR-003은 사용자의 권장안 승인으로 AMR 코드에 반영했으며
 
 ## 9. 다음 작업 재개 순서
 
-1. 현재 작업은 `0efa7fa`로 커밋돼 있으나 아직 push하지 않았다. 다른 컴퓨터로 옮기려면 먼저 push한다.
-2. 새 컴퓨터에서 2~4절 순서로 브랜치를 가져온 뒤 `colcon build --packages-select patrol_interfaces patrol_amr`로 두 패키지를 빌드한다.
+1. 현재 작업은 `9eb151f`까지 커밋·push가 끝났다. 새 컴퓨터에서는 2~4절 순서로 브랜치를 가져온다.
+2. `colcon build --packages-select patrol_interfaces patrol_amr`로 두 패키지를 빌드한다.
 3. 전체 회귀시험을 실행해 `Ran 89 tests`, `OK`를 확인한다.
-4. 6.7절의 9단계 확인 순서를 수행한다. entry point 3개 조회, 필수 인자 누락 시 실패, `ros2 launch` 통합 실행을 차례로 본다.
-5. 10단계 로컬 스모크 결과와 아래 재정리된 업무 범위를 확인한다.
+4. 10단계 스모크를 실행해 `STAGE10_PASS`를 확인한다(10.1절의 명령 한 줄). 9단계 확인이 필요하면 6.7절 순서를 따른다.
+5. 아래 10.2절의 재정리된 업무 범위와 차단 요인 구분을 확인한다. **다음 작업은 코드가 아니라 TBD 결정이다.**
 6. AMR Detection은 8절의 TBD가 해소되고 별도 구현 승인을 받은 뒤 다룬다.
 
 ## 10. 재정리된 조정묵 작업 범위와 현재 상태
@@ -802,7 +803,7 @@ TBD-AMR-003은 사용자의 권장안 승인으로 AMR 코드에 반영했으며
 | T-05 | Detection 계약·구현 부재로 BLOCKED |
 | I-01·02·03 | 전체 종단 통합은 선행 구현·팀 합의 전 NOT_RUN/BLOCKED |
 
-### 10단계 로컬 ROS 통합 스모크 결과
+### 10.1 10단계 로컬 ROS 통합 스모크 결과
 
 검증 범위는 다음 두 경로뿐이다.
 
@@ -831,3 +832,31 @@ PYTHONDONTWRITEBYTECODE=1 PATROL_STAGE10_DOMAIN_ID=127 \
 2026-09-07 21:49 KST 결과: 두 패키지 빌드 성공, 단위시험 `Ran 89 tests`/`OK`, 실제 DDS 스모크 `STAGE10_PASS`. `motion_allowed`는 `false → true → false → true → false`, `battery_state`는 `0 → 2 → 0`, RobotStatus는 20건을 받았고 `status_sequence`는 `3 → 22`로 증가했다.
 
 이는 IT-03·04·11·13의 현재 구현 부분만 검증한 것이다. `motion_allowed`는 아직 RobotStatus의 safety/token 필드에 연결되지 않았고 최종 cmd_vel도 발행하지 않는다. heartbeat·mission·PatrolReport·pose/odom·도킹·교대·Detection·두 로봇·다중 PC 시험은 PASS로 선언하지 않는다.
+
+### 10.2 다음 작업의 차단 요인 구분 — 2026-09-08
+
+2026-09-08 사용자가 전달한 재정리 업무 분장의 조정묵 항목 7개를 **실제로 무엇이 막고 있는지**로 다시 분류했다. "TBD를 정해야 다음 작업이 된다"는 판단은 절반만 맞다. 세 종류가 섞여 있다.
+
+| 우선 | 항목 | 실제 차단 요인 | 분류 |
+|---|---|---|---|
+| 1 | `final_turtlebot_pkg` → `patrol_amr` 이관 | TBD 아님. 이 브랜치는 이미 `patrol_amr`로 완료. 박성현 코드를 어디에 넣을지 **사람 합의**만 남음 | 합의 |
+| 2 | I-02 패키지 등록 | 없음. 9단계에서 `package.xml`·`setup.py`·entry point 3개·launch 등록 완료 | 완료 |
+| 3 | cmd_vel 경로 | **TBD-IF-009 OPEN** | TBD |
+| 4 | AMR-18·19 `recovery_supervisor.py` | **TBD-AMR-005 OPEN**(STOP/CANCEL 차이·재개 지점) + `nav2_client.py` 미병합 | TBD + 병합 |
+| 5 | AMR-07 PatrolReport 발행 | **TBD-IF-003 잔여**(waypoint·visit·scan 타입, safety enum 수치) + 박성현 체크포인트 입력 | TBD + 병합 |
+| 6 | AMR-11 물리 E-stop latch | **TBD-IF-004 잔여**(수동 reset 요청 경로, reason enum) | TBD |
+| 7 | I-03·T-01·T-03·T-04 | 위 항목들의 결과 | 후속 |
+
+따라서 **2번은 이미 끝났고, 1번은 TBD가 아니며, 3~6번은 전부 TBD 결정이 선행되어야 한다.** 코드를 더 쓸 수 있는 지점이 사실상 없다.
+
+병합 대기 항목의 근거다. 2026-09-08 `origin/main`·`origin/control`·`origin/feature/sysmon`·`origin/feature/vision` 네 브랜치를 모두 조회한 결과 `src/patrol_amr/` 아래에 `.gitkeep`밖에 없다. `nav2_client.py`·`command_store.py`는 **어느 원격 브랜치에도 없다.** 구현 완료 보고는 아직 이 저장소에 반영되지 않았다.
+
+우선순위 3(TBD-IF-009)을 먼저 처리한 이유는 다음과 같다.
+
+- 조정묵 항목 중 다른 사람의 코드 병합 없이 **혼자 제안까지 진행할 수 있는 유일한 TBD**다.
+- 박성현 우선순위 7 "launch 통합"과 같은 지점을 가리킨다. 여기가 정해지지 않으면 양쪽 launch가 서로를 기다린다.
+- 풀리면 `MotionGuard.evaluate()`가 실제 속도를 게이팅하게 되어 IT-16이 열리고, IT-04·IT-11의 "실제 정지" 확인도 가능해진다.
+
+제안 내용은 [요청서](../change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md)에 있다. 요약하면 Nav2 Jazzy 표준 체인(`cmd_vel_nav` → `cmd_vel_smoothed` → `cmd_vel`)의 **끝단에만** `local_safety_supervisor`를 끼워 넣는 안이다. 박성현 launch의 변경은 `collision_monitor`의 `cmd_vel_out_topic`을 `cmd_vel` → `cmd_vel_safe`로 바꾸는 한 줄이며, 구동부가 구독하는 `cmd_vel` 이름은 그대로 유지되고 발행자만 바뀐다. 관제 회신이 필요한 질의 5개를 요청서 하단에 적었다.
+
+미정 값을 새로 만들지 않는다는 규칙을 유지했다. 후보 신선도 timeout은 값을 확정하지 않고 Q-17 신설 요청으로 제시했으며, Nav2·yaw 후보 중재(TBD-AMR-001)와 속도 상한·감속(TBD-AMR-006)은 이 요청서 범위에서 제외했다.
