@@ -1,6 +1,6 @@
 # AMR 개발 워크스페이스 인수인계
 
-작성일: 2026-09-07 · 최종 갱신: 2026-09-07 20:32 KST · 작업 브랜치: `feat/amr-safety-status`
+작성일: 2026-09-07 · 최종 갱신: 2026-09-07 21:50 KST · 작업 브랜치: `feat/amr-safety-status`
 
 ## 1. 작업 범위와 현재 상태
 
@@ -15,17 +15,17 @@
 | 5 | `motion_guard.py`: token·E-stop 결합 최종 출력 게이트 (축소 범위) | 구현·단위시험 완료, 사용자 검토 대기 |
 | 6 | `local_safety_supervisor.py` ROS 노드 (축소 범위) | 구현·단위시험·사용자 ROS 토픽 시험 통과 |
 | 7 | `robot_status_state.py`: 독립 상태 축·현재/마지막 유효 pose snapshot | 구현·단위시험 완료, 사용자 검토 대기 |
-| 8 | `status_reporter.py` ROS 노드 (확정 입력 연결 범위) | 구현·단위시험 완료, 사용자 ROS 토픽 시험 대기 |
-| 9 | `patrol_amr` 패키지 설정·실행 등록·통합 | 미착수 |
-| 10 | 통합시험 | 미착수 |
+| 8 | `status_reporter.py` ROS 노드 (확정 입력 연결 범위) | 구현·단위시험·사용자 ROS 토픽 시험 통과 |
+| 9 | `patrol_amr` 패키지 설정·실행 등록·통합 | 구현·회귀시험·`ros2 launch` 통합 실행 확인 완료, 사용자 검토 대기 |
+| 10 | 단일 robot AMR 로컬 ROS 통합 스모크 시험(구현된 두 경로만) | 자동시험 PASS, 전체 시스템 IT는 미실행 |
 
 최종 ROS 노드는 `battery_monitor`, `local_safety_supervisor`, `status_reporter` 세 개다. guard와 state 파일은 해당 노드가 사용하는 일반 Python 모듈이다. 한 단계씩 구현하고 사용자 시험 통과 확인 전에는 다음 단계로 넘어가지 않는다.
 
-### 최신 재개 체크포인트 — 2026-09-07 20:32 KST
+### 최신 재개 체크포인트 — 2026-09-07 21:35 KST
 
-- 현재 로컬 HEAD는 `6817761`(`feat(amr): add robot_status_state model for RobotStatus`)이고 브랜치는 `feat/amr-safety-status`다. `origin/feat/amr-safety-status`보다 20개 커밋 앞서고 뒤처진 커밋은 없다.
-- **중요:** 최신 구현은 아직 하나의 전송 가능한 커밋으로 묶이지 않았다. 추적 파일 17개가 수정 상태이고 `status_reporter.py`, `CommandCheck.msg`, `test_status_reporter.py` 3개는 추적되지 않은 새 파일이다. 따라서 지금 다른 컴퓨터에서 clone/pull만 하면 현재 8단계 상태를 받을 수 없다.
-- 이 문서 갱신은 commit·push 승인을 뜻하지 않으므로 commit과 push는 실행하지 않았다. 다른 컴퓨터로 옮기기 전에 이전 컴퓨터에서 변경 파일 범위를 검토하고 명시적으로 commit·push해야 한다. 특히 위 새 파일 3개를 누락하면 8단계 코드·메시지·시험이 사라진다.
+- 현재 로컬 HEAD는 `0efa7fa`(`feat(amr): sync interfaces to latest contract, add status_reporter and package`)이고 브랜치는 `feat/amr-safety-status`다. `origin/feat/amr-safety-status`보다 29개 커밋 앞서고 뒤처진 커밋은 없다. 작업 트리에는 이 문서의 갱신만 미커밋 상태로 남아 있다.
+- 이 커밋에 1~9단계 코드·메시지·시험·패키지 설정이 모두 들어갔다. 미추적 파일은 남아 있지 않으므로 다른 컴퓨터에서 clone/pull로 현재 상태를 재현할 수 있다. 다만 **아직 push하지 않았다.**
+- push는 별도 승인 사항이므로 실행하지 않았다. 다른 컴퓨터로 옮기기 전에 push해야 한다.
 - 2026-09-07 20:32 KST 재검증에서 `patrol_interfaces` 빌드는 `1 package finished`, 전체 단위시험은 `Ran 89 tests`와 `OK`, `git diff --check`는 출력 없이 통과했다.
 - 6단계 사용자 ROS 토픽 시험 중 drive_token의 `DEADLINE` 불일치와 E-stop의 `DURABILITY` 불일치를 확인했다. drive_token 구독측 deadline 문제는 `13f0412`에서 수정했고, E-stop은 계약에 맞는 QoS 옵션을 시험 명령에 지정해야 한다.
 - 위 수정 이후 17:19 KST 사용자 재시험에서 노드의 최초 `motion_allowed=false`, echo 수신, QoS를 맞춘 E-stop 해제 메시지의 구독자 매칭과 1회 발행까지 확인했다. 이 시점의 `false` 유지는 DriveToken을 아직 입력하지 않았으므로 정상이다.
@@ -33,7 +33,11 @@
 - 사용자 요청으로 1~6단계의 공용 이름을 최신 `interfaces.md`에 맞췄다. CommandCheck 추가, MissionCommand의 mission ID, DriveToken의 control session/token ID/message sequence, EStop의 target/reason/latched, RobotStatus의 `_state` 및 구조화 상태 필드, PatrolReport의 ID·시간 필드를 반영했다. 공용 패키지 빌드와 메시지 6종 조회를 통과했다.
 - `drive_token_guard`는 같은 control session 단위로 message sequence를 비교하도록, `estop_guard`는 자기 `target_robot_id`만 반영하도록 수정했다. 미정인 E-stop 전체 대상 문자열과 reason/safety enum 숫자는 만들지 않았다.
 - 8단계 `status_reporter.py`를 추가했다. battery enum·원본 SOC는 연결했고 Q-02 2 Hz/변경 최대 10 Hz와 status sequence를 구현했다. 위치·odometry·mission·accepted token의 내부 입력 계약은 없어 안전한 미연결 값으로 남겼다. 8단계 단위시험 9개, 전체 89개가 통과했다.
-- 8단계의 자동 단위시험은 통과했지만 사용자 ROS 토픽 시험은 아직 수행하지 않았다. 현재 정확한 재개 지점은 아래 6.6절의 **8단계 사용자 ROS 토픽 시험**이다.
+- 사용자가 6.6절의 8단계 ROS 토픽 시험을 수행했다고 알려 와 8단계를 완료 처리했다. 이 문서를 갱신한 세션은 사용자 터미널의 출력 값을 직접 보지 않았으므로, 개별 필드 값은 사용자 확인에 근거한다.
+- 위 사용자 시험에 앞서 같은 절차를 격리 도메인에서 헤드리스로 사전 실행했다. `battery_state`의 `0 → 2 → 0`, `battery_soc: 0.15`, `status_sequence`의 연속 증가, QoS 경고 없음을 확인했다. 6단계에서 겪은 DEADLINE·DURABILITY 불일치가 8단계에는 없다는 것을 미리 확인하기 위한 것이다.
+- 9단계를 구현했다. `patrol_amr`을 ament_python 패키지로 만들고 entry point 3개와 launch 1개를 등록했으며, `local_safety_supervisor`·`status_reporter`의 sibling import를 `from patrol_amr import ...` 패키지 import로 전환했다. 상세는 아래 6.7절에 있다.
+- `0efa7fa` 커밋은 9단계 작업과 병행해 열려 있던 다른 작업 세션에서 만들어졌다. 내용을 대조한 결과 1~9단계 코드·메시지·시험·패키지 설정이 모두 온전히 들어갔고 누락이나 덮어쓰기는 없었다. 같은 저장소에 두 세션을 동시에 열면 이런 교차 커밋이 생기므로 한 번에 한 세션만 쓰는 편이 안전하다.
+- 10단계 로컬 스모크까지 자동 검증했다. 다음 개발 재개 지점은 10절의 재정리된 우선순위와 상태표를 따른다.
 - 이전에 기록했던 작업 루트 아래 중첩 `patrol/` 디렉터리는 현재 존재하지 않는다. 작업 루트는 `/home/mu-01/patrol` 하나다.
 
 ### 다른 컴퓨터로 옮기기 전 확인 순서
@@ -48,7 +52,7 @@ git log -1 --oneline
 git status --short --branch
 ```
 
-첫 명령은 실제 저장소 루트, 두 번째는 브랜치, 세 번째는 마지막 커밋, 네 번째는 원격 차이와 미커밋·미추적 파일을 보여 준다. 현재 예상값은 루트 `/home/mu-01/patrol`, 브랜치 `feat/amr-safety-status`, HEAD `6817761`, 원격보다 `ahead 20` 및 위 미커밋 변경이다.
+첫 명령은 실제 저장소 루트, 두 번째는 브랜치, 세 번째는 마지막 커밋, 네 번째는 원격 차이와 미커밋·미추적 파일을 보여 준다. 현재 예상값은 루트 `/home/mu-01/patrol`, 브랜치 `feat/amr-safety-status`, HEAD `0efa7fa`, 원격보다 `ahead 29`이며, 미커밋 변경은 이 문서뿐이다.
 
 2. 변경 내용에 공백 오류가 없는지 확인한다.
 
@@ -59,7 +63,7 @@ git diff --stat
 
 첫 명령은 잘못된 공백이 없으면 아무것도 출력하지 않는다. 두 번째는 추적 중인 수정 파일의 변경량을 요약한다. `git diff --stat`에는 새 미추적 파일이 나타나지 않으므로 반드시 앞 단계의 `git status`도 함께 본다.
 
-3. 변경 파일 범위를 검토한 뒤 별도 승인에 따라 commit·push한다. 이 단계가 끝나기 전에는 새 컴퓨터에서 같은 상태를 재현할 수 없다. 전송 커밋을 만든 뒤에는 이 절의 `6817761`을 실제 전송 커밋 해시로 갱신한다.
+3. 1~9단계 코드는 `0efa7fa`에 모두 커밋돼 있으나 아직 push하지 않았다. 별도 승인에 따라 push한다. push 전에는 새 컴퓨터에서 같은 상태를 재현할 수 없다. 이후 커밋을 더 쌓으면 이 절의 `0efa7fa`를 실제 최신 해시로 갱신한다.
 
 4. push 완료 후에만 다음 3절의 clone·브랜치 전환 순서를 새 컴퓨터에서 실행한다.
 
@@ -278,7 +282,7 @@ git log -1 --oneline
 
 - `cd`는 모든 상대 경로의 기준을 저장소 루트로 맞춘다.
 - `git rev-parse`는 중첩 clone이 아닌 바깥 `~/patrol`을 보고 있는지 확인한다.
-- 브랜치는 `feat/amr-safety-status`여야 한다. 현재 로컬 HEAD는 `6817761`이지만 최신 인터페이스 변경은 아직 미커밋 상태라 HEAD 해시만으로 현재 작업 상태를 식별할 수 없다. 다른 컴퓨터에서는 1절의 전송 절차가 완료되고 실제 전송 커밋을 확인한 뒤 시험한다. `main`이 나오면 6단계 시험 대상이 아니다.
+- 브랜치는 `feat/amr-safety-status`여야 한다. 현재 로컬 HEAD는 `0efa7fa`이며 1~9단계 코드가 여기에 모두 들어가 있다. 다른 컴퓨터에서는 1절의 push가 끝난 뒤 이 해시를 확인하고 시험한다. `main`이 나오면 6단계 시험 대상이 아니다.
 
 다음으로 ROS 기본 환경을 읽고 공용 메시지 패키지를 빌드한다.
 
@@ -597,11 +601,127 @@ pose·실제 속도·motion_stopped·token·mission 필드는 이번 시험의 �
 
 배터리 원본 입력이 끊겼을 때 `battery_monitor`가 내보내는 `battery_state`는 UNKNOWN(0)으로 돌아가지만, 현재 `status_reporter`에는 원본 SOC의 별도 stale timeout이 없다. 따라서 마지막 `battery_soc: 0.15`와 timestamp가 남을 수 있다. 이번 8단계 통과 기준은 `battery_state`의 `0 → 2 → 0` 전이이며, SOC stale 처리 정책은 계약 후 확장한다.
 
+## 6.7 9단계 구현 내용과 확인 순서
+
+`src/patrol_amr`를 ament_python 패키지로 만들어 세 노드를 `ros2 run`·`ros2 launch`로 실행할 수 있게 했다. 표준은 저장소에 이미 있는 `patrol_vision`을 따랐다.
+
+추가한 파일은 다음과 같다.
+
+| 파일 | 역할 |
+|---|---|
+| `package.xml` | 패키지 이름·의존성. `rclpy`, `std_msgs`, `sensor_msgs`, `builtin_interfaces`, `patrol_interfaces`, `launch`, `launch_ros`를 exec_depend로 선언한다 |
+| `setup.py` | entry point 3개와 launch 파일 설치 |
+| `setup.cfg` | 실행 파일을 `lib/patrol_amr`에 설치 |
+| `resource/patrol_amr` | ament index 등록용 빈 표식 |
+| `patrol_amr/__init__.py` | 디렉터리를 Python 패키지로 만든다 |
+| `launch/amr_safety_status.launch.py` | 세 노드를 한 번에 실행 |
+
+### import 방식 전환
+
+`local_safety_supervisor.py`와 `status_reporter.py`는 `import robot_status_state as rss` 같은 평면 import를 썼다. 이는 파일을 직접 실행할 때 Python이 그 파일의 디렉터리를 `sys.path`에 넣어 주는 것에 의존한 방식이라, entry point로 설치하면 `ModuleNotFoundError`가 난다. 9단계에서 `from patrol_amr import ...` 형태로 바꿨다.
+
+이에 따라 `tests/test_local_safety_supervisor.py`와 `tests/test_status_reporter.py`의 `sys.path` 대상도 `src/patrol_amr/patrol_amr`에서 패키지 루트 `src/patrol_amr`로 옮겼다. 나머지 시험 5개는 `importlib`로 파일 경로를 직접 읽고 대상 모듈이 서로를 import하지 않아 영향이 없다.
+
+**대신 Python 파일 직접 실행은 더 이상 동작하지 않는다.** 2·6·8단계 시험 명령을 모두 `ros2 run` 기준으로 갱신했다.
+
+### launch 파일의 필수 인자
+
+`robot_id`, `source_session_id`, `safety_state` 세 인자에 기본값을 두지 않았다. `safety_state`의 enum 숫자는 TBD-IF-003으로 미정이라 임의의 기본값을 넣으면 계약을 지어내는 것이 되고, `source_session_id`는 실행마다 달라져야 하며, `robot_id`는 로봇마다 다르기 때문이다. 인자를 빼고 실행하면 launch가 어느 인자가 빠졌는지 알리고 종료한다.
+
+노드의 상대 토픽은 2·6·8단계에서 검증한 루트 namespace 그대로 두었다. 한 ROS 도메인에서 robot1과 robot6을 동시에 띄우려면 namespace 또는 토픽 계약이 필요하나 아직 합의되지 않았으므로 여기서 정하지 않았다.
+
+### 9단계 확인 순서
+
+시행 순서는 **빌드 → entry point 조회 → 필수 인자 확인 → launch 통합 실행 → 배터리 입력**이다.
+
+#### 0. 빌드
+
+```bash
+cd ~/patrol
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-select patrol_interfaces patrol_amr
+source install/local_setup.bash
+```
+
+예상 결과는 `2 packages finished`다.
+
+#### 1. entry point 조회
+
+```bash
+ros2 pkg executables patrol_amr
+```
+
+`battery_monitor`, `local_safety_supervisor`, `status_reporter` 세 줄이 나와야 한다.
+
+#### 2. 필수 인자 누락 확인
+
+```bash
+ros2 launch patrol_amr amr_safety_status.launch.py
+```
+
+`missing required argument 'robot_id'`로 끝나야 한다. 기본값을 몰래 채우지 않는다는 증거다.
+
+#### 3. 터미널 1 — launch 통합 실행
+
+```bash
+cd ~/patrol
+source /opt/ros/jazzy/setup.bash
+source install/local_setup.bash
+ros2 launch patrol_amr amr_safety_status.launch.py \
+  robot_id:=robot1 \
+  source_session_id:=robot1-20260907T213000 \
+  safety_state:=0
+```
+
+세 노드의 `process started`와 `status reporter ready: robot_id=robot1`이 보여야 한다. `ModuleNotFoundError`가 나오면 import 전환이나 빌드가 반영되지 않은 것이다.
+
+#### 4. 터미널 2 — RobotStatus 관찰
+
+터미널 1이 뜬 뒤 실행한다.
+
+```bash
+cd ~/patrol
+source /opt/ros/jazzy/setup.bash
+source install/local_setup.bash
+ros2 topic echo --no-daemon \
+  --qos-reliability reliable \
+  --qos-durability volatile \
+  /robot1/robot_status patrol_interfaces/msg/RobotStatus
+```
+
+`source_session_id`에 launch에서 넘긴 값이 그대로 보여야 한다.
+
+#### 5. 터미널 3 — LOW 배터리 입력
+
+```bash
+cd ~/patrol
+source /opt/ros/jazzy/setup.bash
+source install/local_setup.bash
+ros2 topic pub -r 10 --times 35 \
+  /battery_state sensor_msgs/msg/BatteryState \
+  "{percentage: 0.15, power_supply_status: 2, present: true}"
+```
+
+#### 6. 통과 기준
+
+8단계와 같은 동작이 패키지 실행 형태에서도 재현되는지 본다.
+
+- `ros2 pkg executables patrol_amr`에 세 노드가 나옴
+- 필수 인자 누락 시 launch가 인자 이름을 알리고 종료함
+- `ros2 launch`로 세 노드가 함께 뜨고 `ModuleNotFoundError`가 없음
+- `/robot1/robot_status`의 `source_session_id`가 launch 인자와 일치함
+- `battery_state`가 `0 → 2 → 0`으로 전이하고 `status_sequence`가 계속 증가함
+
+2026-09-07 21:30 KST 자동 확인에서 위 다섯 항목이 모두 재현됐다. `battery_state`는 0에서 2를 거쳐 0으로 돌아왔고 `status_sequence`는 15에서 38까지 끊김 없이 증가했으며 `source_session_id`는 넘긴 값과 일치했다. 전체 회귀시험은 `Ran 89 tests`와 `OK`였다.
+
+
 ## 7. 결정·미완료 사항
 
 TBD-AMR-003은 사용자의 권장안 승인으로 AMR 코드에 반영했으며 `docs/change_requests/CR-AMR_09-07_14-01_배터리_입력_정책.md`에 관제 검토를 요청했다. 실제 robot1·robot6 배터리 드라이버, 관제 연계, 도킹·교대 시험은 아직 수행하지 않았다.
 
-현재 `patrol_amr`에는 `setup.py`, `package.xml`, 실행 entry point와 launch 연결이 없다. 이는 9단계 패키지 통합 범위다. 따라서 2단계 `battery_monitor`, 6단계 `local_safety_supervisor`, 8단계 `status_reporter`는 모두 `ros2 run`이 아니라 Python 파일을 직접 실행한다. 이전 `final_turtlebot_ws`의 다른 실행 코드나 build/install/log 결과를 새 저장소로 복사하지 않는다.
+9단계에서 `patrol_amr`에 `package.xml`, `setup.py`, `setup.cfg`, entry point 3개와 launch 1개를 추가했다. 따라서 `battery_monitor`, `local_safety_supervisor`, `status_reporter`는 모두 `ros2 run` 또는 `ros2 launch`로 실행한다. 패키지 import로 전환했으므로 Python 파일 직접 실행은 더 이상 동작하지 않는다. 이전 `final_turtlebot_ws`의 다른 실행 코드나 build/install/log 결과를 새 저장소로 복사하지 않는다.
+
+`src/patrol_amr/.gitkeep`은 빈 디렉터리를 유지하려고 두었던 파일인데 9단계에서 실제 패키지 내용이 생겨 더 이상 필요하지 않다. 삭제는 기능과 관계없는 별도 정리로 남겼다. 10단계는 전체 시스템 통합이 아니라 현재 구현된 두 ROS 경로의 단일 robot 로컬 스모크로 범위를 확정했다.
 
 작업 재개 전에 루트 `AGENTS.md`, `docs/architecture.md`, `docs/interfaces.md`, `docs/amr.md`를 확인한다. 기존 플로우차트는 설계 초안이며 확정 계약으로 사용하지 않는다. 다른 담당자의 변경과 미확정 TBD를 보존한다.
 
@@ -635,10 +755,79 @@ TBD-AMR-003은 사용자의 권장안 승인으로 AMR 코드에 반영했으며
 
 ## 9. 다음 작업 재개 순서
 
-1. 이전 컴퓨터에서 변경 범위를 검토하고 현재 작업을 commit·push한다. 이 작업은 아직 수행하지 않았다.
-2. 새 컴퓨터에서 2~4절 순서로 브랜치를 가져오고 `patrol_interfaces`를 빌드한다.
-3. 6.6절의 8단계 단위시험을 먼저 실행해 `Ran 9 tests`, `OK`를 확인한다.
-4. 전체 회귀시험을 실행해 `Ran 89 tests`, `OK`를 확인한다.
-5. 6.6절의 사용자 ROS 토픽 시험을 **공용 메시지 빌드 → 터미널 1 battery_monitor → 터미널 2 status_reporter → 터미널 3 echo → 터미널 4 배터리 입력** 순서로 수행한다.
-6. `battery_state: 0 → 2 → 0`, `battery_soc: 0.15`, 증가하는 `status_sequence`를 실제 출력으로 확인한 뒤에만 8단계를 완료 처리한다.
-7. 그 다음 9단계 `patrol_amr` 패키지 설정·entry point·launch 통합으로 진행한다. AMR Detection은 위 TBD가 해소되고 별도 구현 승인을 받은 뒤 다룬다.
+1. 현재 작업은 `0efa7fa`로 커밋돼 있으나 아직 push하지 않았다. 다른 컴퓨터로 옮기려면 먼저 push한다.
+2. 새 컴퓨터에서 2~4절 순서로 브랜치를 가져온 뒤 `colcon build --packages-select patrol_interfaces patrol_amr`로 두 패키지를 빌드한다.
+3. 전체 회귀시험을 실행해 `Ran 89 tests`, `OK`를 확인한다.
+4. 6.7절의 9단계 확인 순서를 수행한다. entry point 3개 조회, 필수 인자 누락 시 실패, `ros2 launch` 통합 실행을 차례로 본다.
+5. 10단계 로컬 스모크 결과와 아래 재정리된 업무 범위를 확인한다.
+6. AMR Detection은 8절의 TBD가 해소되고 별도 구현 승인을 받은 뒤 다룬다.
+
+## 10. 재정리된 조정묵 작업 범위와 현재 상태
+
+2026-09-07 사용자가 전달한 새 업무 분장을 기준으로 한다. 아래 상태는 **현재 `feat/amr-safety-status` 소스에서 직접 확인한 상태**다. 박성현 담당 코드가 다른 브랜치·컴퓨터에 있다는 보고는 현재 브랜치에 병합되기 전까지 `외부 구현 보고/현재 브랜치 미확인`으로 구분한다.
+
+| 우선 | 조정묵 남은 항목 | 현재 상태 |
+|---|---|---|
+| 1 | `final_turtlebot_pkg` → `patrol_amr` 이관 방식 확정 | 이 브랜치는 `patrol_amr` 사용 완료. 박성현 launch·브랜치와 즉시 합의·병합 확인 필요 |
+| 2 | 업무분장표의 I-02 패키지 등록 | 9단계 완료: package.xml·setup.py·entry point 3개·launch 등록. 아래 시스템 통합 I-02와 같은 이름인지 구분 필요 |
+| 3 | cmd_vel 경로 확정(TBD-IF-009) | 미정·미구현. Nav2 출력 → local_safety_supervisor → 최종 발행 계약과 박성현 launch remap 합의 필요 |
+| 4 | AMR-18·19 `recovery_supervisor.py` | 미착수. 현재 파일 없음. 박성현의 nav2_client·mission 코드가 현재 브랜치에 병합된 뒤 goal/spin 취소·30초 재개를 연결해야 함 |
+| 5 | AMR-07 PatrolReport 발행 | 메시지 정의만 있음. publisher 없음. 박성현 체크포인트/mission 결과 입력과 연결 필요 |
+| 6 | AMR-11 물리 E-stop latch | 부분 완료: 수신한 `latched`는 반영. 로컬 물리 latch·수동 reset 경로는 TBD-IF-004 해소 전 미구현 |
+| 7 | I-03·T-01·T-03·T-04 | 전체 미실행. 이번 10단계는 구현된 배터리·token·E-stop 경로만 부분 검증 |
+
+조정묵 목록에서 제외된 `nav2_client.py`(AMR-16)와 `command_store.py`(AMR-05)는 박성현 구현 완료 보고 항목이다. 두 파일은 현재 브랜치에는 없으므로 병합 전에는 로컬 완료로 판정하지 않는다. AMR-09 KeepoutFilter는 새 분장 설명과 시트 담당자가 충돌하므로 담당자를 확인하기 전 수정하지 않는다.
+
+| 항목 | 현재 브랜치 기준 진행 상태 |
+|---|---|
+| AMR-03 | `patrol_interfaces` 구현·빌드 완료. 타 팀의 `parking_interfaces`와 명칭/계약 통합은 별도 확인 필요 |
+| AMR-04 | token holder·session·sequence·monotonic lease 구현. 송신 timestamp message-age 검증은 미완료 |
+| AMR-05 | 박성현 구현 완료 보고, 현재 브랜치에 `command_store.py` 없음 |
+| AMR-06 | RobotStatus 2 Hz·변경 제한·배터리 연결 완료. pose/mission/docking/token/safety 실입력은 미연결 |
+| AMR-07 | PatrolReport 메시지만 있고 발행 로직 미구현 |
+| AMR-08~10 | 현재 AMR 브랜치에 좌표·Keepout·안전구역 실행 코드 없음. AMR-09 담당 충돌 확인 필요 |
+| AMR-11 | E-stop active와 입력 latch 반영 완료, 물리 로컬 latch/reset·정지 품질은 미완료/TBD |
+| AMR-12 | 7값 enum·SOC 밴드·3초 전이 구현 및 ROS 경로 검증 완료 |
+| AMR-13 | 도킹 실행·성공 판정 미구현 |
+| AMR-14 | Detection·증적·부저 미구현, TBD 때문에 BLOCKED |
+| AMR-15 | robot6 LiDAR 위치 검증 미구현/TBD |
+| AMR-16 | 박성현 구현 완료 보고, 현재 브랜치에 `nav2_client.py` 없음 |
+| AMR-17 | 박성현 담당 실주행 검증 대기, 현재 브랜치에 순찰 실행 코드 없음 |
+| AMR-18·19 | 조정묵 신규 담당, 미착수 |
+| AMR-20 | heartbeat 타입 계약 TBD-IF-004로 BLOCKED |
+| T-01 | AMR-03·04·06의 로컬 부분만 검증. 두 로봇/명령/pose/report/복구는 미실행 |
+| T-02 | 박성현 범위, 미실행 |
+| T-03 | token·비물리 E-stop의 `motion_allowed` 부분만 검증. 물리 latch·최종 cmd_vel은 미실행 |
+| T-04 | 배터리 enum·stale 부분만 검증. 도킹·교대는 미실행 |
+| T-05 | Detection 계약·구현 부재로 BLOCKED |
+| I-01·02·03 | 전체 종단 통합은 선행 구현·팀 합의 전 NOT_RUN/BLOCKED |
+
+### 10단계 로컬 ROS 통합 스모크 결과
+
+검증 범위는 다음 두 경로뿐이다.
+
+```text
+/battery_state → battery_monitor → /battery_status
+→ status_reporter → /robot1/robot_status
+
+/control/estop + /control/drive_token
+→ local_safety_supervisor → /motion_allowed
+```
+
+재현 스크립트는 `tests/integration/amr_safety_status_smoke.py`다. 실행 순서는 **두 패키지 빌드 → overlay source → 단위시험 89개 → 격리된 로컬 DDS 스모크**다.
+
+```bash
+cd ~/patrol
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-select patrol_interfaces patrol_amr
+source install/local_setup.bash
+python3 -m unittest discover -s tests -p "test_*.py" -v
+PYTHONDONTWRITEBYTECODE=1 PATROL_STAGE10_DOMAIN_ID=127 \
+  python3 tests/integration/amr_safety_status_smoke.py
+```
+
+`PATROL_STAGE10_DOMAIN_ID=127`은 실제 로봇 도메인과 분리하기 위한 시험 프로세스 전용 값이며 시스템 설정을 바꾸지 않는다. 스크립트는 세 노드를 launch하고 QoS에 맞는 입력을 발행한 뒤 반드시 종료한다.
+
+2026-09-07 21:49 KST 결과: 두 패키지 빌드 성공, 단위시험 `Ran 89 tests`/`OK`, 실제 DDS 스모크 `STAGE10_PASS`. `motion_allowed`는 `false → true → false → true → false`, `battery_state`는 `0 → 2 → 0`, RobotStatus는 20건을 받았고 `status_sequence`는 `3 → 22`로 증가했다.
+
+이는 IT-03·04·11·13의 현재 구현 부분만 검증한 것이다. `motion_allowed`는 아직 RobotStatus의 safety/token 필드에 연결되지 않았고 최종 cmd_vel도 발행하지 않는다. heartbeat·mission·PatrolReport·pose/odom·도킹·교대·Detection·두 로봇·다중 PC 시험은 PASS로 선언하지 않는다.
