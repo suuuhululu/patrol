@@ -1,0 +1,7 @@
+# Team ownership for team-specific workspaces
+/src/patrol_control/ @jonnykoh2008-ship-it
+/src/patrol_vision/ @abyssGo @aszx4880-star
+/car_data/ @abyssGo @aszx4880-star
+/detection_best/ @abyssGo @aszx4880-star
+/src/patrol_amr/ @happyhappygoat @jungmook512
+/src/patrol_sysmon/ @roh4195 @tkdak2025
