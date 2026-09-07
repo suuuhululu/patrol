@@ -1,0 +1,65 @@
+std_msgs/Header header
+string message_id
+string boot_id
+uint32 sequence
+string robot_id
+uint8 operational_state
+uint8 mission_state
+uint8 docking_state
+uint8 battery_state
+float32 battery_soc
+geometry_msgs/PoseWithCovariance pose
+bool pose_valid
+builtin_interfaces/Time last_valid_pose_stamp
+string active_command_id
+string mission_id
+string patrol_id
+uint32 safety_flags
+bool drive_token_valid
+bool keepout_enabled
+uint16 diagnostic_code
+string diagnostic_text
+
+uint8 OP_UNKNOWN=0
+uint8 OP_INITIALIZING=1
+uint8 OP_READY=2
+uint8 OP_MOVING=3
+uint8 OP_STOPPED_SAFETY=4
+uint8 OP_CHARGING=5
+uint8 OP_ERROR=6
+
+uint8 MISSION_NONE=0
+uint8 MISSION_UNDOCKING=1
+uint8 MISSION_PATROLLING=2
+uint8 MISSION_MOVING_TO_SAFE_ZONE=3
+uint8 MISSION_WAITING_SAFE_ZONE=4
+uint8 MISSION_RETURNING_TO_DOCK=5
+uint8 MISSION_DOCKING=6
+uint8 MISSION_PAUSED=7
+uint8 MISSION_COMPLETED=8
+uint8 MISSION_FAILED=9
+uint8 MISSION_CANCELED=10
+
+uint8 DOCK_UNKNOWN=0
+uint8 DOCK_UNDOCKED=1
+uint8 DOCK_UNDOCKING=2
+uint8 DOCK_DOCKING=3
+uint8 DOCK_DOCKED=4
+uint8 DOCK_FAILED=5
+
+uint8 BATTERY_UNKNOWN=0
+uint8 BATTERY_CRITICAL=1
+uint8 BATTERY_LOW=2
+uint8 BATTERY_NORMAL=3
+uint8 BATTERY_CHARGING=4
+uint8 BATTERY_PATROL_READY=5
+uint8 BATTERY_FULL=6
+
+uint32 SAFETY_NONE=0
+uint32 TOKEN_INVALID=1
+uint32 HEARTBEAT_LOST=2
+uint32 ESTOP_ACTIVE=4
+uint32 OBSTACLE_BLOCKED=8
+uint32 LOCALIZATION_INVALID=16
+uint32 SENSOR_ERROR=32
+uint32 KEEPOUT_UNKNOWN=64
