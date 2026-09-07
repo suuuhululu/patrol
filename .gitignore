@@ -1,0 +1,91 @@
+# ROS 2 / colcon: 생성 결과만 제외한다. src와 패키지 설정은 커밋한다.
+/build/
+/install/
+/log/
+
+# Python: 캐시, 가상환경, 패키징 결과
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+/dist/
+*.egg-info/
+.eggs/
+
+# 테스트 / 정적 검사: 결과와 캐시만 제외한다. 테스트 코드는 유지한다.
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+junit.xml
+
+# OS / 편집기 개인 파일
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+*.swp
+*.swo
+*~
+
+# 인증 / 개인 설정
+# 실제 토큰을 소스에 적으면 이 규칙으로 보호되지 않는다.
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+.git-credentials
+.netrc
+.ssh/
+/secrets/
+/credentials/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# 로그 및 ROS 실행 상태
+*.log
+.ros/
+
+# 대용량 센서 기록 / 학습 가중치: 별도 저장소 또는 Git LFS로 관리한다.
+*.bag
+*.db3
+*.db3-shm
+*.db3-wal
+*.mcap
+*.pt
+*.pth
+*.onnx
+*.engine
+*.tflite
+*.h5
+*.hdf5
+
+# 실행 중 생성되는 데이터는 아래 루트 폴더에 모은다.
+# DB, CCTV 영상, 증적 이미지, 데이터셋, 다운로드 모델을 보관하는 위치다.
+/runtime/
+/recordings/
+/evidence/
+/datasets/
+/models/
+
+# 문서 제작 / 검토 임시 산출물
+/.review_work/
+/.ssd_work/
+
+# 주의: docs, tests/fixtures, 지도(.pgm/.yaml), launch, .gitkeep은
+# 폴더 전체로 제외하지 않는다. PNG/PDF/ZIP 등 문서 자료도 일괄 제외하지 않는다.
+# 위 확장자에 해당하는 테스트 샘플이 꼭 필요하면 팀 검토 후 좁은 예외를 추가한다.
+# 이미 Git에 올라간 파일은 이 파일만 추가해도 추적이 중단되지 않는다.

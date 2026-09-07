@@ -1,5 +1,7 @@
 # 공용 ROS 2 인터페이스
 
+> 기준: [2026-09-07 PM 설계 결정](decisions/2026-09-07-design-baseline.md). 관제는 별도 노드, 시스템 모니터는 UI 전용, 공용 패키지는 `patrol_interfaces`이며 상세 계약은 System design의 확정 내용을 우선한다.
+
 상태: 기존 계약과 권장 스키마를 구분한 설계 초안 · 담당: AMR·관제·시스템 모니터·비전 공동
 
 이 문서는 통신 이름, 메시지 필드·enum, ID, QoS와 공통 시간 기준의 원본이다. 완전한 .msg 구현 정의가 없는 타입은 TBD로 표시한다. 아래 값은 공유 설계 기준이며 실제 동작 검증 결과가 아니다.
@@ -10,11 +12,11 @@
 
 | 인터페이스 | 타입·방식 | 송신 → 수신 | 상태 |
 |---|---|---|---|
-| /{robot}/mission_command | parking_interfaces/msg/MissionCommand | 관제 → AMR | ID·확인·재전송 기준 확정, 타입 반영 필요 |
-| /{robot}/command_check | parking_interfaces/msg/CommandCheck | AMR → 관제 | 신규 계약, 타입 반영 필요 |
-| /control/drive_token | parking_interfaces/msg/DriveToken | 관제 → AMR 로컬 안전 | 세션·ID·sequence·회수 기준 확정, 타입 반영 필요 |
-| /{robot}/robot_status | parking_interfaces/msg/RobotStatus | AMR → 관제·시스템 모니터 | 의미 필드 확정, safety enum 세부 TBD |
-| /{robot}/patrol_report | parking_interfaces/msg/PatrolReport | AMR → 관제·시스템 모니터 | 필드·ID 연결·재전송 기준 확정 |
+| /{robot}/mission_command | patrol_interfaces/msg/MissionCommand | 관제 → AMR | ID·확인·재전송 기준 확정, 타입 반영 필요 |
+| /{robot}/command_check | patrol_interfaces/msg/CommandCheck | AMR → 관제 | 신규 계약, 타입 반영 필요 |
+| /control/drive_token | patrol_interfaces/msg/DriveToken | 관제 → AMR 로컬 안전 | 세션·ID·sequence·회수 기준 확정, 타입 반영 필요 |
+| /{robot}/robot_status | patrol_interfaces/msg/RobotStatus | AMR → 관제·시스템 모니터 | 의미 필드 확정, safety enum 세부 TBD |
+| /{robot}/patrol_report | patrol_interfaces/msg/PatrolReport | AMR → 관제·시스템 모니터 | 필드·ID 연결·재전송 기준 확정 |
 | /vision/cctv/gate_event | CameraState | gate_cam → cam_master | 패키지명·enum 수치 TBD |
 | /vision/cctv/center_event | CameraState | center_cam → cam_master | 패키지명·enum 수치 TBD |
 | /vision/cctv/patrol_allowed | std_msgs/msg/Bool | cam_master → 관제·시스템 모니터 | 정책 기준 있음 |
