@@ -212,6 +212,19 @@ python3 -m unittest discover -s tests -p test_local_safety_supervisor.py -v
 
 이 노드는 2단계·6단계처럼 실제 ROS 토픽 시험 대상이다. 상세는 [amr.md 3.4절](../amr.md#34-local_safety_supervisorpy--구현-대조-완료-축소-범위)에 있다.
 
+### QoS 시험 시 유의사항 (2026-09-07 사용자 시험 중 발견·수정)
+
+- `/control/drive_token`은 일반 `ros2 topic pub`으로 발행하면 된다. QoS 오버라이드가 필요 없다.
+- `/control/estop`은 노드가 TRANSIENT_LOCAL·RELIABLE을 요구한다(9절). `ros2 topic pub` 기본값은 VOLATILE이라 그냥 발행하면 `Last incompatible policy: DURABILITY` 경고와 함께 메시지가 전달되지 않는다 — 반드시 `--qos-durability transient_local --qos-reliability reliable`을 함께 준다.
+
+```bash
+ros2 topic pub -r 1 /control/estop patrol_interfaces/msg/EStop \
+  --qos-durability transient_local --qos-reliability reliable \
+  "{active: false, cause: 0, physical: false, source: 'test', sequence: 1}"
+```
+
+- 최초 구현에는 drive_token 구독에도 9절의 "deadline 200ms"를 요청 QoS로 걸었으나, `ros2 topic pub`을 포함해 deadline을 명시하지 않는 어떤 발행자와도 DDS 계층에서 호환되지 않아(RxO 규칙상 미지정 offered deadline은 무한대 취급) 메시지가 전혀 도달하지 않는 것을 발견했다. 구독측 deadline 요청을 제거했다 — 신선도는 이미 구현된 Q-01 lease 만료(애플리케이션 계층)가 담당한다. 근거는 [amr.md 3.4절](../amr.md#34-local_safety_supervisorpy--구현-대조-완료-축소-범위)에 있다.
+
 ## 7. 결정·미완료 사항
 
 TBD-AMR-003은 사용자의 권장안 승인으로 AMR 코드에 반영했으며 `docs/change_requests/CR-AMR_09-07_14-01_배터리_입력_정책.md`에 관제 검토를 요청했다. 실제 robot1·robot6 배터리 드라이버, 관제 연계, 도킹·교대 시험은 아직 수행하지 않았다.

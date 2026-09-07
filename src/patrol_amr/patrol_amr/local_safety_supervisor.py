@@ -97,7 +97,6 @@ class SafetyGate:
 def create_node_class():
     """Import ROS dependencies lazily so SafetyGate tests need no ROS setup."""
     import rclpy
-    from rclpy.duration import Duration as RclpyDuration
     from rclpy.node import Node
     from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
     from patrol_interfaces.msg import DriveToken, EStop
@@ -123,15 +122,21 @@ def create_node_class():
             self._gate = SafetyGate(robot_id)
             self._last_published = None
 
-            # Q-01 / 9절: drive_token은 BEST_EFFORT・VOLATILE・KEEP_LAST(3),
-            # deadline 200ms, lifespan 500ms.
+            # 9절: drive_token은 BEST_EFFORT・VOLATILE・KEEP_LAST(3). 표의
+            # "deadline 200ms, lifespan 500ms"는 실제 발행자(관제)가 지켜야
+            # 할 발행 주기·보관 기한 설명으로 해석하고, 구독측 QoS에 요청
+            # deadline 을 걸지 않는다. deadline 을 요청하면 그 값을 명시적
+            # 으로 제공하지 않는 발행자와는 DDS 계층에서 아예 호환되지 않아
+            # (RxO 규칙상 미지정 offered deadline 은 무한대로 취급되어 항상
+            # 불일치) 메시지 자체가 도달하지 않는다 — 실제로 ros2 topic pub
+            # 으로 재현해 확인했다. 신선도(끊김 감지)는 이미 구현된 Q-01
+            # lease 만료(DriveTokenGuard.authority, 애플리케이션 계층)가
+            # 담당하므로 DDS deadline 이 없어도 안전 방향은 유지된다.
             drive_token_qos = QoSProfile(
                 history=HistoryPolicy.KEEP_LAST,
                 depth=3,
                 reliability=ReliabilityPolicy.BEST_EFFORT,
                 durability=DurabilityPolicy.VOLATILE,
-                deadline=RclpyDuration(seconds=0.2),
-                lifespan=RclpyDuration(seconds=0.5),
             )
             # 9절: estop은 RELIABLE・TRANSIENT_LOCAL, "단일 상태, 정확한
             # depth TBD". depth=1은 이 노드(구독측)만의 로컬 선택이며 공용
