@@ -11,15 +11,17 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 
-# 5종은 CR-001 의 묶음이다. 개별 추가·삭제는 수정 요청서를 거친다.
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MissionCommand.msg"
   "msg/DriveToken.msg"
   "msg/RobotStatus.msg"
   "msg/PatrolReport.msg"
   "msg/EStop.msg"
+  "msg/CameraState.msg"
   DEPENDENCIES std_msgs geometry_msgs builtin_interfaces
 )
+
+ament_export_dependencies(rosidl_default_runtime)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

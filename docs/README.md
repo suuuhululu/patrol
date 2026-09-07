@@ -65,6 +65,10 @@ docs/
 
 - 2026-09-07 결정: 시스템 모니터는 토픽 수신·표시를 담당하고 관제가 운영 상태·경고를 판단한다. 공용 로그 전달 계약은 interfaces.md, 내부 저장 설계는 monitoring_and_data.md로 구분한다. 근거: 프로젝트 담당자의 역할·문서 구분 명시. 표시용 토픽·공용 로그 상세 계약은 TBD-IF-011로 관리하며 구현·통합 검증은 별도로 수행한다.
 
+- 2026-09-07 결정: command·mission·token·report·CCTV/Detection/증적·관제 운영 event ID는 사람이 식별 가능한 발행자 session·sequence 기반 문자열을 사용한다. MissionCommand 확인은 CommandCheck의 ACCEPTED·EXECUTING·REJECTED로 구분하고 최종 결과는 PatrolReport로 전달한다. 상세 형식과 필드는 interfaces.md를 기준으로 한다. 근거: 개발 프로세스 학습 범위에서 로그 추적성과 팀 간 계약 이해를 우선한다. AMR 반영은 [관제 수정 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md)로 추적한다.
+
+- 2026-09-07 결정: LOW는 새 mission을 시작하지 않고 현재 mission의 순찰·복귀·도킹까지 완료하며 CRITICAL은 즉시 복귀 또는 도킹 판단으로 전환한다. 화재 확정 후에도 현재 mission의 순찰·복귀·도킹까지 기존 token을 유지하고 종료 시 회수하며, 이후 다른 로봇에 새 token을 발급하지 않는다. 도킹 성공과 화재 부저 OFF는 DOCKED·CHARGING 2초 연속이며 도킹 실패 시 다른 활성 화재가 없으면 부저를 끄고 관제 경고를 발생시킨다. 근거: 프로젝트 담당자 명시. 영향: 관제·AMR 공용 계약과 IT-13·14 시험 기준.
+
 ## 초안의 한계
 
 Detection 계약, 완전한 RobotStatus·PatrolReport 스키마, heartbeat/E-stop 세부 계약, 증적 전송·DB 설계 등이 남아 있다. 소프트웨어 버전·주소의 실제 적용 상태 및 장비 통신은 배포 시 검증한다. 설계 문서의 예시를 실제 적용된 설정이나 구현 완료의 근거로 사용하지 않는다.

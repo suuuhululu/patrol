@@ -4,14 +4,7 @@
   <name>patrol_interfaces</name>
   <version>0.1.0</version>
   <description>
-    주차장 순찰 시스템의 공용 ROS 2 메시지. AMR·관제가 공유한다.
-
-    본 패키지는 CR-001 의 AMR 초안이다. 소유·등록·최종 확정은 관제(박성현)에게 있고
-    AMR 은 초안 제시와 구현만 한다. 필드를 바꾸려면 AGENTS.md 승인 5항에 따라
-    수정 요청서를 먼저 올린다.
-
-    기준 문서: amr_patrol_docs/amr_patrol_project/docs/interfaces.md 1~5·9절
-    초안 근거: docs/change_requests/CR-001_09-07_08-49_공용_메시지_패키지.md
+    주차장 순찰 시스템에서 AMR·관제·비전·시스템 모니터가 공유하는 ROS 2 인터페이스 패키지.
   </description>
   <maintainer email="kj270477@gmail.com">mook</maintainer>
   <license>Apache-2.0</license>
