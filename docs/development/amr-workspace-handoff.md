@@ -8,7 +8,7 @@
 
 | 단계 | 대상 | 상태 |
 |---|---|---|
-| 1 | `parking_interfaces`: MissionCommand, DriveToken, RobotStatus, PatrolReport, EStop 및 빌드 설정 | 구현·빌드·사용자 interface show 확인 완료 |
+| 1 | `patrol_interfaces`: MissionCommand, DriveToken, RobotStatus, PatrolReport, EStop 및 빌드 설정 | 구현·빌드·사용자 interface show 확인 완료 |
 | 2 | `battery_monitor.py`: 배터리 분류·3초 상태 전이·ROS 구독/내부 상태 발행 | 구현·단위시험 완료, 사용자 ROS 토픽 시험 대기 |
 | 3 | `drive_token_guard.py` | 미착수 |
 | 4 | `estop_guard.py` | 미착수 |
@@ -62,18 +62,18 @@ source /opt/ros/jazzy/setup.bash
 ```bash
 cd ~/patrol
 source /opt/ros/jazzy/setup.bash
-colcon build --packages-select parking_interfaces
+colcon build --packages-select patrol_interfaces
 source install/local_setup.bash
-ros2 pkg prefix parking_interfaces
+ros2 pkg prefix patrol_interfaces
 
 for name in MissionCommand DriveToken RobotStatus PatrolReport EStop
 do
   echo "===== $name ====="
-  ros2 interface show parking_interfaces/msg/$name
+  ros2 interface show patrol_interfaces/msg/$name
 done
 ```
 
-예상 결과는 `1 package finished`, `~/patrol/install/parking_interfaces` 경로, 메시지 5종의 필드 출력이다. `Unknown package`가 나오면 현재 경로·브랜치·빌드 결과와 `source install/local_setup.bash` 실행 여부를 확인한다.
+예상 결과는 `1 package finished`, `~/patrol/install/patrol_interfaces` 경로, 메시지 5종의 필드 출력이다. `Unknown package`가 나오면 현재 경로·브랜치·빌드 결과와 `source install/local_setup.bash` 실행 여부를 확인한다.
 
 메시지 원본 주석에는 이전 워크스페이스의 제안과 과거 요청서 표현이 남아 있다. 현재 계약과 TBD 상태는 `src/patrol_interfaces/README.md`와 `docs/interfaces.md`를 기준으로 해석한다.
 

@@ -2,7 +2,7 @@
 
 2026-09-07 사용자 요청에 따라 `/home/mook/final_turtlebot_ws/src/parking_interfaces/`의 메시지 5종과 `CMakeLists.txt`, `package.xml`을 내용 변경 없이 복사했다. 원본과 기존 `.gitkeep`은 보존했다. 생성 결과인 build/install/log 및 AMR 동작 코드는 복사하지 않았다.
 
-이 디렉터리명은 `patrol_interfaces`이지만 `package.xml`과 CMake의 ROS 패키지명은 `parking_interfaces`다. 빌드 선택과 인터페이스 조회에는 `parking_interfaces`를 사용한다.
+2026-09-07 [설계 기준 결정](../../docs/decisions/2026-09-07-design-baseline.md) 3항에 따라 ROS 패키지명을 `patrol_interfaces`로 통일했다. 이관 시점에는 디렉터리명만 `patrol_interfaces`이고 `package.xml`과 CMake의 패키지명은 `parking_interfaces`였다. 빌드 선택과 인터페이스 조회에는 `patrol_interfaces`를 사용한다. 메시지 필드와 계약 내용은 바꾸지 않았다. 관제 검토 요청은 [CR-AMR_09-07_14-32_공용_메시지_패키지명_통일.md](../../docs/change_requests/CR-AMR_09-07_14-32_공용_메시지_패키지명_통일.md)에 있다.
 
 ## 계약 상태
 
