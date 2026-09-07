@@ -472,7 +472,7 @@ DB 테이블·컬럼 매핑·인덱스·보존·백업 등 내부 저장 설계�
 | TBD-IF-006 | **일부 결정(2026-09-07):** Detection event ID 형식. 잔여: Candidate/Event 필드·enum·토픽·QoS·발행자·중복 보존 | AMR·관제·시스템 모니터 |
 | TBD-IF-007 | **일부 결정(2026-09-07):** evidence ID 형식. 잔여: 메타데이터·전송 방법·결과 ACK·재전송·실패 계약 | AMR·관제·시스템 모니터 |
 | TBD-IF-008 | OPEN: Keepout 상태 토픽·필드와 실parameter, BatteryEvent·ActionFeedback 필요 여부. AMR 제시안 대기 | AMR·관제·시스템 모니터 |
-| TBD-IF-009 | OPEN: 로봇별 최종 cmd_vel 및 Nav2·yaw 입력 토픽, 타입·remap·중재. 2026-09-08 AMR 제시안 제출, 관제 회신 대기 [요청서](change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md) | AMR·관제 |
+| TBD-IF-009 | OPEN: 로봇별 최종 cmd_vel 및 Nav2·yaw 입력 토픽, 타입·remap·중재. **2026-09-08 AMR 확정:** 최종 `/robotN/cmd_vel`(Twist), 후보 `/robotN/cmd_vel_safe`·`/robotN/cmd_vel_yaw`(TwistStamped), Q-17 후보 신선도 0.5초 신설 요청. 잔여: 관제 회신, Nav2 namespace 적용 방식, `cmd_vel_yaw` 발행 주체, 후보 중재(TBD-AMR-001) [요청서](change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md) | AMR·관제 |
 | TBD-IF-010 | OPEN: permit 발행·경고 timeout, RobotStatus 변경 발행 rate 제한의 세부 의미 | AMR·관제·시스템 모니터·비전 |
 | TBD-IF-011 | **일부 결정(2026-09-07):** 관제 운영 event ID 형식. 잔여: 표시용 토픽과 공용 로그 필드·타입·시간·QoS·발행 정책·초기 상태·재연결·중복 전달 | AMR·관제·시스템 모니터·비전 |
 

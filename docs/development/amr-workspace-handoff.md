@@ -21,6 +21,8 @@
 
 최종 ROS 노드는 `battery_monitor`, `local_safety_supervisor`, `status_reporter` 세 개다. guard와 state 파일은 해당 노드가 사용하는 일반 Python 모듈이다. 한 단계씩 구현하고 사용자 시험 통과 확인 전에는 다음 단계로 넘어가지 않는다.
 
+11단계 이후 계획은 [11절](#11-11단계-이후-실행-계획--2026-09-08)에 있다. 11~13단계는 관제 회신 없이 지금 착수할 수 있고, 14단계부터는 TBD 해소 또는 타 담당자 코드 병합이 선행되어야 한다.
+
 ### 최신 재개 체크포인트 — 2026-09-08 08:35 KST
 
 - 현재 로컬 HEAD는 `9eb151f`(`test(amr): add stage 10 local integration smoke`)이고 브랜치는 `feat/amr-safety-status`다. `origin/feat/amr-safety-status`와 앞뒤 차이가 없다(`0 0`). 1~10단계가 모두 push되어 있으므로 다른 컴퓨터에서 clone/pull로 현재 상태를 재현할 수 있다.
@@ -860,3 +862,59 @@ PYTHONDONTWRITEBYTECODE=1 PATROL_STAGE10_DOMAIN_ID=127 \
 제안 내용은 [요청서](../change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md)에 있다. 요약하면 Nav2 Jazzy 표준 체인(`cmd_vel_nav` → `cmd_vel_smoothed` → `cmd_vel`)의 **끝단에만** `local_safety_supervisor`를 끼워 넣는 안이다. 박성현 launch의 변경은 `collision_monitor`의 `cmd_vel_out_topic`을 `cmd_vel` → `cmd_vel_safe`로 바꾸는 한 줄이며, 구동부가 구독하는 `cmd_vel` 이름은 그대로 유지되고 발행자만 바뀐다. 관제 회신이 필요한 질의 5개를 요청서 하단에 적었다.
 
 미정 값을 새로 만들지 않는다는 규칙을 유지했다. 후보 신선도 timeout은 값을 확정하지 않고 Q-17 신설 요청으로 제시했으며, Nav2·yaw 후보 중재(TBD-AMR-001)와 속도 상한·감속(TBD-AMR-006)은 이 요청서 범위에서 제외했다.
+
+### 10.3 TBD-IF-009 확정 내용 — 2026-09-08
+
+사용자(조정묵)가 AMR 측 계약을 확정했다. 근거와 전문은 [요청서](../change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md)에 있다.
+
+| 결정 | 내용 | 근거 |
+|---|---|---|
+| 체인 끝단 | `collision_monitor`를 남기고 그 `cmd_vel_out_topic`만 `cmd_vel` → `cmd_vel_safe`로 변경 | Nav2 표준 체인 유지, TBD-AMR-006 미정 상태에서 Nav2 장애물 정지 보존 |
+| 최종 출력 | `/robotN/cmd_vel`, `geometry_msgs/msg/Twist` | 구동부 `diffdrive_controller`가 `use_stamped_vel: false` |
+| 후보 입력 | `/robotN/cmd_vel_safe`, `/robotN/cmd_vel_yaw`, `geometry_msgs/msg/TwistStamped` | `enable_stamped_cmd_vel: true`. 같은 PC·같은 시계라 `header.stamp` 비교가 유효 |
+| Q-17 후보 신선도 | 0.5초. 초과 시 최종 출력 `(0.0, 0.0)` | 구동부 `cmd_vel_timeout: 0.5`와 동일. 새 숫자를 만들지 않음 |
+| QoS | `RELIABLE`·`VOLATILE`·`KEEP_LAST(1)`, 구독측 deadline·lifespan 미요청 | 6단계 DEADLINE 불일치 재발 방지 |
+| `cmd_vel_yaw` 발행 주체 | 토픽·타입만 예약, 주체는 미정 | `mission_supervisor`가 저장소에 없고 조정묵 범위 밖 |
+
+namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 robot1 → `/robot1`, robot6 → `/robot6`을 명시하고 `ROS_DOMAIN_ID=6` 단일 도메인을 공유하므로, namespace 없이 Nav2를 띄우면 `/cmd_vel`·`/odom`·`/scan`·`/map`이 충돌하고 Keepout 경로도 성립하지 않는다. 새 결정이 아니라 확정 사항의 귀결이다.
+
+## 11. 11단계 이후 실행 계획 — 2026-09-08
+
+1~10단계와 같은 규칙을 유지한다. **한 단계마다 구현 → 시험을 끝내고, 사용자 통과 확인 전에는 다음 단계로 넘어가지 않는다.** 순수 Python 모듈은 단위시험까지, ROS 노드는 사용자 ROS 토픽 시험까지가 한 단계다.
+
+| 단계 | 대상 | 시험 | 착수 가능 |
+|---|---|---|---|
+| 11 | `motion_guard.py`에 Q-17 후보 신선도 판정 추가 | 단위시험 | **지금 가능** |
+| 12 | `local_safety_supervisor.py`에 후보 구독·최종 `cmd_vel` 발행 배선 | 단위시험 + 사용자 ROS 토픽 시험 | **지금 가능** |
+| 13 | launch 인자 추가와 스모크 확장 | `ros2 launch` 통합 + 확장 스모크 | **지금 가능** |
+| 14 | 실제 Nav2 후보와 연동해 IT-16 부분 실행 | 통합시험 | 관제 회신 + 박성현 launch 병합 후 |
+| 15 | AMR-11 물리 E-stop latch·수동 reset | 단위 + 사용자 ROS 토픽 시험 | TBD-IF-004 잔여 해소 후 |
+| 16 | AMR-18·19 `recovery_supervisor.py` | 단위 + 사용자 ROS 토픽 시험 | TBD-AMR-005 해소 + `nav2_client.py` 병합 후 |
+| 17 | AMR-07 `PatrolReport` 발행 | 단위 + 사용자 ROS 토픽 시험 | TBD-IF-003 잔여 해소 + 박성현 체크포인트 병합 후 |
+| 18 | I-03·T-01·T-03·T-04 | 통합시험 | 위 전부 완료 후 |
+
+11~13단계는 관제 회신 없이도 진행한다. AMR 자기 코드만 바꾸고 Nav2 launch·params는 건드리지 않으므로, 회신이 늦어도 AMR 쪽 구현·시험은 끝내 둘 수 있다. 회신 결과가 다르면 토픽 이름 상수만 고치면 된다.
+
+### 11단계 — `motion_guard.py` 후보 신선도 판정
+
+- 구현: `MotionBlockReason`에 후보 stale 사유를 추가하고, `evaluate()`가 후보의 age를 Q-17 0.5초와 비교한다. 기존 token·E-stop AND 게이트는 그대로 두고 사유 하나를 늘린다. 상태 비저장 원칙을 유지해 age는 호출자가 넘긴다.
+- 시험: `tests/test_motion_guard.py` 확장. 경계값 0.499·0.5·0.501초, 후보 없음, 미래 stamp, token·E-stop과 동시 차단, 사유 전체 보고.
+- 통과 기준: `python3 -m unittest discover -s tests -p "test_*.py"` 전체 OK.
+- 사용자 ROS 시험: 불필요. 순수 Python 모듈이다.
+
+### 12단계 — `local_safety_supervisor.py` 배선
+
+- 구현: `cmd_vel_safe`(TwistStamped) 구독, `cmd_vel`(Twist) 발행, `MotionGuard.evaluate()`를 실제 후보에 연결. `motion_allowed`는 시험·디버그용으로 남긴다. 기존 0.1초 신선도 타이머가 후보 stale 전이도 함께 처리한다.
+- QoS: 후보·최종 모두 `RELIABLE`·`VOLATILE`·`KEEP_LAST(1)`. 구독측에서 deadline·lifespan을 요청하지 않는다.
+- 시험: `SafetyGate` 단위시험 확장 + 사용자 ROS 토픽 시험. 터미널 순서는 ① `local_safety_supervisor` 실행 ② `cmd_vel` 연속 관찰 ③ E-stop 해제·DriveToken 입력 ④ 후보 발행·중단.
+- 통과 기준: 후보가 변형 없이 통과, token 만료 시 `(0,0)`, E-stop 활성 시 `(0,0)`, 후보 중단 0.5초 후 `(0,0)`.
+
+### 13단계 — launch·스모크 확장
+
+- 구현: `amr_safety_status.launch.py`에 namespace·토픽 인자를 추가하고, `tests/integration/amr_safety_status_smoke.py`에 최종 `cmd_vel` 경로 검증을 넣는다.
+- 시험: `ros2 launch` 통합 실행 + 확장 스모크.
+- 통과 기준: 스모크 PASS와 함께 `ros2 topic info /robot1/cmd_vel -v`의 발행자가 `local_safety_supervisor` 하나뿐임을 확인한다. IT-16의 "최종 출력 발행권은 하나"를 로컬 범위에서 검증하는 것이며, 실제 Nav2 후보를 쓰는 IT-16 전체는 14단계다.
+
+### 14단계 이후
+
+15~17단계의 순서는 의존성이 적은 것부터다. AMR-11은 TBD 하나만 풀리면 되고 남의 코드가 필요 없다. AMR-18·19와 AMR-07은 TBD와 병합 두 가지가 모두 필요하다. 세 단계 모두 착수 전에 해당 TBD의 잔여 항목이 실제로 닫혔는지 [interfaces.md TBD 표](../interfaces.md#tbd)에서 확인하고, 미정 값을 지어내지 않는다.
