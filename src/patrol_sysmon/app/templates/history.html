@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% from 'dashboard/icons.html' import icon %}
+{% block title %}통합 이력 검색 · 지하주차장 시스템 모니터{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/history.css') }}">{% endblock %}
+{% block body_class %}history-page{% endblock %}
+{% block main_class %}history-shell{% endblock %}
+{% block header %}
+<header class="history-topbar">
+    <a class="history-brand" href="{{ url_for('dashboard.index') }}"><span>{{ icon('layers', 22) }}</span><strong>지하주차장 시스템 모니터</strong></a>
+    <div class="history-user"><span>{{ g.user.username }} · {{ role_labels[g.user.role] }}</span><a href="{{ url_for('dashboard.index') }}">대시보드</a><form method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">로그아웃</button></form></div>
+</header>
+{% endblock %}
+{% block content %}
+<div class="history-content">
+    <div class="history-heading"><div><p>HISTORY SEARCH</p><h1>통합 이력 검색</h1><span>이상 이벤트·CCTV 상태·순찰 허용 조건·로봇 상태·순찰·교대 기록을 조건별로 조회합니다.</span></div><a href="{{ url_for('dashboard.index') }}">{{ icon('grid', 15) }} 관제 화면으로</a></div>
+
+    <section class="filter-panel" aria-labelledby="filter-title">
+        <h2 id="filter-title">{{ icon('log', 17) }} 검색 조건</h2>
+        <form method="get" action="{{ url_for('history.index') }}" class="history-filters">
+            <label>기록 종류<select name="type">
+                {% for value, label in type_labels.items() %}<option value="{{ value }}" {% if result.filters.record_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select></label>
+            <label>로봇<select name="robot"><option value="ALL">전체 로봇</option><option value="AMR1" {% if result.filters.robot_id == 'AMR1' %}selected{% endif %}>AMR1</option><option value="AMR2" {% if result.filters.robot_id == 'AMR2' %}selected{% endif %}>AMR2</option></select></label>
+            <label>위험도<select name="risk"><option value="ALL">전체 위험도</option>{% for value, label in risk_labels.items() %}<option value="{{ value }}" {% if result.filters.risk_level == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+            <label>처리 상태<select name="status"><option value="ALL">전체 상태</option>{% for value, label in status_labels.items() %}<option value="{{ value }}" {% if result.filters.event_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+            <label>시작 날짜<input type="date" name="from" value="{{ result.filters.from_date }}"></label>
+            <label>종료 날짜<input type="date" name="to" value="{{ result.filters.to_date }}"></label>
+            <label class="keyword-field">검색어<input type="search" name="keyword" maxlength="100" value="{{ result.filters.keyword }}" placeholder="ID, 메모, 상태, 관측점"></label>
+            <div class="filter-actions"><a href="{{ url_for('history.index') }}">초기화</a><button type="submit">검색</button></div>
+        </form>
+        {% if error %}<p class="filter-error" role="alert">{{ error }}</p>{% endif %}
+        <p class="filter-help">위험도·처리 상태는 전체 기록 또는 이벤트 기록에 적용됩니다. 화면에는 한 페이지당 최대 50건이 표시됩니다.</p>
+    </section>
+
+    <section class="results-panel" aria-labelledby="results-title">
+        <div class="results-heading"><h2 id="results-title">검색 결과</h2><span>총 <strong>{{ result.total }}</strong>건 · {{ result.page }}/{{ result.pages }}페이지</span></div>
+        {% if result.records %}
+        <div class="history-table-wrap" tabindex="0" role="region" aria-label="통합 이력 검색 결과">
+            <table class="history-table"><caption class="visually-hidden">시각, 종류, 장치, 내용, 위험도, 상태, 담당자, 자료</caption>
+                <thead><tr><th>시각</th><th>종류</th><th>장치</th><th>내용</th><th>위험도</th><th>상태</th><th>담당자</th><th>자료</th></tr></thead>
+                <tbody>{% for record in result.records %}<tr>
+                    <td><time datetime="{{ record.recorded_at }}">{{ record.recorded_label }}</time></td>
+                    <td><span class="type-badge type-{{ record.record_type|lower }}">{{ record.record_type_label }}</span></td>
+                    <td><strong>{{ record.robot_name }}</strong><small>{{ record.robot_id }}</small></td>
+                    <td><b>{{ record.title }}</b><span>{{ record.summary }}</span><small>ID {{ record.record_id }}</small></td>
+                    <td>{% if record.risk_label %}<span class="risk risk-{{ record.risk_level|lower }}">{{ record.risk_label }}</span>{% else %}<span class="empty-value">—</span>{% endif %}</td>
+                    <td><span class="history-status">{{ record.status_label }}</span></td>
+                    <td>{{ record.actor or '—' }}</td>
+                    <td>{% if record.evidence_url %}<a class="evidence-link" href="{{ record.evidence_url }}" target="_blank" rel="noopener">증거 이미지</a>{% else %}<span class="empty-value">—</span>{% endif %}</td>
+                </tr>{% endfor %}</tbody>
+            </table>
+        </div>
+        {% else %}<div class="history-empty">{{ icon('log', 30) }}<strong>조건에 맞는 이력이 없습니다.</strong><span>기간이나 기록 종류를 바꿔 다시 검색하세요.</span></div>{% endif %}
+        <nav class="pagination" aria-label="검색 결과 페이지"><span>{% if result.previous_url %}<a href="{{ result.previous_url }}">이전</a>{% endif %}</span><b>{{ result.page }} / {{ result.pages }}</b><span>{% if result.next_url %}<a href="{{ result.next_url }}">다음</a>{% endif %}</span></nav>
+    </section>
+    <p class="history-note">일반 카메라 영상과 차량 이미지는 이력으로 저장하지 않습니다. 이상 이벤트의 증거 이미지 한 장만 보존합니다.</p>
+</div>
+{% endblock %}

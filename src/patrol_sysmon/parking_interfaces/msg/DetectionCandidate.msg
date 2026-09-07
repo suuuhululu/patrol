@@ -1,0 +1,12 @@
+std_msgs/Header header
+string message_id
+string candidate_id
+string robot_id
+uint8 event_type
+float32 confidence
+uint32 image_width
+uint32 image_height
+float32 bbox_center_x
+float32 bbox_center_y
+float32 bbox_width
+float32 bbox_height

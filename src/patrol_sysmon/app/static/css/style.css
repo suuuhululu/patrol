@@ -1,0 +1,31 @@
+/* [기본 화면] 접속 확인 페이지의 가독성과 화면 크기 대응을 설정한다. */
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #081522; color: #e9f1f8; font-family: sans-serif; padding: 24px; }
+main { width: 100%; max-width: 680px; padding: 36px; border: 1px solid #2c4358; border-radius: 12px; background: #102235; }
+h1 { font-size: clamp(24px, 5vw, 32px); }
+p { line-height: 1.7; }
+.step { color: #77c5ff; }
+.note { color: #bac9d8; }
+/* [3단계: 인증 화면] 입력 항목과 성공·실패 안내를 구분한다. */
+a { color: #85cbff; }
+header { margin-bottom: 28px; }
+.brand { text-decoration: none; font-weight: 700; }
+nav { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 18px; }
+.fields { display: grid; gap: 12px; max-width: 470px; }
+input, select, button { font: inherit; border-radius: 6px; border: 1px solid #59748c; padding: 12px; }
+input, select { color: #f0f5fa; background: #081522; width: 100%; min-width: 0; }
+button { background: #83caff; color: #081522; font-weight: 700; cursor: pointer; }
+button:hover { filter: brightness(1.12); }
+.secondary { background: #203a50; color: #e9f1f8; }
+:focus-visible { outline: 3px solid #f8ce66; outline-offset: 3px; }
+.error, .success { padding: 14px; border-radius: 6px; line-height: 1.7; }
+.error { color: #ffd4d4; background: #4b252d; border: 1px solid #bc6c78; }
+.success { color: #bdf5d8; background: #163f35; border: 1px solid #518775; }
+.setup { margin-top: 24px; padding-top: 16px; border-top: 1px solid #2c4358; line-height: 1.7; }
+main.wide { max-width: 960px; }
+section { margin-top: 32px; }
+.user-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 20px 0; border-bottom: 1px solid #2c4358; }
+.user-row strong { flex: 1; min-width: 120px; overflow-wrap: anywhere; }
+.checkbox { display: flex; align-items: center; gap: 8px; }
+.checkbox input { width: auto; }
+@media (max-width: 520px) { main { padding: 22px; } body { padding: 14px; } }
