@@ -103,4 +103,3 @@ Squash merge에서는 원래 작업 커밋이 `main`에 그대로 포함되지 �
 - [버전 관리](version-control.md)
 - [PR 가이드](pull-request-guide.md)
 - [브랜치 네이밍 규칙](branch-naming.md)
-- [GitHub 인증 저장 가이드 — 반복 로그인 줄이기](git-authentication.md)

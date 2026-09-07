@@ -71,3 +71,4 @@ Detection 계약, 완전한 RobotStatus·PatrolReport 스키마, heartbeat/E-sto
 - [PR 작성과 승인](development/pull-request-guide.md)
 - [브랜치 네이밍 규칙](development/branch-naming.md)
 - [브랜치 사용 가이드](development/branch-guide.md)
+- [GitHub 인증 저장 가이드 — 반복 로그인 줄이기](development/git-authentication.md)

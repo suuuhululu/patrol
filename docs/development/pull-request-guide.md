@@ -78,4 +78,3 @@ Squash merge는 작업 중의 여러 커밋을 `main`의 한 커밋으로 묶는
 - [버전 관리](version-control.md)
 - [브랜치 네이밍](branch-naming.md)
 - [브랜치 사용](branch-guide.md)
-- [GitHub 인증 저장 가이드 — 반복 로그인 줄이기](git-authentication.md)
