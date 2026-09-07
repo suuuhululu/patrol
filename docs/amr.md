@@ -1,0 +1,190 @@
+# AMR 기능 설계
+
+상태: 설계 초안 · 담당: AMR 팀 · 통합 실행 위치: PC 1·2 · 공통 계약: [interfaces.md](interfaces.md)
+
+## 1. 책임과 경계
+
+AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령 수신·임무 실행, Nav2·AMCL, 로컬 안전, 배터리·도킹, 감지·증적 생성을 담당한다. 식별 차이는 [architecture.md](architecture.md)에 둔다.
+
+관제는 임무·주행 권한을 결정하고 AMR은 실행과 로컬 안전을 담당한다. PC 4 CCTV 이벤트 생성은 AMR 책임이 아니다. 기능 구분은 실제 ROS 노드 분할을 확정하지 않는다.
+
+| 기능 | 입력 | 출력·역할 |
+|---|---|---|
+| mission_supervisor | MissionCommand, 로컬 상태 | 내부 Nav2 Action, 임무 진행·결과 |
+| local_safety_supervisor | token, heartbeat, E-stop, 장애물, 주행 후보 | 최종 로봇별 속도 출력 |
+| navigation/localization | 지도, LiDAR, odometry 등 | 경로 실행, map pose·유효성 |
+| battery_monitor | SOC·충전 상태 | Battery enum |
+| docking 기능 | 도킹 임무·센서 | 도킹 상태·결과 |
+| 로컬 Detection·증적 | OAK-D 영상 | 후보, 확정 이벤트, 증적 |
+| 상태·결과 발행 | 위 기능 상태 | RobotStatus, PatrolReport |
+
+## 1.1 시나리오별 코드 분리와 개발 단위
+
+**개발 기준:** AMR 팀은 시나리오별 동작 코드를 별도 파일·모듈로 분리하여 개발한다. 하나의 파일에 모든 시나리오를 누적하지 않는다. AMR1·AMR2는 같은 시나리오 구현을 공유하고 robot_id·namespace·장비 차이는 설정으로 구분한다. 코드 분리는 독립 ROS 노드·패키지·프로세스를 시나리오마다 생성한다는 뜻이 아니다.
+
+아래는 분리할 동작 범위이며 파일명·패키지명은 구현 시 실제 저장소 구조에 맞춰 정한다. 통합 시나리오의 관제 판단과 AMR 실행을 구분한다.
+
+| 시나리오 모듈 | AMR 구현 범위 | 연계·미정 기준 |
+|---|---|---|
+| 정상 순찰 | START_PATROL에 따른 waypoint 이동·방문·스캔·완료 처리 | W-01, TBD-AMR-005 |
+| 안전구역 대피 | MOVE_TO_SAFE_ZONE 실행·도착·실패 보고 | W-02, TBD-CTRL-002, TBD-INT-003 |
+| 순찰 재개 | RESUME_PATROL 수신 후 합의된 재개 지점에서 실행 | W-02·04, TBD-AMR-005 |
+| 도킹 | DOCK 실행·센서 확인·timeout·결과 보고 | W-03, Q-09, TBD-AMR-004 |
+| 감지·증적 | 후보 처리·yaw 정렬·확정 이벤트·증적 생성 | W-06, TBD-AMR-001, TBD-IF-006·007 |
+| 중단·복구 대응 | STOP/CANCEL·안전 중단에 대한 실행 상태 정리, 복구 후 관제 명령 대기 | W-04·05, TBD-AMR-005·006, TBD-CTRL-001 |
+
+역할 교대 대상 선정, Keepout 조정, 주행 재개·E-stop 해제 결정은 관제 책임이다. AMR의 중단·복구 모듈이 이를 대신 판단하거나 통신 복구만으로 재출발하지 않는다. 화재 후 후속 임무 순서는 TBD-INT-004를 따른다.
+
+공통 기능은 다음과 같이 한 곳에서 관리한다.
+
+- `mission_supervisor`: 명령 검증·중복 제거·시나리오 선택·전환 및 공통 임무 수명 관리. STOP/CANCEL/대체 의미는 관련 TBD를 따른다.
+- `local_safety_supervisor`: 모든 시나리오에 공통으로 적용되는 로컬 안전과 최종 속도 출력. 시나리오 모듈이 직접 최종 cmd_vel을 발행하지 않는다.
+- Nav2 연결·위치·배터리·상태/결과 발행: 공통 모듈을 사용하며 시나리오별로 복제하지 않는다. 감지 모듈의 주행 후보도 같은 안전 경로를 통과한다.
+
+각 모듈은 진입·종료 조건, 입력 명령·필요 상태, 정상·실패·취소 결과와 전환 시 자원 정리 책임을 문서화한다. 콜백·타이머·Nav2 목표가 종료된 시나리오에 남아 중복 동작하지 않도록 처리하며, 미정 전환 규칙은 구현 전에 해당 TBD에서 합의한다.
+
+## 1.2 코드별 Flowchart 작성
+
+각 시나리오 모듈과 공통 동작 모듈에 별도의 Mermaid flowchart를 작성한다. 실제 코드가 추가되면 아래 대응표를 모듈별로 채우고 그림을 같은 절에 추가한다. 표의 미작성 상태는 구현 완료를 뜻하지 않는다.
+
+| 대상 코드·모듈 | 코드 경로·진입 함수 | Flowchart·대조 상태 |
+|---|---|---|
+| 정상 순찰 | 구현 시 기록 | 미작성 |
+| 안전구역 대피 | 구현 시 기록 | 미작성 |
+| 순찰 재개 | 구현 시 기록 | 미작성 |
+| 도킹 | 구현 시 기록 | 미작성 |
+| 감지·증적 | 구현 시 기록 | 미작성 |
+| 중단·복구 대응 | 구현 시 기록 | 미작성 |
+| mission_supervisor | 구현 시 기록 | 미작성 |
+| local_safety_supervisor | 구현 시 기록 | 미작성 |
+| 공통 Nav2 연결·위치·배터리·상태/결과 발행 | 실제 코드 파일·모듈별 행으로 분리하여 기록 | 미작성 |
+
+각 그림에는 시작 조건, 함수·콜백 호출 순서, 조건별 분기, 외부 Action·토픽 송수신, 성공·실패·취소·안전 중단, 종료·복구 대기 경로를 표시한다. timeout·재시도 수치와 enum을 복제하지 않고 Q-ID·TBD-ID를 참조한다. 구현 대조 시 코드 버전과 관련 통합시험 ID를 기록한다.
+
+아래는 **시나리오 분리 구조의 설계 개요**이며 코드별 상세 flowchart를 대체하지 않는다.
+
+~~~mermaid
+flowchart TD
+    CMD[관제 MissionCommand] --> MS[mission_supervisor 공통 검증·중복 제거]
+    MS --> VALID{유효한 명령인가}
+    VALID -->|아니오| REJECT[계약에 따른 거부·진단 / TBD-IF-001]
+    VALID -->|예| SELECT[명령·상태에 따른 시나리오 선택 / TBD-AMR-005]
+    SELECT --> PATROL[정상 순찰]
+    SELECT --> EVAC[안전구역 대피]
+    SELECT --> RESUME[순찰 재개]
+    SELECT --> DOCK[도킹]
+    SELECT --> STOP[중단·복구 대응]
+    PATROL -. 감지 연계 / TBD-AMR-001 .-> DETECT[감지·증적]
+    PATROL --> NAV[공통 Nav2 연결]
+    EVAC --> NAV
+    RESUME --> NAV
+    DOCK --> NAV
+    NAV --> SAFE[local_safety_supervisor 공통 안전]
+    DETECT -->|yaw 주행 후보| SAFE
+    INPUT[토큰·heartbeat·E-stop·로컬 센서] --> SAFE
+    SAFE --> OUTPUT[최종 속도 출력]
+    SAFE -->|안전 중단 통지| STOP
+    STOP --> WAIT[관제 명령·재개 조건 대기]
+~~~
+
+## 2. 명령과 임무 실행
+
+1. 수신 namespace와 robot_id, 명령 enum, 필수 인자를 검증한다. 미정 인자 규칙은 TBD-IF-001을 따른다.
+2. 영속 command_id 기록을 조회해 동일 명령을 다시 실행하지 않는다.
+3. 주행이 필요한 명령은 유효 token 및 로컬 안전 조건을 통과해야 한다.
+4. 필요할 때 mission_supervisor가 내부 Nav2 Action을 호출한다. 관제가 Nav2 Action을 직접 실행하는 경로를 만들지 않는다.
+5. 진행 상태를 RobotStatus에 반영하고 종료 시 PatrolReport를 생성한다.
+
+START_PATROL, MOVE_TO_SAFE_ZONE, RESUME_PATROL, DOCK는 실행 목적을 구분한다. STOP과 CANCEL의 정확한 임무 보존·종료 차이, 명령 대체 우선순위, 순찰 재개 지점은 TBD-AMR-005 및 TBD-CTRL-001에서 합의한다.
+
+Operational/Mission/Docking은 별개 상태 축이다. interfaces.md의 enum을 따른다. 순찰→대피→대기→재개, 복귀→도킹→완료/실패 흐름은 기준이나 모든 상태 쌍 사이의 전이가 허용된다는 뜻은 아니다. 상세 전이표는 TBD-AMR-005다.
+
+## 3. 로컬 안전과 속도 출력
+
+local_safety_supervisor가 최종 속도 발행권을 가진다. Nav2나 yaw 정렬 기능이 안전 출력을 우회하지 않도록 한다. 구체적인 토픽·타입은 TBD-IF-009다.
+
+- 유효하지 않은 token은 주행에 사용하지 않는다. 만료·회수 시 신규 주행을 막고 안전 정지한다.
+- token의 sequence·holder·message age를 확인한다. 로컬 lease 경과는 Q-01을 따른다.
+- 새 token만 수신했다고 임무를 자동 시작하지 않는다.
+- E-stop 활성화는 즉시 반영한다. 물리 E-stop latch는 수동 reset 전까지 유지한다.
+- token·heartbeat·장애물 원인이 사라진 뒤의 해제 결정은 관제가 한다. 해제 조건 유지 시간은 Q-10이다.
+- heartbeat 상세 계약은 TBD-IF-004다. 임의 timeout을 추가하지 않는다.
+
+정지 감속 방식·허용 정지 거리·센서 장애에 대한 속도 출력 규칙은 TBD-AMR-006이다. 안전 정지 요청과 실제 정지 관측을 구분한다.
+
+## 4. Nav2·위치·Keepout
+
+map frame의 pose·측정 시각·covariance를 제공한다. pose가 무효이면 마지막 유효 위치를 보존하되 현재 위치로 사용하지 않는다. 참고 위치 검증과 실제 주행 재개 기준은 Q-06과 Q-05로 구분한다.
+
+AMR2 LiDAR 위치 검증 기준은 Q-06이며 대상·계산 주체·통신 계약이 불명확하다(TBD-AMR-002). 이를 두 로봇에 임의로 일반화하지 않는다.
+
+Keepout은 각 로봇의 global/local costmap에 필요하다. 계획 구성 예시는 다음과 같다.
+
+~~~yaml
+filters: ["keepout_filter"]
+keepout_filter:
+  plugin: "nav2_costmap_2d::KeepoutFilter"
+  enabled: true
+  filter_info_topic: costmap_filter_info
+~~~
+
+mask server와 costmap_filter_info_server도 필요하다. 이는 예시이며 실제 parameter 파일 변경 승인이 아니다. 장비별 Keepout 적용 여부는 TBD-ARCH-001과 TBD-IF-008에 따라 실제 설정을 확인한다.
+
+안전구역은 Q-08 조건을 모두 충족해야 한다. 차량 동선과의 거리를 우선하고 다음으로 경로 비용을 평가한다. 후보가 없으면 현재 위치에서 정지하고 SAFE_ZONE_NOT_FOUND를 보고한다. 계산 주체·지도/차량 동선 공급자는 TBD-CTRL-002다.
+
+## 5. 배터리와 도킹
+
+SOC·충전 방향에 따른 Battery enum은 interfaces.md 8절과 Q-11을 따른다. 무효·미수신은 UNKNOWN이다. 배터리 센서 신선도와 전류 부호·충전 여부 판정은 TBD-AMR-003이다.
+
+도킹은 DOCKING 진입 시 타이머를 시작한다. Q-09의 제한 안에서는 Nav2 재계획을 허용하지만 새 도킹 mission을 만들지 않는다. 접점 또는 완료 센서의 연속 확인으로 성공을 판정하고 실패는 관제로 보고한다. 가용 로봇 선정과 역할 교대는 관제 책임이다.
+
+## 6. 로컬 Detection과 증적
+
+다음은 로컬 Detection 처리의 설계 의도이며 Detection 관련 상세 계약은 TBD로 유지한다.
+
+~~~text
+OAK-D 영상 → bbox 생성 / DetectionCandidate
+→ mission_supervisor가 AMR yaw 정렬
+→ 영상 중심과 bbox 중심 정렬 상태에서 1초 연속 탐지
+→ DetectionEvent 확정 → 증적 생성 → 시스템 모니터 수집·저장 / 관제 제어용 이벤트 전달
+~~~
+
+1초 조건의 의도는 보존하지만 정렬 오차, 동일 대상 기준, 탐지 단절 시 초기화, yaw timeout·token 및 이동 제한은 TBD-AMR-001이다.
+
+Candidate/Event 필드·enum·QoS는 TBD-IF-006, 증적 전송은 TBD-IF-007을 참조한다. 차량 CameraState와 DetectionEvent를 합친다고 가정하지 않는다.
+
+화재 확정 시 부저 ON, 동일 event_id 중복 처리 금지, 도킹 완료 후 OFF라는 정책을 유지한다. Q-12의 CHARGING 연속 확인 조건과 도킹 완료 센서 기준, 높은 SOC의 PATROL_READY/FULL 상태와의 관계는 TBD-AMR-004다. 실제 부저 제어 위치·계약도 미정이다.
+
+## 7. 상태·결과·진단
+
+RobotStatus의 발행·변경 rate는 Q-02다. PatrolReport는 명령과 연결해 SUCCEEDED/FAILED/CANCELED 및 실패·취소 reason을 제공한다. 통신 두절 후 결과 전달 방식은 TBD-IF-003이다.
+
+다음 기존 안전 로그를 보존한다.
+
+~~~text
+E_STOP_ACTIVATED
+E_STOP_RELEASE_CONDITION_STARTED
+E_STOP_RELEASE_CONDITION_CANCELED
+E_STOP_AUTO_RELEASED
+DRIVE_TOKEN_REVOKED
+DRIVE_TOKEN_EXPIRED
+~~~
+
+E-stop 해제 부저는 사용하지 않는다. 화재 부저와 E-stop 로그 정책을 혼용하지 않는다. 로봇·명령·이벤트 ID를 진단에 연결하는 것은 권장안이며 팀 간 공용 로그 필드·전송 계약은 [interfaces.md의 TBD-IF-011](interfaces.md#tbd), 내부 저장 스키마는 [monitoring_and_data.md의 TBD-MON-001](monitoring_and_data.md#tbd)에서 정한다.
+
+## 8. 검증 기준
+
+명령 중복·토큰 역순/만료·최종 속도 발행권·무효 pose 보존·배터리 경계·도킹 제한·Detection 미확정 조건을 확인한다. 시나리오별 정상·실패·취소 경로, 시나리오 전환 시 잔여 목표·콜백 정리, 공통 안전 경로 적용, 코드와 flowchart의 일치도 확인한다. 구체적 실행과 기대 결과는 [통합시험](integration.md#4-통합시험-명세)에 연결한다.
+
+## TBD
+
+| ID | 미정 사항 | 영향 단위 | 상태 |
+|---|---|---|---|
+| TBD-AMR-001 | 정렬 오차, 동일 대상·confidence, 연속 탐지 단절, yaw 속도·timeout·주행 중재 | AMR·관제 | OPEN |
+| TBD-AMR-002 | AMR2 LiDAR 검증 대상·연산 위치·요청/결과·timeout | AMR·관제 | OPEN |
+| TBD-AMR-003 | 배터리 입력 신선도, 충전 방향·무효값 판정 | AMR·관제 | OPEN |
+| TBD-AMR-004 | 도킹 완료·CHARGING·높은 SOC 관계, 화재 부저 제어자·해제 계약 | AMR·관제 | OPEN |
+| TBD-AMR-005 | 상세 상태 전이·STOP/CANCEL 차이·재개 지점·waypoint/scan 정책 | AMR·관제 | OPEN |
+| TBD-AMR-006 | 로컬 정지 감속·거리·장애물 및 센서 실패 판정 | AMR·관제 | OPEN |
+
+해결 시 결정 근거·일자와 [수정 요청서](change_requests/README.md)를 기록한다.
