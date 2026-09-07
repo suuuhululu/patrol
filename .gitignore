@@ -1,7 +1,4 @@
 # ROS 2 / colcon: 생성 결과만 제외한다. src와 패키지 설정은 커밋한다.
-/ros2_ws/build/
-/ros2_ws/install/
-/ros2_ws/log/
 /build/
 /install/
 /log/

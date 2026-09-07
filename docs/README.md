@@ -65,6 +65,32 @@ docs/
 
 Detection 계약, 완전한 RobotStatus·PatrolReport 스키마, heartbeat/E-stop 세부 계약, 증적 전송·DB 설계 등이 남아 있다. 소프트웨어 버전·주소의 실제 적용 상태 및 장비 통신은 배포 시 검증한다. 설계 문서의 예시를 실제 적용된 설정이나 구현 완료의 근거로 사용하지 않는다.
 
+## ROS 2 워크스페이스
+
+워크스페이스 이름은 `patrol`이며, 저장소 루트 자체를 워크스페이스로 사용한다. 패키지 작업 폴더는 루트의 `src/` 아래에 둔다.
+
+```text
+patrol/                 # 저장소 루트 = 워크스페이스 루트
+├── .github/
+├── docs/
+├── src/
+│   ├── patrol_interfaces/
+│   ├── patrol_amr/
+│   ├── patrol_control/
+│   ├── patrol_vision/
+│   ├── patrol_sysmon/
+│   └── patrol_bringup/
+│       ├── launch/
+│       ├── config/
+│       └── maps/
+├── scripts/
+└── tests/
+    ├── integration/
+    └── fixtures/
+```
+
+향후 ROS 패키지 구현 후에는 Ubuntu 24.04 / ROS 2 Jazzy 환경에서 `patrol` 루트로 이동하여 `colcon build`를 실행한다. 생성되는 `build/`, `install/`, `log/`는 Git에서 제외한다. 현재 `src/`는 작업 폴더만 준비된 상태이며, 패키지 구현이나 빌드 검증이 완료된 것은 아니다.
+
 ## Git 협업 가이드
 
 - [버전 관리](development/version-control.md)
