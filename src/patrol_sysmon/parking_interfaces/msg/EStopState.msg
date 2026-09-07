@@ -1,0 +1,10 @@
+std_msgs/Header header
+string message_id
+string estop_id
+string boot_id
+bool active
+uint16 reason_code
+string reason
+bool manual_reset_required
+string source_id
+uint32 sequence

@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}사용자 관리 · 시스템 모니터{% endblock %}
+{% block main_class %}wide{% endblock %}
+{% block content %}
+<h1>사용자 관리</h1>
+<p class="note">관리자: 계정 관리·이벤트 처리 · 관제자: 이벤트 처리 · 조회자: 화면 조회<br>이벤트 상태와 메모는 관제 기록이며 운영 명령은 시스템 모니터에서 요청하지 않습니다.</p>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<section>
+    <h2>계정 생성</h2>
+    <form method="post" action="{{ url_for('auth.users') }}" class="fields">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="new-username">아이디 (영문·숫자·밑줄·점·하이픈, 3~32자)</label>
+        <input id="new-username" name="username" minlength="3" maxlength="32" autocomplete="off" required>
+        <label for="new-password">비밀번호 (8~128자)</label>
+        <input id="new-password" name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+        <label for="password-confirm">비밀번호 확인</label>
+        <input id="password-confirm" name="password_confirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+        <label for="new-role">권한</label>
+        <select id="new-role" name="role">{% for key in ['VIEWER', 'OPERATOR', 'ADMIN'] %}<option value="{{ key }}">{{ role_labels[key] }}</option>{% endfor %}</select>
+        <button type="submit">계정 생성</button>
+    </form>
+</section>
+<section>
+    <h2>등록된 사용자</h2>
+    <p class="note">비활성 계정은 로그인할 수 없으며 기존 접속도 다음 요청부터 차단됩니다.</p>
+    <div class="user-list">
+    {% for user in users %}
+    <form class="user-row" method="post" action="{{ url_for('auth.user_access', user_id=user.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <strong>{{ user.username }}{% if user.id == g.user.id %} (나){% endif %}</strong>
+        <label>권한 <select name="role" aria-label="{{ user.username }} 권한">{% for key, label in role_labels.items() %}<option value="{{ key }}" {% if user.role == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label class="checkbox"><input type="checkbox" name="is_active" value="1" {% if user.is_active %}checked{% endif %}>활성</label>
+        <button class="secondary" type="submit">변경 저장</button>
+    </form>
+    {% endfor %}
+    </div>
+</section>
+{% endblock %}
