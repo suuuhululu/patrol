@@ -58,6 +58,7 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 | mission_supervisor | 구현 시 기록 | 미작성 |
 | local_safety_supervisor | 구현 시 기록 | 미작성 |
 | drive_token_guard.py | [src/patrol_amr/patrol_amr/drive_token_guard.py](../src/patrol_amr/patrol_amr/drive_token_guard.py) · `DriveTokenGuard.observe`·`authority` | [3.1절](#31-drive_token_guardpy--구현-대조-완료) 구현 대조 완료 |
+| estop_guard.py | [src/patrol_amr/patrol_amr/estop_guard.py](../src/patrol_amr/patrol_amr/estop_guard.py) · `EStopGuard.observe`·`stopped` | [3.2절](#32-estop_guardpy--구현-대조-완료) 구현 대조 완료 |
 | battery_monitor.py | [src/patrol_amr/patrol_amr/battery_monitor.py](../src/patrol_amr/patrol_amr/battery_monitor.py) · `classify_observation`·`BatteryStateModel.update` | [5.1절](#51-battery_monitorpy--구현-대조-완료) 구현 대조 완료 |
 | 공통 Nav2 연결·위치·상태/결과 발행 | 실제 코드 파일·모듈별 행으로 분리하여 기록 | 미작성 |
 
@@ -162,6 +163,43 @@ flowchart TD
 ~~~
 
 검증: [단위시험](../tests/test_drive_token_guard.py)은 lease 경계와 갱신, 폐기 메시지의 lease 미연장, 역행 sequence·무효 lease 폐기, 회수와 token 교체의 즉시 무효화, token epoch 하한과 관제 재시작 복구, 다른 holder 지명 시 즉시 무효화와 중복 폐기, 호출자 인자 오류, 조회의 순서 무관성을 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_drive_token_guard.py -v`다. [IT-03·IT-04](integration.md#4-통합시험-명세)의 로컬 판정 부분이며 관제 연동 통합시험은 미실행이다.
+
+### 3.2 estop_guard.py — 구현 대조 완료
+
+2026-09-07: 사용자 4단계 진행 요청에 따라 [estop_guard.py](../src/patrol_amr/patrol_amr/estop_guard.py)에 `/control/estop`의 반영 규칙을 구현했다. [3.1절](#31-drive_token_guardpy--구현-대조-완료)의 `drive_token_guard.py`와 같이 ROS 노드가 아니라 6단계 `local_safety_supervisor`가 사용하는 일반 Python 모듈이며 속도를 발행하지 않는다.
+
+- `EStopGuard.observe(active, cause, physical, source, sequence, activated_at_seconds, release_condition_started_at_seconds)`: 관측 하나를 적용하고 `EStopVerdict`(`ACCEPTED`/`STALE_SEQUENCE`)를 반환한다. `sequence`가 마지막 수락 값 이하이면 재수신·역순으로 보고 폐기한다. 이 필드의 폐기 목적은 EStop.msg 주석에 명시돼 있다.
+- `active`는 그대로 즉시 반영한다. EStop.msg 주석의 "AMR 의 역할은 반영뿐이다"를 그대로 구현한 것이며, 자동 해제 조건 3초 연속 판정은 관제(Safety Arbiter)가 하므로 이 모듈은 어떤 로컬 타이머도 두지 않는다. heartbeat·신선도 timeout은 TBD-IF-004이며 amr.md 3절이 임의 timeout 추가를 금지하므로 이 모듈도 추가하지 않았다.
+- 관측 전 기본 상태는 정지(`stopped=True`)다. `battery_monitor`의 초기 UNKNOWN, `DriveTokenGuard`의 초기 MISSING과 같은 안전 기본값이다.
+- 미정의 `cause` 값(0~6 밖의 uint8)도 `active` 반영을 막지 않는다. cause는 진단용이므로, 향후 관제가 새 원인을 추가해도 안전 정지 자체가 조용히 무시되지 않는다.
+- `DriveTokenGuard`와 달리 `robot_id`를 받지 않는다. EStop.msg에는 holder·robot 필드가 없고, [interfaces.md 1.1절](interfaces.md#1-이름과-송수신) 트리도 drive_token의 "각 AMR"과 달리 estop을 "AMR" 단일 수신으로 적어, 공통 토픽 하나를 모든 로봇이 동일하게 반영하는 것으로 해석했다.
+- `activated_at`·`release_condition_started_at`은 관제 시계의 값을 그대로 기록만 한다. 로컬 monotonic과 비교하거나 경과를 계산하지 않는다. `time_to_seconds(sec, nanosec)`가 `builtin_interfaces/Time`을 변환한다.
+- `observe()`는 로그 이름을 반환하지 않는다. 호출자가 호출 전후로 `.stopped`를 비교해 상태 전이를 판정한다. 모듈은 `EVENT_ACTIVATED`·`EVENT_AUTO_RELEASED` 문자열만 정의해 둔다.
+
+**미구현으로 남긴 부분**
+
+- `E_STOP_RELEASE_CONDITION_STARTED`·`_CANCELED` 판정. `release_condition_started_at`이 "설정 안 됨"을 뜻하는 값이 계약에 없어(예: 0초가 미설정인지 실제 시각인지 문서화되지 않음), 값의 유무만으로 시작·취소를 추측하지 않는다. TBD-IF-004에서 정의되면 반영한다.
+- 물리 E-stop의 로컬 방어적 latch. EStop.msg는 "물리 E-stop은 수동 reset까지 latch"라고 적었지만 해제 요청을 어떻게 트리거하는지는 필드가 없다. 현재 구현은 계약 문구대로 관제가 이 latch를 상류에서 보장한다고 보고 반영만 한다. AMR이 로컬에서도 방어적으로 latch해야 하는지는 TBD-IF-004의 "해제 요청 계약" 항목이 다룰 질문이며, 임의로 reset API를 추가하지 않았다.
+
+**구현 대조 완료** — 2026-09-07 현재 코드 기준. 패키지 실행 등록은 9단계에서 추가한다.
+
+~~~mermaid
+flowchart TD
+    MSG[estop 관측 / observe] --> SEQ{sequence 가 마지막 수락 값 초과 또는 최초?}
+    SEQ -->|아니오| STL[STALE_SEQUENCE 폐기 / 상태 불변]
+    SEQ -->|예| SET[하한 갱신 / active·cause·physical·source·시각 반영]
+    SET --> KNOWN{cause 가 정의된 값?}
+    KNOWN -->|예| CE[EStopCause 로 저장]
+    KNOWN -->|아니오| CR[원시 int 로 저장 / active 반영은 계속]
+    CE --> ACC[ACCEPTED]
+    CR --> ACC
+    Q[호출자: observe 전후 stopped 비교] --> T1{False → True?}
+    T1 -->|예| EA[EVENT_ACTIVATED 로그]
+    T1 -->|아니오| T2{True → False?}
+    T2 -->|예| ER[EVENT_AUTO_RELEASED 로그]
+~~~
+
+검증: [단위시험](../tests/test_estop_guard.py)은 관측 전 안전 기본값, active·physical·source·시각 반영, 역순·중복 sequence 폐기, 미정의 cause에서도 active 반영 유지, 전이 관측 가능성(stopped 전후 비교), 호출자 인자 오류를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_estop_guard.py -v`다. [IT-11](integration.md#4-통합시험-명세)의 로컬 반영 부분이며 관제 연동과 물리 버튼 실기 시험은 미실행이다.
 
 ## 4. Nav2·위치·Keepout
 

@@ -11,7 +11,7 @@
 | 1 | `patrol_interfaces`: MissionCommand, DriveToken, RobotStatus, PatrolReport, EStop 및 빌드 설정 | 구현·빌드·사용자 interface show 확인 완료 |
 | 2 | `battery_monitor.py`: 배터리 분류·3초 상태 전이·ROS 구독/내부 상태 발행 | 구현·단위시험·사용자 ROS 토픽 시험 통과 |
 | 3 | `drive_token_guard.py`: DriveToken 수락 규칙·Q-01 로컬 lease | 구현·단위시험 완료, 사용자 검토 대기 |
-| 4 | `estop_guard.py` | 미착수 |
+| 4 | `estop_guard.py`: EStop 반영·sequence 역순 폐기 | 구현·단위시험 완료, 사용자 검토 대기 |
 | 5 | `motion_guard.py` | 미착수 |
 | 6 | `local_safety_supervisor.py` ROS 노드 | 미착수 |
 | 7 | `robot_status_state.py` | 미착수 |
@@ -155,6 +155,25 @@ python3 -m unittest discover -s tests -p test_drive_token_guard.py -v
 예상 결과는 `Ran 22 tests`와 `OK`다. 두 단계를 함께 돌리려면 `-p "test_*.py"`를 쓴다. 예상 결과는 `Ran 29 tests`와 `OK`다.
 
 이 모듈은 ROS 토픽 시험 대상이 아니다. 실제 `/control/drive_token` 구독과 정지 출력은 6단계에서 붙인다. 상세 설계와 TBD-IF-002로 남긴 부분은 [amr.md 3.1절](../amr.md#31-drive_token_guardpy--구현-대조-완료)에 있다.
+
+## 6.2 4단계 구현 내용
+
+`src/patrol_amr/patrol_amr/estop_guard.py`는 3단계와 같이 일반 Python 모듈이며 6단계 `local_safety_supervisor`가 사용한다. `/control/estop` 관측을 반영만 하고 속도를 발행하지 않는다.
+
+- `observe(active, cause, physical, source, sequence, activated_at_seconds, release_condition_started_at_seconds)`가 `ACCEPTED`/`STALE_SEQUENCE`를 반환한다. `active`는 즉시 반영하고, 로컬 타이머·heartbeat timeout은 두지 않는다(TBD-IF-004).
+- 관측 전 기본 상태는 정지다. `DriveTokenGuard`와 달리 `robot_id`가 없다 — EStop.msg에 holder 필드가 없어 공통 토픽 하나를 모든 로봇이 동일하게 반영한다.
+- 물리 E-stop의 로컬 방어적 latch와 `E_STOP_RELEASE_CONDITION_STARTED`/`_CANCELED` 판정은 미구현이다. 계약에 근거가 없어 추측하지 않았다. 상세는 [amr.md 3.2절](../amr.md#32-estop_guardpy--구현-대조-완료)에 있다.
+
+단위시험:
+
+```bash
+cd ~/patrol
+python3 -m unittest discover -s tests -p test_estop_guard.py -v
+```
+
+예상 결과는 `Ran 17 tests`와 `OK`다. 지금까지 세 파일을 함께 돌리려면 `-p "test_*.py"`를 쓴다. 예상 결과는 `Ran 49 tests`와 `OK`다.
+
+이 모듈도 ROS 토픽 시험 대상이 아니다. 실제 `/control/estop` 구독과 정지 출력은 6단계에서 붙인다.
 
 ## 7. 결정·미완료 사항
 
