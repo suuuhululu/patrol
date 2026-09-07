@@ -247,6 +247,7 @@ flowchart TD
 **구현한 것** — `/control/drive_token`·`/control/estop`을 실제로 구독해 `DriveTokenGuard`·`EStopGuard`에 반영하고, 결합 결과를 AMR 내부 신호 `motion_allowed`(`std_msgs/Bool`)로 발행한다. `battery_status`(5.1절)와 같은 성격의 내부 연결이며 공용 인터페이스를 추가한 것이 아니다.
 
 - `SafetyGate`: ROS에 의존하지 않는 순수 조합 클래스. `robot_id` 하나로 `DriveTokenGuard`·`EStopGuard`·`MotionGuard`를 묶는다. `observe_drive_token`·`observe_estop`이 각 가드의 `observe()`를 그대로 위임하고, `blocked_reasons(now)`/`motion_allowed(now)`가 `MotionGuard.blocked_reasons()`([3.3절](#33-motion_guardpy--구현-대조-완료) 참고)로 결합 판정을 낸다. 노드 클래스와 분리해 둬 ROS 없이도 단위시험이 가능하다.
+- `estop_transition_event(previous_stopped, current_stopped, verdict)`: 수락된 E-stop 관측이 활성에서 해제로 전이했을 때 기존 안전 로그 이름 `E_STOP_AUTO_RELEASED`를 선택한다. `local_safety_supervisor._on_estop()`은 관측 전후 상태를 비교해 `robot_id`·`source`·`sequence`와 함께 이 로그를 남긴다. 최종 `motion_allowed`가 token 부재 때문에 계속 `false`여도 E-stop 해제 반영 자체를 확인할 수 있다. 중복·역순 관측과 상태 변화가 없는 반복 해제에는 로그를 남기지 않는다.
 - 신선도 재확인 타이머(0.1초, `battery_monitor`의 `_check_freshness`와 같은 간격)가 새 메시지 없이도 매 주기 `blocked_reasons(now)`를 다시 계산한다. drive_token의 Q-01 lease는 메시지 수신이 아니라 시계로 만료되므로, 메시지가 끊기면 이 타이머가 만료를 감지해 `motion_allowed`를 다시 발행한다. E-stop에는 이런 타이머가 없다 — lease 개념이 없고, heartbeat·신선도 timeout은 TBD-IF-004라 amr.md 3절의 임의 timeout 금지를 그대로 따른다.
 - QoS: drive_token 구독은 9절의 BEST_EFFORT・VOLATILE・KEEP_LAST(3)만 요청하고 deadline은 요청하지 않는다. 처음에는 9절의 "deadline 200ms"까지 구독측에 걸었으나, 사용자 시험 중 DDS 계층에서 실제로 막히는 것을 발견했다 — RxO 호환 규칙상 미지정 offered deadline은 무한대로 취급되어, deadline을 명시하지 않는 발행자(`ros2 topic pub` 포함)의 메시지가 전혀 도달하지 않는다("Last incompatible policy: DEADLINE"). 9절의 deadline·lifespan 값은 실제 발행자(관제)가 지켜야 할 발행 주기·보관 기한 설명으로 재해석했다. 신선도(끊김 감지)는 이미 구현된 Q-01 lease 만료(`DriveTokenGuard.authority`, 애플리케이션 계층)가 담당하므로 DDS deadline 없이도 안전 방향은 유지된다. estop은 9절이 "단일 상태, 정확한 depth TBD"로 남겨, RELIABLE・TRANSIENT_LOCAL은 그대로 따르고 depth=1만 이 노드(구독측)의 로컬 선택으로 채웠다 — 공용 계약을 확정한 것이 아니다. TRANSIENT_LOCAL 요구 때문에 `ros2 topic pub`으로 시험할 때는 `--qos-durability transient_local --qos-reliability reliable`을 함께 줘야 한다(기본값은 VOLATILE이라 그냥 두면 "Last incompatible policy: DURABILITY"로 막힌다 — 의도된 동작이며, 계약과 다른 durability의 발행자를 실제로 걸러낸다). `motion_allowed`는 `battery_status`와 같은 RELIABLE・TRANSIENT_LOCAL・KEEP_LAST(1)이다.
 - `robot_id`는 필수 ROS parameter다(`--ros-args -p robot_id:=robot1` 또는 `robot6`). 기본값을 두지 않고 미지정·오지정 시 노드 시작을 막는다 — 잘못된 기본값으로 다른 로봇의 token을 조용히 받아들이는 위험을 피했다.
@@ -262,10 +263,14 @@ flowchart TD
 ~~~mermaid
 flowchart TD
     DT[/control/drive_token 콜백] --> OT[SafetyGate.observe_drive_token]
-    ES[/control/estop 콜백] --> OE[SafetyGate.observe_estop]
+    ES[/control/estop 콜백] --> PRE[이전 estop stopped 저장]
+    PRE --> OE[SafetyGate.observe_estop]
+    OE --> REL{ACCEPTED이고 True → False?}
+    REL -->|예| RLOG[E_STOP_AUTO_RELEASED 로그]
+    REL -->|아니오| PUB
+    RLOG --> PUB
     TIMER[0.1초 재확인 타이머] --> PUB
     OT --> PUB[_publish_if_changed]
-    OE --> PUB
     PUB --> BR[SafetyGate.blocked_reasons now]
     BR --> D{drive_token GRANTED?}
     D -->|아니오| R1[DRIVE_TOKEN_NOT_GRANTED]
@@ -278,7 +283,7 @@ flowchart TD
     CHK -->|예| OUT[motion_allowed 발행 + 로그]
 ~~~
 
-검증: [단위시험](../tests/test_local_safety_supervisor.py)은 관측 전 기본 차단, 두 가드의 AND 결합(단독·동시 차단), drive_token lease가 새 메시지 없이 시계로 만료되는지, 만료 전 갱신 시 허용 유지, 다른 로봇 token·역순 estop의 폐기, `robot_id` 검증을 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_local_safety_supervisor.py -v`다. 실제 `/control/drive_token`·`/control/estop` 토픽 시험과 로봇 실기는 사용자 확인 후 진행한다. [IT-16](integration.md#4-통합시험-명세) 최종 속도 경계는 실제 후보 입력·최종 발행이 없어 아직 대상이 아니다.
+검증: [단위시험](../tests/test_local_safety_supervisor.py)은 관측 전 기본 차단, 두 가드의 AND 결합(단독·동시 차단), drive_token lease가 새 메시지 없이 시계로 만료되는지, 만료 전 갱신 시 허용 유지, 다른 로봇 token·역순 estop의 폐기, `robot_id` 검증, 수락된 E-stop 해제 전이에만 `E_STOP_AUTO_RELEASED` 로그 이름을 선택하는지 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_local_safety_supervisor.py -v`다. 실제 `/control/drive_token`·`/control/estop` 토픽 시험과 로봇 실기는 사용자 확인 후 진행한다. [IT-16](integration.md#4-통합시험-명세) 최종 속도 경계는 실제 후보 입력·최종 발행이 없어 아직 대상이 아니다.
 
 ## 4. Nav2·위치·Keepout
 
@@ -368,6 +373,40 @@ Candidate/Event 필드·enum·QoS는 TBD-IF-006, 증적 전송은 TBD-IF-007을 
 ## 7. 상태·결과·진단
 
 RobotStatus의 발행·변경 rate는 Q-02다. PatrolReport는 명령과 연결해 SUCCEEDED/FAILED/CANCELED 및 실패·취소 reason을 제공한다. 통신 두절 후 결과 전달 방식은 TBD-IF-003이다.
+
+### 7.1 robot_status_state.py — 구현 대조 완료
+
+2026-09-07: 사용자 7단계 진행 요청에 따라 [robot_status_state.py](../src/patrol_amr/patrol_amr/robot_status_state.py)에 8단계 `status_reporter`가 사용할 순수 Python 상태 모델을 구현했다. ROS 토픽을 발행하는 노드가 아니라 로봇 한 대의 상태를 보관하고 snapshot을 만드는 내부 모듈이다.
+
+- `OperationalState`, `MissionState`, `DockingState`, `BatteryState`: [인터페이스 4·8절](interfaces.md#4-robotstatus)에 확정된 숫자만 `IntEnum`으로 정의했다. 네 축은 독립적으로 갱신한다. 축 조합별 허용 전이는 TBD-AMR-005이므로 이 파일에서 임의로 막지 않는다.
+- `RobotStatusState.update_states(...)`: 전달된 축의 값을 모두 먼저 검증한 뒤 한꺼번에 반영한다. 하나라도 잘못되면 어느 축도 바뀌지 않는다. 실제 변경이 있을 때만 내부 `revision`을 1 증가시킨다. 이 revision은 8단계의 변경 감지용 로컬 값이며 공용 `status_sequence`가 아니다.
+- `safety_state`: 필드 이름은 사용하지만 enum 숫자는 TBD-IF-003이므로 `SafetyState` enum과 기본 숫자를 만들지 않았다. 합의된 값이 호출자에게서 들어오면 uint8 범위만 검증해 보관한다. 초기 `None`은 “계약 매핑이 아직 공급되지 않음”이라는 내부 상태이고 ROS 메시지 값이 아니다.
+- `RobotStatusState.observe_pose(...)`: 유효 위치는 payload, `map` frame, 측정 시각이 모두 있어야 한다. `pose_valid=false`가 들어오면 현재 pose는 무효로 표시하되 마지막 유효 pose는 지우지 않는다. pose payload에는 8단계에서 ROS pose와 covariance가 함께 들어온다.
+- `RobotStatusState.snapshot(snapshot_at)`: 현재 상태의 복사본을 만들고 같은 ROS clock의 snapshot 시각에서 마지막 유효 pose 측정 시각을 빼 `last_valid_pose_age`를 계산한다. token lease처럼 로컬 monotonic 시간을 쓰는 곳과 섞지 않는다.
+
+새 [interfaces.md](interfaces.md#4-robotstatus)는 상태 필드 이름을 `operational_state`, `mission_state`, `docking_state`, `battery_state`, `safety_state`로 명확히 했으므로 내부 모델도 이 이름을 사용한다. 현재 [RobotStatus.msg](../src/patrol_interfaces/msg/RobotStatus.msg)는 아직 이전 이름 `operational`, `mission`, `docking`, `battery`, `safety`와 이전 제안 필드를 담고 있다. 공용 메시지는 여러 개발 단위의 합의 대상이므로 7단계에서 수정하지 않았다. 8단계 ROS 메시지 매핑 전에 TBD-IF-003의 남은 enum·타입과 함께 동기화해야 한다.
+
+~~~mermaid
+flowchart TD
+    INIT[RobotStatusState 생성] --> DEFAULT[UNKNOWN / NONE / pose_valid false]
+    STATE[update_states] --> VALIDATE{전달된 모든 축 값 유효?}
+    VALIDATE -->|아니오| ERROR[ValueError / 어떤 축도 변경 안 함]
+    VALIDATE -->|예| CHANGED{기존 값과 다른가?}
+    CHANGED -->|예| APPLY[축을 독립적으로 반영 + revision 증가]
+    CHANGED -->|아니오| KEEP[상태와 revision 유지]
+    POSE[observe_pose] --> PVALID{pose_valid?}
+    PVALID -->|예| PCHECK{payload + map frame + 측정 시각 유효?}
+    PCHECK -->|아니오| ERROR
+    PCHECK -->|예| SAVE[현재 pose와 last_valid_pose 모두 갱신]
+    PVALID -->|아니오| INVALID[현재 pose만 무효 반영]
+    INVALID --> PRESERVE[last_valid_pose 보존]
+    SAVE --> REV[변경 시 revision 증가]
+    PRESERVE --> REV
+    SNAP[snapshot 시각] --> AGE[last_valid_pose_age 계산]
+    AGE --> COPY[독립 복사본 반환]
+~~~
+
+검증: [단위시험](../tests/test_robot_status_state.py)은 안전한 초기값, 독립 상태 축, 원자적 검증, 미합의 safety 숫자의 불투명 처리, 유효 pose 저장, 무효 pose 뒤 마지막 유효 pose 보존, age 계산, 입력·snapshot 복사, 잘못된 frame·시각 거절을 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_robot_status_state.py -v`다. 실제 RobotStatus 토픽 발행 시험은 8단계 범위다.
 
 다음 기존 안전 로그를 보존한다.
 
