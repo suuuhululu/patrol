@@ -13,7 +13,7 @@
 | 3 | `drive_token_guard.py`: DriveToken 수락 규칙·Q-01 로컬 lease | 구현·단위시험 완료, 사용자 검토 대기 |
 | 4 | `estop_guard.py`: EStop 반영·sequence 역순 폐기 | 구현·단위시험 완료, 사용자 검토 대기 |
 | 5 | `motion_guard.py`: token·E-stop 결합 최종 출력 게이트 (축소 범위) | 구현·단위시험 완료, 사용자 검토 대기 |
-| 6 | `local_safety_supervisor.py` ROS 노드 | 미착수 |
+| 6 | `local_safety_supervisor.py` ROS 노드 (축소 범위) | 구현·단위시험 완료, 사용자 검토 대기 |
 | 7 | `robot_status_state.py` | 미착수 |
 | 8 | `status_reporter.py` ROS 노드 | 미착수 |
 | 9 | `patrol_amr` 패키지 설정·실행 등록·통합 | 미착수 |
@@ -192,6 +192,25 @@ python3 -m unittest discover -s tests -p test_motion_guard.py -v
 예상 결과는 `Ran 10 tests`와 `OK`다. 지금까지 네 파일을 함께 돌리려면 `-p "test_*.py"`를 쓴다. 예상 결과는 `Ran 59 tests`와 `OK`다.
 
 이 모듈도 ROS 토픽 시험 대상이 아니다. 남겨둔 장애물·감속 범위는 TBD-AMR-006 해결과 로봇 실기 이후에 별도로 다룬다. 상세는 [amr.md 3.3절](../amr.md#33-motion_guardpy--구현-대조-완료)에 있다.
+
+## 6.4 6단계 구현 내용과 범위
+
+`src/patrol_amr/patrol_amr/local_safety_supervisor.py`는 3~5단계 가드를 실제 ROS 노드로 묶은 첫 지점이다. 5단계와 같은 이유로 진행 전 범위를 확인했다.
+
+- 구현한 것: `/control/drive_token`·`/control/estop`을 실제 구독해 3·4단계 가드에 반영하고, 결합 결과를 AMR 내부 신호 `motion_allowed`(`std_msgs/Bool`)로 발행한다. drive_token의 Q-01 lease가 메시지 없이도 시계로 만료되도록 0.1초 재확인 타이머를 둔다(`battery_monitor`의 신선도 검사와 같은 간격).
+- 구현하지 않은 것: 실제 속도 후보 입력과 최종 속도 발행. Nav2·yaw 후보 중재(TBD-AMR-001)는 `mission_supervisor` 담당이며 이 작업 범위(AMR Python 파일 7개·ROS 노드 3개) 밖이고, 최종 발행 타입(TBD-IF-009)도 미정이다. `MotionGuard.evaluate()`는 준비돼 있지만 아직 실제 후보로 호출되지 않는다.
+- `robot_id`는 필수 ROS parameter다. 미지정·오지정 시 노드가 시작하지 않는다.
+
+단위시험 (ROS 불필요, `SafetyGate`는 순수 Python):
+
+```bash
+cd ~/patrol
+python3 -m unittest discover -s tests -p test_local_safety_supervisor.py -v
+```
+
+예상 결과는 `Ran 11 tests`와 `OK`다. 지금까지 다섯 파일을 함께 돌리려면 `-p "test_*.py"`를 쓴다. 예상 결과는 `Ran 73 tests`와 `OK`다.
+
+이 노드는 2단계·6단계처럼 실제 ROS 토픽 시험 대상이다. 상세는 [amr.md 3.4절](../amr.md#34-local_safety_supervisorpy--구현-대조-완료-축소-범위)에 있다.
 
 ## 7. 결정·미완료 사항
 

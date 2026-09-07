@@ -59,21 +59,30 @@ class MotionGuard:
         upstream (TBD-AMR-001) -- this guard does not choose between
         drive candidates and does not clamp or shape a permitted one.
         """
+        linear, angular = self._validate_candidate(candidate)
+        reasons = self.blocked_reasons(drive_token_granted, estop_active)
+        if reasons:
+            return STOP, reasons
+        return (linear, angular), reasons
+
+    def blocked_reasons(self, drive_token_granted: bool, estop_active: bool):
+        """Reasons motion would be blocked, independent of any candidate.
+
+        6단계 local_safety_supervisor의 신선도 재확인 타이머가 이 메서드를
+        쓴다: 새 메시지 없이도(예: drive_token lease 만료) 매 주기 이 값을
+        다시 물어봐 변화가 있으면 다시 로그·발행한다. candidate 가 필요
+        없으므로 아직 실제 속도 후보가 없는 시점에도 호출할 수 있다.
+        """
         if not isinstance(drive_token_granted, bool):
             raise ValueError('drive_token_granted must be a bool')
         if not isinstance(estop_active, bool):
             raise ValueError('estop_active must be a bool')
-        linear, angular = self._validate_candidate(candidate)
-
         reasons = set()
         if not drive_token_granted:
             reasons.add(MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED)
         if estop_active:
             reasons.add(MotionBlockReason.ESTOP_ACTIVE)
-
-        if reasons:
-            return STOP, frozenset(reasons)
-        return (linear, angular), frozenset()
+        return frozenset(reasons)
 
     @staticmethod
     def _validate_candidate(candidate):

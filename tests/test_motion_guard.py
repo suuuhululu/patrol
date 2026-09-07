@@ -67,6 +67,32 @@ class GateTests(unittest.TestCase):
         self.assertEqual(reasons, frozenset())
 
 
+class BlockedReasonsTests(unittest.TestCase):
+    """candidate 없이 차단 여부만 묻는 경로 (6단계 신선도 재확인용)."""
+
+    def test_matches_evaluate_for_all_combinations(self):
+        g = guard()
+        for drive, estop in ((True, False), (False, False), (True, True), (False, True)):
+            with self.subTest(drive=drive, estop=estop):
+                _, expected = g.evaluate(drive, estop, CANDIDATE)
+                self.assertEqual(g.blocked_reasons(drive, estop), expected)
+
+    def test_no_candidate_required(self):
+        g = guard()
+        self.assertEqual(g.blocked_reasons(True, False), frozenset())
+        self.assertEqual(
+            g.blocked_reasons(False, True),
+            frozenset({R.DRIVE_TOKEN_NOT_GRANTED, R.ESTOP_ACTIVE}),
+        )
+
+    def test_non_bool_flags_raise(self):
+        g = guard()
+        with self.assertRaises(ValueError):
+            g.blocked_reasons(1, False)
+        with self.assertRaises(ValueError):
+            g.blocked_reasons(True, 0)
+
+
 class CallerErrorTests(unittest.TestCase):
     def test_non_bool_flags_raise(self):
         g = guard()

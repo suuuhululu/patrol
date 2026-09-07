@@ -60,6 +60,7 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 | drive_token_guard.py | [src/patrol_amr/patrol_amr/drive_token_guard.py](../src/patrol_amr/patrol_amr/drive_token_guard.py) · `DriveTokenGuard.observe`·`authority` | [3.1절](#31-drive_token_guardpy--구현-대조-완료) 구현 대조 완료 |
 | estop_guard.py | [src/patrol_amr/patrol_amr/estop_guard.py](../src/patrol_amr/patrol_amr/estop_guard.py) · `EStopGuard.observe`·`stopped` | [3.2절](#32-estop_guardpy--구현-대조-완료) 구현 대조 완료 |
 | motion_guard.py | [src/patrol_amr/patrol_amr/motion_guard.py](../src/patrol_amr/patrol_amr/motion_guard.py) · `MotionGuard.evaluate` | [3.3절](#33-motion_guardpy--구현-대조-완료) 구현 대조 완료 (축소 범위) |
+| local_safety_supervisor.py | [src/patrol_amr/patrol_amr/local_safety_supervisor.py](../src/patrol_amr/patrol_amr/local_safety_supervisor.py) · `SafetyGate`·`LocalSafetySupervisor` | [3.4절](#34-local_safety_supervisorpy--구현-대조-완료-축소-범위) 구현 대조 완료 (축소 범위) |
 | battery_monitor.py | [src/patrol_amr/patrol_amr/battery_monitor.py](../src/patrol_amr/patrol_amr/battery_monitor.py) · `classify_observation`·`BatteryStateModel.update` | [5.1절](#51-battery_monitorpy--구현-대조-완료) 구현 대조 완료 |
 | 공통 Nav2 연결·위치·상태/결과 발행 | 실제 코드 파일·모듈별 행으로 분리하여 기록 | 미작성 |
 
@@ -238,6 +239,46 @@ flowchart TD
 ~~~
 
 검증: [단위시험](../tests/test_motion_guard.py)은 두 조건의 AND 게이트(정상·각 단독 차단·동시 차단), STOP 값의 정확성, candidate 그대로 통과, 상태 비저장(연속 호출 간 사유 미잔존), 호출자 인자 오류를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_motion_guard.py -v`다. 실제 장애물·로봇 동역학 시험은 TBD-AMR-006 해결과 로봇 실기 이후로 남는다.
+
+### 3.4 local_safety_supervisor.py — 구현 대조 완료 (축소 범위)
+
+2026-09-07: 사용자가 6단계 진행을 요청하기 전 5단계와 같은 이유로 범위를 확인했다. [local_safety_supervisor.py](../src/patrol_amr/patrol_amr/local_safety_supervisor.py)는 3~5단계에서 만든 세 가드를 실제 ROS 노드로 묶은 첫 지점이며, [3.1](#31-drive_token_guardpy--구현-대조-완료)~[3.3절](#33-motion_guardpy--구현-대조-완료)과 달리 `battery_monitor`(5.1절)처럼 진짜 ROS 노드다.
+
+**구현한 것** — `/control/drive_token`·`/control/estop`을 실제로 구독해 `DriveTokenGuard`·`EStopGuard`에 반영하고, 결합 결과를 AMR 내부 신호 `motion_allowed`(`std_msgs/Bool`)로 발행한다. `battery_status`(5.1절)와 같은 성격의 내부 연결이며 공용 인터페이스를 추가한 것이 아니다.
+
+- `SafetyGate`: ROS에 의존하지 않는 순수 조합 클래스. `robot_id` 하나로 `DriveTokenGuard`·`EStopGuard`·`MotionGuard`를 묶는다. `observe_drive_token`·`observe_estop`이 각 가드의 `observe()`를 그대로 위임하고, `blocked_reasons(now)`/`motion_allowed(now)`가 `MotionGuard.blocked_reasons()`([3.3절](#33-motion_guardpy--구현-대조-완료) 참고)로 결합 판정을 낸다. 노드 클래스와 분리해 둬 ROS 없이도 단위시험이 가능하다.
+- 신선도 재확인 타이머(0.1초, `battery_monitor`의 `_check_freshness`와 같은 간격)가 새 메시지 없이도 매 주기 `blocked_reasons(now)`를 다시 계산한다. drive_token의 Q-01 lease는 메시지 수신이 아니라 시계로 만료되므로, 메시지가 끊기면 이 타이머가 만료를 감지해 `motion_allowed`를 다시 발행한다. E-stop에는 이런 타이머가 없다 — lease 개념이 없고, heartbeat·신선도 timeout은 TBD-IF-004라 amr.md 3절의 임의 timeout 금지를 그대로 따른다.
+- QoS: drive_token은 9절 그대로 BEST_EFFORT・VOLATILE・KEEP_LAST(3), deadline 200ms, lifespan 500ms다. estop은 9절이 "단일 상태, 정확한 depth TBD"로 남겨, RELIABLE・TRANSIENT_LOCAL은 그대로 따르고 depth=1만 이 노드(구독측)의 로컬 선택으로 채웠다 — 공용 계약을 확정한 것이 아니다. `motion_allowed`는 `battery_status`와 같은 RELIABLE・TRANSIENT_LOCAL・KEEP_LAST(1)이다.
+- `robot_id`는 필수 ROS parameter다(`--ros-args -p robot_id:=robot1` 또는 `robot6`). 기본값을 두지 않고 미지정·오지정 시 노드 시작을 막는다 — 잘못된 기본값으로 다른 로봇의 token을 조용히 받아들이는 위험을 피했다.
+
+**TBD-AMR-001·006·TBD-IF-009로 남긴 부분** — 5단계와 같은 이유다.
+
+- 실제 최종 속도 후보 입력이 없다. Nav2·yaw 후보 중재(TBD-AMR-001)는 `mission_supervisor`가 담당하며 이는 이 작업 범위(AMR Python 파일 7개·ROS 노드 3개)에 없다.
+- `MotionGuard.evaluate()`로 실제 후보를 게이팅해 최종 속도를 발행하는 부분이 없다. `blocked_reasons()`만 사용해 후보 없이도 차단 여부는 판정한다.
+- 최종 발행 토픽·타입(Twist/TwistStamped 등, TBD-IF-009)을 정하지 않았다. 정해지면 `motion_allowed` 대신 실제 속도 출력 발행으로 확장한다.
+
+**구현 대조 완료** — 2026-09-07 현재 코드 기준, 위 축소 범위 내에서. 패키지 실행 등록은 9단계에서 추가한다.
+
+~~~mermaid
+flowchart TD
+    DT[/control/drive_token 콜백] --> OT[SafetyGate.observe_drive_token]
+    ES[/control/estop 콜백] --> OE[SafetyGate.observe_estop]
+    TIMER[0.1초 재확인 타이머] --> PUB
+    OT --> PUB[_publish_if_changed]
+    OE --> PUB
+    PUB --> BR[SafetyGate.blocked_reasons now]
+    BR --> D{drive_token GRANTED?}
+    D -->|아니오| R1[DRIVE_TOKEN_NOT_GRANTED]
+    D -->|예| E
+    R1 --> E{estop stopped?}
+    E -->|예| R2[ESTOP_ACTIVE]
+    E -->|아니오| CHK
+    R2 --> CHK{allowed 값이 이전과 다름?}
+    CHK -->|아니오| SKIP[발행 생략]
+    CHK -->|예| OUT[motion_allowed 발행 + 로그]
+~~~
+
+검증: [단위시험](../tests/test_local_safety_supervisor.py)은 관측 전 기본 차단, 두 가드의 AND 결합(단독·동시 차단), drive_token lease가 새 메시지 없이 시계로 만료되는지, 만료 전 갱신 시 허용 유지, 다른 로봇 token·역순 estop의 폐기, `robot_id` 검증을 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_local_safety_supervisor.py -v`다. 실제 `/control/drive_token`·`/control/estop` 토픽 시험과 로봇 실기는 사용자 확인 후 진행한다. [IT-16](integration.md#4-통합시험-명세) 최종 속도 경계는 실제 후보 입력·최종 발행이 없어 아직 대상이 아니다.
 
 ## 4. Nav2·위치·Keepout
 
