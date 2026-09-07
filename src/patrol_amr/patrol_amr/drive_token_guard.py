@@ -23,6 +23,7 @@ class TokenVerdict(Enum):
 
     ACCEPTED = 'accepted'
     REVOKED = 'revoked'
+    HOLDER_CHANGED = 'holder_changed'
     OTHER_HOLDER = 'other_holder'
     STALE_SEQUENCE = 'stale_sequence'
     INVALID_LEASE = 'invalid_lease'
@@ -64,6 +65,7 @@ class DriveTokenGuard:
             raise ValueError(f'robot_id must be one of {ROBOT_IDS}')
         self._robot_id = robot_id
         self._token = None
+        self._sequence_token = None
         self._last_sequence = None
         self._lease_expires_at = None
         self._revoked_last = False
@@ -80,8 +82,13 @@ class DriveTokenGuard:
 
     @property
     def last_sequence(self):
-        """Highest accepted sequence, kept across invalidation (TBD-IF-002)."""
+        """Sequence floor, scoped to sequence_token (TBD-IF-002 decision)."""
         return self._last_sequence
+
+    @property
+    def sequence_token(self):
+        """Token string the current sequence floor belongs to."""
+        return self._sequence_token
 
     @property
     def revoked_last(self) -> bool:
@@ -109,30 +116,40 @@ class DriveTokenGuard:
         ):
             raise ValueError('lease_seconds must be a real number')
 
-        # 다른 holder 의 토큰은 폐기한다. 공통 토픽에서 holder 가 교체될 때의
-        # 무효화·폐기 순서는 TBD-IF-002 이므로 현재 권한을 앞당겨 끊지 않는다.
-        # 갱신이 멈추면 Q-01 lease 안에서 스스로 만료된다.
+        # sequence 하한은 token 문자열 epoch 단위다 (TBD-IF-002 결정,
+        # 2026-09-07). 같은 token 의 역행·중복은 폐기하고, token 이 바뀌면
+        # 관제 재시작이나 권한 이동이므로 하한을 새로 잡는다. 하한을 영구
+        # 고정하면 관제 재시작 뒤 주행을 영영 되찾지 못한다. 재생 위험은
+        # drive_token 의 lifespan 500 ms 가 전송 계층에서 제한한다.
+        if token == self._sequence_token and sequence <= self._last_sequence:
+            return (
+                TokenVerdict.OTHER_HOLDER
+                if holder_robot_id != self._robot_id
+                else TokenVerdict.STALE_SEQUENCE
+            )
+
+        self._sequence_token = token
+        self._last_sequence = sequence
+
+        # 공통 토픽의 권한 보유자는 하나다. 앞선 sequence 로 다른 holder 가
+        # 지명되면 관제가 권한을 넘긴 것이므로 lease 만료를 기다리지 않고
+        # 즉시 끊는다 (TBD-IF-002 결정, 2026-09-07).
         if holder_robot_id != self._robot_id:
-            return TokenVerdict.OTHER_HOLDER
+            self._invalidate(revoked=False)
+            return TokenVerdict.HOLDER_CHANGED
 
         if token == '':
             self._invalidate(revoked=True)
             return TokenVerdict.REVOKED
 
-        # token 문자열이 바뀌면 기존 token 을 즉시 무효화한다. 새 token 의
-        # sequence 재설정 순서는 TBD-IF-002 이므로 아래 규칙을 그대로 적용해
-        # 확정되기 전에는 주행을 허용하지 않는다.
+        # token 문자열이 바뀌면 기존 token 을 즉시 무효화한다.
         if self._token is not None and token != self._token:
             self._invalidate(revoked=False)
-
-        if self._last_sequence is not None and sequence <= self._last_sequence:
-            return TokenVerdict.STALE_SEQUENCE
 
         if not math.isfinite(lease_seconds) or lease_seconds <= 0.0:
             return TokenVerdict.INVALID_LEASE
 
         self._token = token
-        self._last_sequence = sequence
         self._lease_expires_at = now + float(lease_seconds)
         self._revoked_last = False
         return TokenVerdict.ACCEPTED
@@ -158,7 +175,7 @@ class DriveTokenGuard:
         return max(0.0, self._lease_expires_at - now)
 
     def _invalidate(self, revoked: bool) -> None:
-        """Drop the held token. last_sequence is kept, see TBD-IF-002."""
+        """Drop the held token; the sequence floor is left to the caller."""
         self._token = None
         self._lease_expires_at = None
         self._revoked_last = revoked

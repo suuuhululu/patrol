@@ -78,22 +78,37 @@ class AcceptanceTests(unittest.TestCase):
 
 
 class DiscardTests(unittest.TestCase):
-    def test_other_holder_is_discarded_without_touching_authority(self):
+    def test_newer_other_holder_message_invalidates_immediately(self):
         g = guard('robot1')
         accept(g, 0.0, sequence=5)
         self.assertIs(
-            g.observe('other', 'robot6', LEASE, 99, 0.2), V.OTHER_HOLDER
+            g.observe('t6', 'robot6', LEASE, 6, 0.2), V.HOLDER_CHANGED
         )
-        # 다른 로봇의 토큰은 폐기만 한다. 보유 중인 권한과 sequence 는 그대로다.
-        self.assertIs(g.authority(0.2), A.GRANTED)
-        self.assertEqual(g.token, 't1')
-        self.assertEqual(g.last_sequence, 5)
+        # 관제가 권한을 넘겼으므로 lease 만료를 기다리지 않는다.
+        self.assertIs(g.authority(0.2), A.MISSING)
+        self.assertIsNone(g.token)
+        self.assertFalse(g.revoked_last)
 
-    def test_other_holder_does_not_extend_lease(self):
+    def test_duplicate_other_holder_message_changes_nothing(self):
         g = guard('robot1')
-        accept(g, 0.0)
-        g.observe('other', 'robot6', LEASE, 99, 0.9)
-        self.assertIs(g.authority(1.0), A.EXPIRED)
+        self.assertIs(
+            g.observe('t6', 'robot6', LEASE, 6, 0.0), V.HOLDER_CHANGED
+        )
+        # 같은 epoch 의 중복 수신은 폐기한다.
+        self.assertIs(
+            g.observe('t6', 'robot6', LEASE, 6, 0.1), V.OTHER_HOLDER
+        )
+        self.assertEqual(g.last_sequence, 6)
+
+    def test_handover_then_return_restores_authority(self):
+        g = guard('robot1')
+        accept(g, 0.0, token='t1', sequence=5)
+        g.observe('t6', 'robot6', LEASE, 6, 0.2)
+        self.assertIs(g.authority(0.2), A.MISSING)
+        self.assertIs(
+            g.observe('t1b', 'robot1', LEASE, 7, 0.4), V.ACCEPTED
+        )
+        self.assertIs(g.authority(0.4), A.GRANTED)
 
     def test_stale_or_equal_sequence_is_discarded(self):
         g = guard()
@@ -142,27 +157,17 @@ class RevocationTests(unittest.TestCase):
         self.assertEqual(g.token, 't2')
         self.assertIs(g.authority(0.1), A.GRANTED)
 
-    def test_changed_token_with_reset_sequence_blocks_driving(self):
-        g = guard()
-        accept(g, 0.0, token='t1', sequence=9)
-        # TBD-IF-002 미확정 구간이다. 기존 token 은 즉시 무효화하고 새 token 은
-        # sequence 규칙에 따라 폐기하므로 주행을 허용하지 않는다.
-        self.assertIs(
-            g.observe('t2', 'robot1', LEASE, 1, 0.1), V.STALE_SEQUENCE
-        )
-        self.assertIs(g.authority(0.1), A.MISSING)
-        self.assertIsNone(g.token)
-        self.assertEqual(g.last_sequence, 9)
-
-    def test_revocation_keeps_sequence_floor(self):
+    def test_revocation_sets_floor_to_the_empty_token_epoch(self):
         g = guard()
         accept(g, 0.0, sequence=5)
         g.observe('', 'robot1', LEASE, 6, 0.1)
-        self.assertEqual(g.last_sequence, 5)
+        self.assertEqual(g.sequence_token, '')
+        self.assertEqual(g.last_sequence, 6)
+        # 같은 회수 메시지의 중복 수신은 폐기한다.
         self.assertIs(
-            g.observe('t2', 'robot1', LEASE, 5, 0.2), V.STALE_SEQUENCE
+            g.observe('', 'robot1', LEASE, 6, 0.2), V.STALE_SEQUENCE
         )
-        self.assertIs(g.observe('t2', 'robot1', LEASE, 6, 0.3), V.ACCEPTED)
+        self.assertIs(g.authority(0.2), A.MISSING)
 
     def test_accept_clears_revoked_flag(self):
         g = guard()
@@ -172,6 +177,39 @@ class RevocationTests(unittest.TestCase):
         accept(g, 0.2, token='t2', sequence=2)
         self.assertFalse(g.revoked_last)
 
+
+
+class SequenceEpochTests(unittest.TestCase):
+    """TBD-IF-002 결정(2026-09-07): sequence 하한은 token 문자열 단위다."""
+
+    def test_same_token_replay_is_discarded(self):
+        g = guard()
+        accept(g, 0.0, token='t1', sequence=7)
+        for sequence in (0, 3, 7):
+            with self.subTest(sequence=sequence):
+                self.assertIs(
+                    g.observe('t1', 'robot1', LEASE, sequence, 0.1),
+                    V.STALE_SEQUENCE,
+                )
+
+    def test_new_token_resets_the_sequence_floor(self):
+        g = guard()
+        accept(g, 0.0, token='t1', sequence=900)
+        self.assertIs(g.observe('t2', 'robot1', LEASE, 1, 0.1), V.ACCEPTED)
+        self.assertIs(g.authority(0.1), A.GRANTED)
+        self.assertEqual(g.sequence_token, 't2')
+        self.assertEqual(g.last_sequence, 1)
+
+    def test_control_restart_recovers_driving(self):
+        g = guard()
+        accept(g, 0.0, token='epoch-a', sequence=MODULE.SEQUENCE_MAX - 1)
+        g.observe('', 'robot1', LEASE, MODULE.SEQUENCE_MAX, 0.1)
+        self.assertIs(g.authority(0.1), A.MISSING)
+        # 재시작으로 sequence 가 0 으로 돌아가도 새 token epoch 이면 회복한다.
+        self.assertIs(
+            g.observe('epoch-b', 'robot1', LEASE, 0, 0.2), V.ACCEPTED
+        )
+        self.assertIs(g.authority(0.2), A.GRANTED)
 
 class CallerErrorTests(unittest.TestCase):
     def test_robot_id_must_be_known(self):

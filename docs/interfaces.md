@@ -326,12 +326,12 @@ DB 테이블·컬럼 매핑·인덱스·보존·백업 등 내부 저장 설계�
 
 ## TBD
 
-모든 항목은 OPEN이다. 결정 시 이 표에 일자·근거·요청서 링크를 추가한다.
+모든 항목은 OPEN이다. 결정 시 이 표에 일자·근거·요청서 링크를 추가한다. 단위별 잠정 적용은 해당 단위가 합의 전에 적용한 해석이며 계약 확정을 뜻하지 않는다.
 
 | ID | 결정할 내용 | 영향 단위 |
 |---|---|---|
 | TBD-IF-001 | 명령별 필수 필드·JSON·수신 확인, ID 충돌, 24시간/1,000개 보존 정책 | AMR·관제 |
-| TBD-IF-002 | token epoch/sequence 재시작·wraparound, holder 교체 순서, message age 검증 | AMR·관제 |
+| TBD-IF-002 | token epoch/sequence 재시작·wraparound, holder 교체 순서, message age 검증 | AMR·관제 · AMR 잠정 적용, 관제 합의 대기 ([요청서](change_requests/CR-AMR_09-07_15-12_DriveToken_sequence_epoch와_holder_교체.md), [amr.md 3.1절](amr.md#31-drive_token_guardpy--구현-대조-완료)) |
 | TBD-IF-003 | RobotStatus·PatrolReport 전체 필드, safety enum, 순찰·방문·결과 ID, 결과 복구 전달 | AMR·관제·시스템 모니터 |
 | TBD-IF-004 | heartbeat 타입·주기·timeout, E-stop 필드·범위·depth·해제 요청 계약 | AMR·관제·시스템 모니터 |
 | TBD-IF-005 | CameraState 패키지, state 정수값, camera_id·event_id 생성 규칙 | 비전·관제 |
