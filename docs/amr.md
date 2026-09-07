@@ -134,7 +134,49 @@ mask server와 costmap_filter_info_server도 필요하다. 이는 예시이며 �
 
 ## 5. 배터리와 도킹
 
-SOC·충전 방향에 따른 Battery enum은 interfaces.md 8절과 Q-11을 따른다. 무효·미수신은 UNKNOWN이다. 배터리 센서 신선도와 전류 부호·충전 여부 판정은 TBD-AMR-003이다.
+SOC·충전 방향에 따른 Battery enum은 interfaces.md 8절과 Q-11을 따른다. 무효·미수신은 UNKNOWN이다. 배터리 센서 입력 정책은 아래 TBD-AMR-003 결정 기록을 따른다.
+
+### 5.1 battery_monitor.py — 구현 대조 완료
+
+2026-09-07: 사용자 2단계 진행 요청과 TBD-AMR-003 권장안 승인에 따라 [battery_monitor.py](../src/patrol_amr/patrol_amr/battery_monitor.py)에 분류·상태 전이 모델과 ROS 노드를 구현했다. 이전 워크스페이스의 LOW/CHARGED 문자열 이벤트 코드는 현재 enum·Q-11과 달라 이관하지 않았다. 별도 BatteryEvent 계약은 추가하지 않았다.
+
+- `classify_battery(soc, charging)`: 유효성이 확인된 SOC와 명시적인 충전 방향을 입력받아 [인터페이스 8절](interfaces.md#8-battery-enum과-임계값)의 상태를 반환한다. 잘못된 함수 인자는 ValueError이며 센서 오류 정책을 대신하지 않는다.
+- `BatteryStateModel.update(observed, now)`: 초기 UNKNOWN, CRITICAL 즉시, 나머지는 Q-11 유지 후 반영한다. 후보가 바뀌거나 현재 상태로 돌아오면 이전 대기 시간을 버린다. `now`는 호출자가 전달하는 monotonic 초다.
+- 상대 토픽 `battery_state`의 `sensor_msgs/BatteryState`를 sensor-data QoS로 구독한다. `CHARGING`·`FULL`은 충전 방향, `DISCHARGING`은 방전 방향으로 판정한다. 그 외 status, `present=false`, NaN, 0~1 범위 밖 SOC는 즉시 UNKNOWN이다.
+- 마지막 메시지 수신 후 monotonic 경과 3초가 되면 즉시 UNKNOWN으로 전환한다. 유효한 CRITICAL은 즉시, 다른 유효 상태는 Q-11에 따라 같은 상태가 3초 연속 관측된 뒤 반영한다.
+- 상태가 바뀔 때 상대 토픽 `battery_status`에 `std_msgs/UInt8`로 enum 값을 발행한다. 현재 상태를 늦게 구독한 내부 노드도 받도록 RELIABLE·TRANSIENT_LOCAL·KEEP_LAST(1)을 사용한다. 이 토픽은 AMR 내부 연결이며 공용 팀 간 인터페이스로 추가하지 않는다.
+- 도킹·주행 명령·RobotStatus 발행은 이번 노드에 없다. 7~8단계가 내부 `battery_status`를 상태 보고에 연결한다.
+
+**구현 대조 완료** — 2026-09-07 현재 코드 기준. 패키지 실행 등록은 9단계에서 추가한다.
+
+~~~mermaid
+flowchart TD
+    A[검증된 SOC와 충전 방향] --> B[classify_battery]
+    B --> C{함수 인자 유효?}
+    C -->|아니오| ERR[ValueError / 호출자 수정 필요]
+    C -->|예| D[인터페이스 8절에 따라 상태 분류]
+    MSG[battery_state 콜백] --> VALID{present / SOC / status 유효?}
+    VALID -->|예| A
+    VALID -->|아니오| U[즉시 UNKNOWN]
+    TIMER[0.1초 점검 타이머] --> STALE{마지막 수신 후 3초?}
+    STALE -->|예| U
+    D --> E[BatteryStateModel.update / observed와 monotonic now]
+    U --> H
+    E --> F{enum과 시각 유효?}
+    F -->|아니오| ERR
+    F -->|예| G{CRITICAL 또는 현재 상태와 같음?}
+    G -->|예| H[상태 반영 / 대기 후보 초기화]
+    G -->|아니오| I{대기 후보와 다름?}
+    I -->|예| J[후보 교체 / 유지 시작 시각 초기화]
+    I -->|아니오| K{Q-11 유지 시간 충족?}
+    K -->|예| H
+    K -->|아니오| L[기존 상태 유지]
+    H --> R[현재 BatteryStatus 반환]
+    J --> R
+    L --> R
+~~~
+
+검증: [단위시험](../tests/test_battery_monitor.py)은 SOC 경계, 상태 쌍의 즉시/유지시간 경계, 후보 중단·재시작, 입력 유효성, 즉시 무효화를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_battery_monitor.py -v`다. [IT-13](integration.md#4-통합시험-명세)의 배터리 모델 일부이며 실센서·도킹·교대 통합시험은 미실행이다. 관제 검토는 [배터리 입력 정책 요청서](change_requests/CR-AMR_09-07_14-01_배터리_입력_정책.md)에 기록한다.
 
 도킹은 DOCKING 진입 시 타이머를 시작한다. Q-09의 제한 안에서는 Nav2 재계획을 허용하지만 새 도킹 mission을 만들지 않는다. 접점 또는 완료 센서의 연속 확인으로 성공을 판정하고 실패는 관제로 보고한다. 가용 로봇 선정과 역할 교대는 관제 책임이다.
 
@@ -182,7 +224,7 @@ E-stop 해제 부저는 사용하지 않는다. 화재 부저와 E-stop 로그 �
 |---|---|---|---|
 | TBD-AMR-001 | 정렬 오차, 동일 대상·confidence, 연속 탐지 단절, yaw 속도·timeout·주행 중재 | AMR·관제 | OPEN |
 | TBD-AMR-002 | AMR2 LiDAR 검증 대상·연산 위치·요청/결과·timeout | AMR·관제 | OPEN |
-| TBD-AMR-003 | 배터리 입력 신선도, 충전 방향·무효값 판정 | AMR·관제 | OPEN |
+| TBD-AMR-003 | 결정(2026-09-07): `BatteryState` 3초 미수신 시 UNKNOWN. CHARGING/FULL은 충전, DISCHARGING은 방전. 나머지 status·present=false·NaN·범위 밖 SOC는 UNKNOWN. 근거: 사용자 권장안 승인. 영향: AMR·관제. [검토 요청](change_requests/CR-AMR_09-07_14-01_배터리_입력_정책.md) | AMR·관제 | AMR 반영·관제 검토 요청 |
 | TBD-AMR-004 | 도킹 완료·CHARGING·높은 SOC 관계, 화재 부저 제어자·해제 계약 | AMR·관제 | OPEN |
 | TBD-AMR-005 | 상세 상태 전이·STOP/CANCEL 차이·재개 지점·waypoint/scan 정책 | AMR·관제 | OPEN |
 | TBD-AMR-006 | 로컬 정지 감속·거리·장애물 및 센서 실패 판정 | AMR·관제 | OPEN |
