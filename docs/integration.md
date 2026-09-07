@@ -67,7 +67,11 @@ token 미수신/만료 또는 heartbeat 1초 미수신 → AMR 로컬 안전 정
 
 ### W-06 확정 이벤트·증적·화재 부저
 
-AMR 로컬 후보 → yaw 정렬 → 연속 탐지 → 확정 이벤트·증적 → 시스템 모니터 수집·중복 처리 방지·저장·화면 조회로 연결한다. Detection 세부는 TBD-AMR-001 및 TBD-IF-006·007을 따른다.
+AMR 탑재 카메라의 detecting node는 비전팀이 개발하고 각 AMR PC에서 실행한다. detecting node는 수동적으로 영상 탐지와 DetectionCandidate 제공만 담당하며 주행·회전 명령을 발행하지 않는다. AMR은 같은 candidate를 연결해 yaw 회전과 정렬을 수행하고, 최종 속도는 local_safety_supervisor를 통과시킨다. 상세 요청과 개발 경계는 [Detection 정렬 수정 요청서](change_requests/CR-관제_09-07_20-26_AMR_비전_Detection_정렬_계약.md)를 따른다.
+
+처리 순서는 DetectionCandidate → AMR yaw 정렬 → AMR 정지 확인 → 같은 candidate의 정렬 완료를 detecting node에 통지 → 정렬 완료 상태에서 detecting node가 같은 대상을 1초 연속 탐지 → DetectionEvent 확정·증적 생성 → 시스템 모니터 수집·중복 처리 방지·저장 및 관제 제어용 이벤트 전달이다. 정렬 완료 후 1초 확인 중에는 AMR이 정지 상태를 유지한다. 탐지 조건이 끊기거나 정렬 완료 상태가 해제되면 1초 확인을 초기화하며 DetectionEvent를 발행하지 않는다.
+
+정렬을 시작하면 일반 MissionCommand 변경, permit 반전이나 새 DetectionCandidate만으로 해당 정렬 작업을 중단·교체하지 않는다. 다만 E-stop, Drive Token 만료·회수, local_safety_supervisor의 장애물 차단, 센서·구동계 장애는 독립 안전 계층이므로 즉시 정렬을 중단하고 정지한다. 안전 중단 뒤에는 자동으로 정렬이나 1초 확인을 재개하지 않는다. event_type enum은 비전팀 제시와 공동 검토 전까지 TBD-IF-006으로 유지하며 severity enum과 severity 필드는 만들지 않는다.
 
 화재 확정 시 부저를 ON하고 신규 순찰 구간을 추가하지 않은 채 현재 mission ID로 순찰·복귀·도킹까지 완료한다. 기존 Drive Token은 도킹 완료 또는 실패까지 유지하고 종료 시 회수한다. 이후 다른 로봇에 새 token을 발급하지 않고 전체 순찰을 중단한다. token 만료나 E-stop은 이 흐름보다 우선하며 새 token ID를 자동 발급해 복구하지 않는다.
 
@@ -92,9 +96,9 @@ DOCKED 완료 센서와 CHARGING 상태가 2초 연속이면 도킹 성공과 �
 | IT-11 E-stop | 물리/비물리 원인, 해제 조건 유지·중단을 각각 시험 | 단일 발행, 물리 latch, 즉시 활성, 조건 시작/취소/해제 로그; 해제 후 새 token·command 전 이동 없음; 해제 부저 없음 | Q-10, TBD-IF-004 |
 | IT-12 pose·보고 | 무효 pose, snapshot/pose 시각 차이, 결과 전 단절, 복구 후 같은 report ID 재전달 | 마지막 유효 pose와 age 구분; UNREPORTED 유지·대필 없음; command·mission·report ID 연결과 중복 제거 | TBD-IF-003 |
 | IT-13 배터리·도킹·교대 | SOC 경계, LOW mission 완료, LOW→CRITICAL, UNKNOWN, DOCKED·CHARGING 2초 경계, 도킹 timeout | enum·Q-11 일치; LOW는 현재 mission 도킹까지 완료; CRITICAL은 즉시 전환; Q-09 성공 조건; 실제 정지 뒤 교대 token | Q-09·11, TBD-INT-001 |
-| IT-14 Detection·화재 | 화재 확정, 현재 mission 순찰·복귀·도킹, token 만료/E-stop, 도킹 성공·실패, 복수 활성 화재 | 부저 ON; 기존 token 종료까지 유지·회수; 종료 후 다른 로봇 신규 token 없음; Q-12 OFF 또는 실패 경고; 미정 Detection 조건은 BLOCKED | Q-12, TBD-AMR-001·004, TBD-INT-004 |
+| IT-14 Detection·정렬·화재 | 비전팀 detecting node를 robot1·robot6 AMR PC에서 각각 실행한다. 후보 발생 후 AMR yaw 정렬, 정지 확인, 같은 candidate의 정렬 완료 통지, 정렬 상태 1초 연속 탐지를 순서대로 시험한다. 1초 도중 탐지 단절·정렬 상태 해제·일반 명령·permit 반전·새 후보를 각각 주입하고, 별도로 token 만료·E-stop·장애물 차단을 주입한다. 화재 확정 뒤 현재 mission·도킹 흐름도 시험한다. | detecting node는 속도를 발행하지 않고 AMR만 yaw를 수행한다. 정지 확인 전에는 정렬 완료나 DetectionEvent가 없으며, 정렬 완료 후 같은 대상이 1초 연속 유효할 때 한 번만 확정한다. 일반 명령·permit·새 후보로 정렬을 교체하지 않는다. 안전 원인은 즉시 정렬 중단·정지하며 자동 재개하지 않는다. DetectionEvent에 severity enum·필드가 없고 event_type은 비전팀 제시 후 합의된 값과 일치한다. 화재 확정 후 부저·mission·token·도킹 결과는 기존 정책과 일치한다. | [Detection 정렬 요청](change_requests/CR-관제_09-07_20-26_AMR_비전_Detection_정렬_계약.md), Q-12, TBD-AMR-001·004, TBD-IF-006, TBD-INT-004 |
 | IT-15 증적·DB | 이벤트/이미지 순서 변경·전송 실패·DB 실패·복구 | 합의된 중복/재시도·불완전 상태·복구 결과, 읽기 전용 조회 | TBD-IF-007, TBD-MON-001·002 |
-| IT-16 최종 속도 경계 | Nav2·yaw 후보와 E-stop/token 만료를 함께 발생시킴 | 최종 출력 발행권 하나, 안전 차단을 우회하는 경로 없음 | TBD-IF-009, TBD-AMR-006 |
+| IT-16 최종 속도 경계 | Nav2·AMR yaw 후보와 E-stop·token 만료·장애물 차단을 함께 발생시킨다. detecting node가 속도 토픽을 발행하지 않는지도 확인한다. | 최종 출력 발행권은 local_safety_supervisor 하나이며 yaw 정렬과 "정렬 중 일반 중단 금지" 정책이 안전 차단을 우회하지 않는다. | [Detection 정렬 요청](change_requests/CR-관제_09-07_20-26_AMR_비전_Detection_정렬_계약.md), TBD-IF-009, TBD-AMR-006 |
 
 IT-13의 배터리 경계는 interfaces.md 8절의 모든 임계값을 사용한다. 도킹 접점 유지가 짧게 끊기는 경우와 timeout 경계도 포함한다. 반복 시험 결과는 실행 일자·대상 robot_id·각 PC 버전·실제 값·로그 위치와 함께 기록한다.
 
