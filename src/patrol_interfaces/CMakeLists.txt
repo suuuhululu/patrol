@@ -13,6 +13,7 @@ find_package(builtin_interfaces REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MissionCommand.msg"
+  "msg/CommandCheck.msg"
   "msg/DriveToken.msg"
   "msg/RobotStatus.msg"
   "msg/PatrolReport.msg"

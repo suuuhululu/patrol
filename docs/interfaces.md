@@ -12,16 +12,16 @@
 
 | 인터페이스 | 타입·방식 | 송신 → 수신 | 상태 |
 |---|---|---|---|
-| /{robot}/mission_command | patrol_interfaces/msg/MissionCommand | 관제 → AMR | ID·확인·재전송 기준 확정, 타입 반영 필요 |
-| /{robot}/command_check | patrol_interfaces/msg/CommandCheck | AMR → 관제 | 신규 계약, 타입 반영 필요 |
-| /control/drive_token | patrol_interfaces/msg/DriveToken | 관제 → AMR 로컬 안전 | 세션·ID·sequence·회수 기준 확정, 타입 반영 필요 |
-| /{robot}/robot_status | patrol_interfaces/msg/RobotStatus | AMR → 관제·시스템 모니터 | 의미 필드 확정, safety enum 세부 TBD |
-| /{robot}/patrol_report | patrol_interfaces/msg/PatrolReport | AMR → 관제·시스템 모니터 | 필드·ID 연결·재전송 기준 확정 |
+| /{robot}/mission_command | patrol_interfaces/msg/MissionCommand | 관제 → AMR | ID 필드 타입 반영, 명령별 상세 TBD |
+| /{robot}/command_check | patrol_interfaces/msg/CommandCheck | AMR → 관제 | 타입 반영, check_state 수치 TBD |
+| /control/drive_token | patrol_interfaces/msg/DriveToken | 관제 → AMR 로컬 안전 | 세션·ID·message_sequence·회수 타입 반영 |
+| /{robot}/robot_status | patrol_interfaces/msg/RobotStatus | AMR → 관제·시스템 모니터 | 의미 필드·이름 타입 반영, safety enum 세부 TBD |
+| /{robot}/patrol_report | patrol_interfaces/msg/PatrolReport | AMR → 관제·시스템 모니터 | 필드·ID 연결 타입 반영, 재전송 실장 미완료 |
 | /vision/cctv/gate_event | CameraState | gate_cam → cam_master | 패키지명·enum 수치 TBD |
 | /vision/cctv/center_event | CameraState | center_cam → cam_master | 패키지명·enum 수치 TBD |
 | /vision/cctv/patrol_allowed | std_msgs/msg/Bool | cam_master → 관제·시스템 모니터 | 정책 기준 있음 |
 | /control/heartbeat | 메시지 타입명 TBD, 필드·주기·timeout 기준 확정 | 관제 → AMR 로컬 안전 | TBD-IF-004 일부 결정 |
-| /control/estop | 전용 E-stop 메시지, 의미 필드 확정·enum 수치 TBD | Safety Arbiter → AMR·시스템 모니터 | 단일 발행, TBD-IF-004 일부 결정 |
+| /control/estop | patrol_interfaces/msg/EStop, 의미 필드 확정·enum 수치 TBD | Safety Arbiter → AMR·시스템 모니터 | 의미 필드 타입 반영, 전체 대상·reason 수치 TBD |
 | 로봇별 Keepout 설정 | Nav2 parameter API | 관제 → AMR global/local costmap | 계획 경로, 실환경 확인 필요 |
 | DetectionCandidate | TBD | AMR 감지 처리 → AMR 확정 처리 | 로컬 경계, TBD-IF-006 |
 | DetectionEvent·증적 | TBD | AMR → 시스템 모니터(수집·저장), 관제(제어용 이벤트) | TBD-IF-006·007 |

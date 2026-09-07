@@ -17,19 +17,17 @@ implements the gate itself and is ready to receive a real candidate once
 both exist; this node exercises only the allowed/blocked-reasons side,
 which does not depend on a candidate value (MotionGuard.blocked_reasons()).
 
-Import note: src/patrol_amr has no package.xml/setup.py/__init__.py yet
-(9단계 scope). The plain sibling-module imports below rely on Python
-adding this script's own directory to sys.path when run directly
-(`python3 local_safety_supervisor.py`), the same way battery_monitor.py is
-run today. Revisit these imports when 9단계 turns this into an installed
-package.
+Import note: 9단계 turned src/patrol_amr into an installed ament_python
+package, so the sibling guard modules below are imported as members of
+patrol_amr. Run this node with `ros2 run patrol_amr local_safety_supervisor`;
+running the file directly no longer resolves those imports.
 """
 
 import time
 
-import drive_token_guard as dtg
-import estop_guard as eg
-import motion_guard as mg
+from patrol_amr import drive_token_guard as dtg
+from patrol_amr import estop_guard as eg
+from patrol_amr import motion_guard as mg
 
 
 def estop_transition_event(previous_stopped, current_stopped, verdict):
@@ -57,7 +55,7 @@ class SafetyGate:
 
     def __init__(self, robot_id: str):
         self._token_guard = dtg.DriveTokenGuard(robot_id)
-        self._estop_guard = eg.EStopGuard()
+        self._estop_guard = eg.EStopGuard(robot_id)
         self._motion_guard = mg.MotionGuard()
 
     @property
@@ -70,32 +68,39 @@ class SafetyGate:
         return self._estop_guard.stopped
 
     def observe_drive_token(
-        self, token, holder_robot_id, lease_seconds, sequence, now
+        self,
+        control_session_id,
+        token_id,
+        holder_robot_id,
+        lease_seconds,
+        message_sequence,
+        now,
     ):
         """Apply one /control/drive_token observation; returns TokenVerdict."""
         return self._token_guard.observe(
-            token, holder_robot_id, lease_seconds, sequence, now
+            control_session_id,
+            token_id,
+            holder_robot_id,
+            lease_seconds,
+            message_sequence,
+            now,
         )
 
     def observe_estop(
         self,
+        target_robot_id,
         active,
-        cause,
-        physical,
-        source,
+        reason,
+        latched,
         sequence,
-        activated_at_seconds,
-        release_condition_started_at_seconds,
     ):
         """Apply one /control/estop observation; returns EStopVerdict."""
         return self._estop_guard.observe(
+            target_robot_id,
             active,
-            cause,
-            physical,
-            source,
+            reason,
+            latched,
             sequence,
-            activated_at_seconds,
-            release_condition_started_at_seconds,
         )
 
     def blocked_reasons(self, now: float):
@@ -193,10 +198,11 @@ def create_node_class():
                 message.lease_duration.sec, message.lease_duration.nanosec
             )
             self._gate.observe_drive_token(
-                message.token,
+                message.control_session_id,
+                message.token_id,
                 message.holder_robot_id,
                 lease_seconds,
-                message.sequence,
+                message.message_sequence,
                 now,
             )
             self._publish_if_changed()
@@ -204,18 +210,11 @@ def create_node_class():
         def _on_estop(self, message) -> None:
             previous_stopped = self._gate.estop_active
             verdict = self._gate.observe_estop(
+                message.target_robot_id,
                 message.active,
-                message.cause,
-                message.physical,
-                message.source,
+                message.reason,
+                message.latched,
                 message.sequence,
-                eg.time_to_seconds(
-                    message.activated_at.sec, message.activated_at.nanosec
-                ),
-                eg.time_to_seconds(
-                    message.release_condition_started_at.sec,
-                    message.release_condition_started_at.nanosec,
-                ),
             )
             event = estop_transition_event(
                 previous_stopped, self._gate.estop_active, verdict
@@ -223,7 +222,8 @@ def create_node_class():
             if event is not None:
                 self.get_logger().info(
                     f'{event} robot_id={self._gate.robot_id} '
-                    f'source={message.source!r} sequence={message.sequence}'
+                    f'target_robot_id={message.target_robot_id!r} '
+                    f'sequence={message.sequence}'
                 )
             self._publish_if_changed()
 

@@ -3,10 +3,10 @@
 # 토픽 : /{robot}/mission_command   ({robot} = robot1 | robot6)
 # QoS  : RELIABLE / VOLATILE / KEEP_LAST(10)          (interfaces.md 9절)
 #
-# 전 필드가 [계약] 이다. interfaces.md 2절 전사이며 AMR 이 제안한 필드는 없다.
+# interfaces.md 2절의 확정 의미 필드를 그대로 사용한다.
 
 # ---- 명령 enum (interfaces.md 2절) --------------------------------------
-uint8 STOP=0              # 즉시 정지. 임무 보존, mission=MISSION_PAUSED. PatrolReport 없음 (CR-002)
+uint8 STOP=0              # 정지. 임무 보존, mission_state=MISSION_PAUSED. PatrolReport 없음
 uint8 START_PATROL=1
 uint8 MOVE_TO_SAFE_ZONE=2
 uint8 RESUME_PATROL=3     # last_completed_waypoint 다음부터. parameters_json 지정이 우선 (CR-002)
@@ -15,17 +15,19 @@ uint8 CANCEL=5            # 임무 종료. PatrolReport result=CANCELED 발행 (
 
 std_msgs/Header header
 
-# UUID v4. 같은 내용의 재전송은 같은 ID, 내용·목적이 바뀌면 새 ID.
-# AMR 은 최근 24시간 또는 1,000개를 영속 저장하고 중복 실행하지 않는다 (Q-14).
-# 두 보존 조건의 우선순위·삭제 정책은 TBD-IF-001.
+# 사람이 식별 가능한 세션·sequence 기반 ID. 같은 내용의 재전송은 같은 ID다.
+# AMR 은 24시간 이내 전체와 그보다 오래된 항목 중 최신 1,000개를 유지한다.
 string command_id
+
+# 같은 순찰의 대피·재개·복귀·도킹은 이 ID를 유지한다.
+string mission_id
 
 # robot1 | robot6. 수신 로봇의 namespace 와 일치해야 한다 (architecture.md 2절).
 string robot_id
 
 uint8 command
 
-# command 별 필수 여부와 우선순위는 TBD-IF-001. 메시지 레이아웃만 합의된 상태다.
+# command 별 target 필수 여부와 parameters_json 스키마는 TBD-IF-001이다.
 string target_id
 geometry_msgs/PoseStamped target_pose
 

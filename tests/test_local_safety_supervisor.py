@@ -1,10 +1,9 @@
 """Deterministic SafetyGate tests; no robot or ROS graph required.
 
-local_safety_supervisor.py imports its sibling guard modules with plain
-(non-package) imports because src/patrol_amr has no __init__.py yet
-(9단계 scope) -- see the file's own docstring. We add the module's
-directory to sys.path so those plain imports resolve here too, the same
-way Python does automatically when the file is run directly.
+local_safety_supervisor.py imports its sibling guard modules as members
+of the patrol_amr package (9단계). We add the package root to sys.path so
+those imports resolve straight from the source tree, without needing a
+colcon build first.
 """
 
 from pathlib import Path
@@ -12,31 +11,49 @@ import sys
 import unittest
 
 
-PATROL_AMR_DIR = (
-    Path(__file__).resolve().parents[1] / 'src/patrol_amr/patrol_amr'
+PATROL_AMR_PACKAGE_ROOT = (
+    Path(__file__).resolve().parents[1] / 'src/patrol_amr'
 )
-sys.path.insert(0, str(PATROL_AMR_DIR))
+sys.path.insert(0, str(PATROL_AMR_PACKAGE_ROOT))
 
-import local_safety_supervisor as lss  # noqa: E402 (sys.path 설정 후 import)
-import drive_token_guard as dtg  # noqa: E402
-import estop_guard as eg  # noqa: E402
-import motion_guard as mg  # noqa: E402
+from patrol_amr import (  # noqa: E402 (sys.path 설정 후 import)
+    drive_token_guard as dtg,
+    estop_guard as eg,
+    local_safety_supervisor as lss,
+    motion_guard as mg,
+)
 
 LEASE = 1.0
+SESSION = 'ctrl-20260907T120000'
 
 
 def gate(robot_id='robot1'):
     return lss.SafetyGate(robot_id)
 
 
-def grant_token(g, now, token='t1', sequence=1, lease=LEASE, holder=None):
+def grant_token(
+    g,
+    now,
+    token_id='tok-a',
+    message_sequence=1,
+    lease=LEASE,
+    holder=None,
+    control_session_id=SESSION,
+):
     return g.observe_drive_token(
-        token, holder or g.robot_id, lease, sequence, now
+        control_session_id,
+        token_id,
+        holder or g.robot_id,
+        lease,
+        message_sequence,
+        now,
     )
 
 
-def set_estop(g, active, sequence, cause=eg.EStopCause.OPERATOR):
-    return g.observe_estop(active, cause, False, 'test', sequence, 0.0, 0.0)
+def set_estop(g, active, sequence, reason=17, target=None):
+    return g.observe_estop(
+        target or g.robot_id, active, reason, False, sequence
+    )
 
 
 class DefaultStateTests(unittest.TestCase):
@@ -117,9 +134,9 @@ class DriveTokenLeaseTests(unittest.TestCase):
 
     def test_renewal_before_expiry_keeps_motion_allowed(self):
         g = gate()
-        grant_token(g, 0.0, sequence=1, lease=1.0)
+        grant_token(g, 0.0, message_sequence=1, lease=1.0)
         set_estop(g, False, sequence=1)
-        grant_token(g, 0.8, sequence=2, lease=1.0)
+        grant_token(g, 0.8, message_sequence=2, lease=1.0)
         self.assertTrue(g.motion_allowed(1.0))
 
 
@@ -127,14 +144,20 @@ class DiscardedObservationTests(unittest.TestCase):
     def test_other_robots_newer_token_does_not_grant_this_robot(self):
         g = gate('robot1')
         # 최초 관측이라 수락되지만(HOLDER_CHANGED), 이 로봇의 권한은 아니다.
-        verdict = g.observe_drive_token('t6', 'robot6', LEASE, 1, 0.0)
+        verdict = g.observe_drive_token(
+            SESSION, 'tok-robot6', 'robot6', LEASE, 1, 0.0
+        )
         self.assertIs(verdict, dtg.TokenVerdict.HOLDER_CHANGED)
         self.assertFalse(g.motion_allowed(0.0))
 
     def test_other_robots_duplicate_token_is_discarded(self):
         g = gate('robot1')
-        g.observe_drive_token('t6', 'robot6', LEASE, 5, 0.0)
-        verdict = g.observe_drive_token('t6', 'robot6', LEASE, 5, 0.1)
+        g.observe_drive_token(
+            SESSION, 'tok-robot6', 'robot6', LEASE, 5, 0.0
+        )
+        verdict = g.observe_drive_token(
+            SESSION, 'tok-robot6', 'robot6', LEASE, 5, 0.1
+        )
         self.assertIs(verdict, dtg.TokenVerdict.OTHER_HOLDER)
         self.assertFalse(g.motion_allowed(0.1))
 
