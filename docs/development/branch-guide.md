@@ -16,7 +16,7 @@ git branch --show-current
 ```bash
 git switch main
 git pull --ff-only origin main
-git switch -c docs/system/add-git-guide
+git switch -c docs/add-git-guide
 ```
 
 브랜치 이름은 실제 작업에 맞춰 바꾼다. `main`이 없거나 pull이 실패하면 원인을 확인한다. 강제 초기화로 해결하지 않는다.
@@ -27,7 +27,7 @@ git switch -c docs/system/add-git-guide
 
 ```bash
 git status
-git switch -c docs/system/update-architecture
+git switch -c docs/update-architecture
 ```
 
 이 방법은 현재 브랜치의 기존 커밋도 상속한다. 관련 없는 커밋이 있는 브랜치에서 시작했다면 PR 전 비교 범위를 확인하고 작업을 분리한다. 기존 작업 브랜치가 이미 해당 목적이라면 새로 만들 필요가 없다.
@@ -71,7 +71,7 @@ git merge origin/main
 ```bash
 git diff --stat origin/main...HEAD
 git log --oneline origin/main..HEAD
-git push -u origin docs/system/add-git-guide
+git push -u origin docs/add-git-guide
 ```
 
 푸시할 이름은 현재 작업 브랜치와 일치해야 한다. GitHub에서 대상 `main`으로 PR을 만들고 [PR 가이드](pull-request-guide.md)의 승인 절차를 따른다.
@@ -84,7 +84,7 @@ GitHub에서 PR 병합 완료를 확인하고 로컬 미커밋 변경이 없는 
 git switch main
 git pull --ff-only origin main
 git fetch --prune
-git branch -d docs/system/add-git-guide
+git branch -d docs/add-git-guide
 ```
 
 Squash merge에서는 원래 작업 커밋이 `main`에 그대로 포함되지 않으므로 `git branch -d`가 삭제를 거부할 수 있다. 이때는 브랜치를 그대로 두고 PR 병합 여부와 남은 작업을 확인한다. 강제 삭제는 기본 절차에 포함하지 않는다. 다음 작업은 갱신된 `main`에서 새 브랜치를 만든다.

@@ -51,7 +51,7 @@ git log --oneline -- docs/development/version-control.md
 git log -p -- docs/development/version-control.md
 ```
 
-커밋 메시지는 `<type>(<scope>): <설명>` 형식을 권장한다. 예: `fix(control): 토큰 만료 시 정지 처리 수정`.
+브랜치 이름은 [작업분류/작업설명](branch-naming.md) 두 단계로 작성한다. 커밋 메시지는 브랜치 이름과 별개이며, 기존 `<type>(<scope>): <설명>` 형식을 유지할 수 있다. 예: `fix(control): 토큰 만료 시 정지 처리 수정`.
 
 ## 제외 대상과 복구
 
