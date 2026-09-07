@@ -59,6 +59,7 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 | local_safety_supervisor | 구현 시 기록 | 미작성 |
 | drive_token_guard.py | [src/patrol_amr/patrol_amr/drive_token_guard.py](../src/patrol_amr/patrol_amr/drive_token_guard.py) · `DriveTokenGuard.observe`·`authority` | [3.1절](#31-drive_token_guardpy--구현-대조-완료) 구현 대조 완료 |
 | estop_guard.py | [src/patrol_amr/patrol_amr/estop_guard.py](../src/patrol_amr/patrol_amr/estop_guard.py) · `EStopGuard.observe`·`stopped` | [3.2절](#32-estop_guardpy--구현-대조-완료) 구현 대조 완료 |
+| motion_guard.py | [src/patrol_amr/patrol_amr/motion_guard.py](../src/patrol_amr/patrol_amr/motion_guard.py) · `MotionGuard.evaluate` | [3.3절](#33-motion_guardpy--구현-대조-완료) 구현 대조 완료 (축소 범위) |
 | battery_monitor.py | [src/patrol_amr/patrol_amr/battery_monitor.py](../src/patrol_amr/patrol_amr/battery_monitor.py) · `classify_observation`·`BatteryStateModel.update` | [5.1절](#51-battery_monitorpy--구현-대조-완료) 구현 대조 완료 |
 | 공통 Nav2 연결·위치·상태/결과 발행 | 실제 코드 파일·모듈별 행으로 분리하여 기록 | 미작성 |
 
@@ -200,6 +201,43 @@ flowchart TD
 ~~~
 
 검증: [단위시험](../tests/test_estop_guard.py)은 관측 전 안전 기본값, active·physical·source·시각 반영, 역순·중복 sequence 폐기, 미정의 cause에서도 active 반영 유지, 전이 관측 가능성(stopped 전후 비교), 호출자 인자 오류를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_estop_guard.py -v`다. [IT-11](integration.md#4-통합시험-명세)의 로컬 반영 부분이며 관제 연동과 물리 버튼 실기 시험은 미실행이다.
+
+### 3.3 motion_guard.py — 구현 대조 완료
+
+2026-09-07: 사용자가 5단계 범위를 확인 질문 후 축소 승인해 [motion_guard.py](../src/patrol_amr/patrol_amr/motion_guard.py)에 이미 확정된 두 규칙만 결합하는 최종 출력 게이트를 구현했다. [3.1](#31-drive_token_guardpy--구현-대조-완료)·[3.2절](#32-estop_guardpy--구현-대조-완료)과 같이 ROS 노드가 아닌 일반 Python 모듈이며 6단계 `local_safety_supervisor`가 사용한다.
+
+원래 파일명이 함의하는 범위(장애물 회피·정지 거리·감속)는 TBD-AMR-006이 "로컬 정지 감속·거리·장애물 및 센서 실패 판정"으로 전부 미정으로 남긴 부분이다. Nav2 후보와 yaw 정렬 후보 사이의 선택은 TBD-AMR-001 "주행 중재"도 미정이다. 두 TBD 모두 실제 로봇 동역학·센서 사양이 필요해 이 저장소의 문서만으로는 근거 없이 숫자를 정할 수 없었다. 사용자에게 확인한 뒤 범위를 좁혀, 이미 문장으로 확정된 것만 구현했다.
+
+- `MotionGuard.evaluate(drive_token_granted, estop_active, candidate)`: `candidate`는 이미 상류에서 결정된(TBD-AMR-001) `(linear, angular)` 실수 쌍이다. 최종 메시지 타입은 TBD-IF-009라 ROS 타입이 아닌 순수 튜플로 표현했다.
+- 3절의 두 확정 문장을 AND로 결합한다 — "유효하지 않은 token은 주행에 사용하지 않는다... 안전 정지한다"(token 미부여), "E-stop 활성화는 즉시 반영한다"(E-stop 활성). 둘 중 하나라도 해당하면 `candidate`를 버리고 `STOP = (0.0, 0.0)`을 반환한다. 둘 다 아니면 `candidate`를 그대로 통과시킨다 — 속도 제한·형태 변형은 하지 않는다.
+- 차단 사유는 `MotionBlockReason`으로 전부 보고한다(하나 또는 둘 다). 동시에 여러 사유가 있을 때 어느 것을 "그" 사유로 볼지 우선순위를 정한 문서가 없어 하나를 고르지 않았다. 출력(STOP)은 사유 개수와 무관하다.
+- 상태를 두지 않는다. 매 호출이 독립적이며, 3·4단계 가드의 현재 판정을 매 제어 주기마다 그대로 전달받는다.
+
+**TBD-AMR-001·006·TBD-IF-009로 남긴 부분** — 추측해 구현하지 않았다.
+
+- Nav2·yaw 후보 중 선택(주행 중재)은 이 모듈에 없다. `candidate` 하나만 받는다.
+- 장애물 감지·정지 거리·감속 프로파일·센서 고장 시 출력 규칙이 없다. 실제 로봇 사양이 정해지면 반영한다.
+- 속도 상한·형태 clamp가 없다. `candidate`가 유한한 실수인지만 확인하고 크기는 검사하지 않는다.
+- 최종 발행 타입(Twist/TwistStamped 등)을 정하지 않았다. `(linear, angular)` 튜플은 6단계에서 실제 타입으로 변환하기 전 임시 표현이다.
+
+**구현 대조 완료** — 2026-09-07 현재 코드 기준. 패키지 실행 등록은 9단계에서 추가한다.
+
+~~~mermaid
+flowchart TD
+    IN[evaluate 호출 / drive_token_granted, estop_active, candidate] --> V{인자 유효?}
+    V -->|아니오| ERR[ValueError]
+    V -->|예| D{drive_token_granted?}
+    D -->|아니오| R1[DRIVE_TOKEN_NOT_GRANTED 추가]
+    D -->|예| E
+    R1 --> E{estop_active?}
+    E -->|예| R2[ESTOP_ACTIVE 추가]
+    E -->|아니오| CHK
+    R2 --> CHK{사유 있음?}
+    CHK -->|예| STOP[STOP = 0,0 반환 / 사유 전체 반환]
+    CHK -->|아니오| PASS[candidate 그대로 반환 / 사유 없음]
+~~~
+
+검증: [단위시험](../tests/test_motion_guard.py)은 두 조건의 AND 게이트(정상·각 단독 차단·동시 차단), STOP 값의 정확성, candidate 그대로 통과, 상태 비저장(연속 호출 간 사유 미잔존), 호출자 인자 오류를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_motion_guard.py -v`다. 실제 장애물·로봇 동역학 시험은 TBD-AMR-006 해결과 로봇 실기 이후로 남는다.
 
 ## 4. Nav2·위치·Keepout
 

@@ -12,7 +12,7 @@
 | 2 | `battery_monitor.py`: 배터리 분류·3초 상태 전이·ROS 구독/내부 상태 발행 | 구현·단위시험·사용자 ROS 토픽 시험 통과 |
 | 3 | `drive_token_guard.py`: DriveToken 수락 규칙·Q-01 로컬 lease | 구현·단위시험 완료, 사용자 검토 대기 |
 | 4 | `estop_guard.py`: EStop 반영·sequence 역순 폐기 | 구현·단위시험 완료, 사용자 검토 대기 |
-| 5 | `motion_guard.py` | 미착수 |
+| 5 | `motion_guard.py`: token·E-stop 결합 최종 출력 게이트 (축소 범위) | 구현·단위시험 완료, 사용자 검토 대기 |
 | 6 | `local_safety_supervisor.py` ROS 노드 | 미착수 |
 | 7 | `robot_status_state.py` | 미착수 |
 | 8 | `status_reporter.py` ROS 노드 | 미착수 |
@@ -174,6 +174,24 @@ python3 -m unittest discover -s tests -p test_estop_guard.py -v
 예상 결과는 `Ran 17 tests`와 `OK`다. 지금까지 세 파일을 함께 돌리려면 `-p "test_*.py"`를 쓴다. 예상 결과는 `Ran 49 tests`와 `OK`다.
 
 이 모듈도 ROS 토픽 시험 대상이 아니다. 실제 `/control/estop` 구독과 정지 출력은 6단계에서 붙인다.
+
+## 6.3 5단계 구현 내용과 범위 축소
+
+`src/patrol_amr/patrol_amr/motion_guard.py`는 3·4단계와 같은 일반 Python 모듈이다. 원래 파일명이 함의하는 장애물 회피·정지 거리·감속은 TBD-AMR-006이 전부 미정으로 남긴 부분이라, 진행 전 사용자에게 확인하고 범위를 좁혔다.
+
+- 구현한 것: token 미부여 또는 E-stop 활성 중 하나라도 해당하면 속도 후보를 버리고 정지(0.0, 0.0)를 출력하는 AND 게이트. 3·4단계 가드의 판정을 그대로 입력받는다.
+- 구현하지 않은 것: Nav2·yaw 후보 중 선택(TBD-AMR-001), 장애물 감지·감속·정지 거리·센서 고장 판정(TBD-AMR-006), 속도 상한, 최종 발행 타입(TBD-IF-009). 실제 로봇 사양·물리량이 필요해 근거 없이 구현하면 안전성이 검증되지 않은 채 "구현됨"으로 보일 위험이 있었다.
+
+단위시험:
+
+```bash
+cd ~/patrol
+python3 -m unittest discover -s tests -p test_motion_guard.py -v
+```
+
+예상 결과는 `Ran 10 tests`와 `OK`다. 지금까지 네 파일을 함께 돌리려면 `-p "test_*.py"`를 쓴다. 예상 결과는 `Ran 59 tests`와 `OK`다.
+
+이 모듈도 ROS 토픽 시험 대상이 아니다. 남겨둔 장애물·감속 범위는 TBD-AMR-006 해결과 로봇 실기 이후에 별도로 다룬다. 상세는 [amr.md 3.3절](../amr.md#33-motion_guardpy--구현-대조-완료)에 있다.
 
 ## 7. 결정·미완료 사항
 
