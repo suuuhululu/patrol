@@ -1,28 +1,40 @@
 #!/usr/bin/env python3
 """Center CCTV 노드: 주차 구역 PARKED/EXITING 판정 후 CameraState 발행.
 
-TBD-VIS-001 확정값 반영판. 이전 버전과 달라진 점:
-- track_id 기반 다중 트랙 관리를 없애고, 매 프레임 conf가 가장 높은 박스
-  1개만 "그 차"로 취급한다(차량 한 대 전제, vision.md 2절).
-- PARKED는 기존처럼 ROI 5초 체류로 확정하되, EXITING은 ROI를 벗어난 게
-  CONFIRM_FRAMES(3) 프레임 연속으로 확인돼야 발행한다(가려짐으로 인한
-  일시적 미탐지를 출차로 오판하지 않기 위함).
-- CameraState.confidence는 확정에 쓰인 프레임들의 평균 conf를 담는다.
+CR-관제_09-07_17-53_비전_CameraState와_permit_반영(P0) 반영판. TBD-VIS-001
+확정값(비전팀 제안) 위에 관제팀 요청을 반영해 아래를 바꿨다.
+- event_id를 UUID 대신 구조화 ID로 바꿨다(gate_cam.py와 동일 규칙):
+  source_session_id = center_cam-<YYYYMMDDTHHMMSS>-<restart_sequence>
+  event_id           = cam-<source_session_id>-<state>-<source_sequence>
+  restart_sequence는 노드가 뜰 때마다 로컬 파일에서 읽어 +1 하고 다시 쓰는
+  가벼운 카운터다(판단에 영향 없는 진단용 값이라 TBD-VIS-002의 "재시작 시
+  상태 비영속화" 원칙과는 별개로 취급한다).
+- camera_id를 'CENTER'에서 'center_cam'으로 바꿨다.
+- EXITING 확정 기준을 "3프레임 연속"에서 "time.monotonic() 기준 0.2초
+  연속 유지"로 바꿨다. PARKED는 기존처럼 ROI 5초 체류로 확정한다(이 부분은
+  0.2초 확인이 아니므로 미검출 시 즉시 초기화 대상이 아니다 - 가려짐에 대한
+  관용은 PARKED 5초 dwell에서는 그대로 유지).
+- EXITING 확인 중 미검출 프레임이 오거나 ROI로 복귀하면 진행 중인 0.2초
+  확인을 즉시 초기화한다.
+- CameraState.confidence는, PARKED는 확정 직전 마지막 0.2초 구간의 평균,
+  EXITING은 0.2초 확인 구간에 쓰인 프레임들의 평균이다.
 - 카메라가 FAULT_TIMEOUT_SEC(3초) 연속 프레임을 못 읽으면 장애로 로그 남김.
-- DEBUG_VIEW=True면 원래 테스트 스크립트(center_parking_detector.py)처럼
-  ROI·박스·상태 텍스트를 cv2.imshow로 계속 띄운다. 실제 배포 시엔 False로.
+- DEBUG_VIEW=True면 ROI·박스·상태 텍스트를 cv2.imshow로 계속 띄운다.
+  실제 배포 시엔 False로.
 
 문서 근거:
 - 토픽/네임스페이스: interfaces.md 1절, architecture.md 2절 (/vision/cctv/center_event)
 - QoS: interfaces.md 9절 (CCTV event: RELIABLE/VOLATILE/KEEP_LAST(20))
 - state 허용값: vision.md 1절 (center_cam: PARKED, EXITING만)
+- event_id·camera_id·0.2초 판정: CR-관제_09-07_17-53_비전_CameraState와_permit_반영,
+  TBD-IF-005(확정 반영)
 
-TBD (아래 상수들은 비전팀 확정 제안, 관제팀 최종 확인 전 — TBD-VIS-001):
+TBD:
 - 장애를 관제/모니터링에 실제로 어떻게 알릴지(별도 토픽 등)는 TBD-IF-008
-- event_id 생성 규칙(uuid4), state 정수 매핑은 TBD-IF-005
 """
+import os
 import time
-import uuid
+from datetime import datetime
 
 import cv2
 import rclpy
@@ -42,9 +54,12 @@ TOP_PARKING_ROI = (0.2, 0.15, 0.62, 0.32)
 BOTTOM_PARKING_ROI = (0.05, 0.76, 0.7, 1.00)
 PARKED_SECONDS = 5.0
 EVENT_COOLDOWN_SECONDS = 2.0
-CONFIRM_FRAMES = 3          # 연속 프레임 확정 기준 (EXITING 확인용)
+CONFIRM_SECONDS = 0.2       # EXITING 확인 및 confidence 평균 구간 (FPS 무관)
 FAULT_TIMEOUT_SEC = 3.0     # 장애 판단 기준
 DEBUG_VIEW = True           # 확인용 화면 표시. 배포 시 False로 변경
+
+CAMERA_ID = 'center_cam'
+RESTART_SEQ_DIR = "/home/hv-06/patrol/state"
 
 CCTV_EVENT_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -76,6 +91,36 @@ def get_current_roi(cx, cy, roi_dict):
     return None
 
 
+def load_and_bump_restart_sequence(camera_id: str, state_dir: str = RESTART_SEQ_DIR) -> int:
+    """노드가 뜰 때마다 1씩 증가하는 카운터. 파일이 없거나 손상돼도 1로
+    시작하는 안전한 폴백을 쓴다(patrol_allowed 판단에는 영향 없는 진단용 값).
+    """
+    path = os.path.join(state_dir, f'{camera_id}_restart_seq.txt')
+    seq = 1
+    try:
+        os.makedirs(state_dir, exist_ok=True)
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                seq = int(f.read().strip()) + 1
+    except (OSError, ValueError):
+        seq = 1
+    try:
+        with open(path, 'w') as f:
+            f.write(str(seq))
+    except OSError:
+        pass
+    return seq
+
+
+def build_source_session_id(camera_id: str, restart_sequence: int, started_at: datetime = None) -> str:
+    started_at = started_at or datetime.now()
+    return f'{camera_id}-{started_at.strftime("%Y%m%dT%H%M%S")}-{restart_sequence:02d}'
+
+
+def build_event_id(source_session_id: str, state: str, source_sequence: int) -> str:
+    return f'cam-{source_session_id}-{state.lower()}-{source_sequence:04d}'
+
+
 class CenterCam(Node):
     def __init__(self):
         super().__init__('center_cam')
@@ -88,10 +133,16 @@ class CenterCam(Node):
         if not self.cap.isOpened():
             self.get_logger().error(f'camera_source={CAMERA_SOURCE} 열기 실패')
 
+        restart_sequence = load_and_bump_restart_sequence(CAMERA_ID)
+        self._source_session_id = build_source_session_id(CAMERA_ID, restart_sequence)
+        self._source_sequence = 0
+        self.get_logger().info(f'center_cam: source_session_id={self._source_session_id}')
+
         self._current_roi = None
         self._roi_enter_time = None
-        self._confs_in_roi = []
+        self._confs_in_roi = []            # [(monotonic_ts, conf), ...]
         self._parked_confirmed = False
+        self._exit_confirm_start = None    # monotonic 시작 시각
         self._exit_confirm_confs = []
         self._last_event_time = 0.0
         self._last_state_text = 'WAITING'
@@ -162,35 +213,45 @@ class CenterCam(Node):
             self._debug_draw(frame, roi_dict, best_box, best_conf)
 
     def _on_no_detection(self):
-        # 잠깐 놓친 프레임: 진행 중인 상태를 깨지 않고 그냥 넘어간다(가려짐 대비).
-        pass
+        # CR-관제 0907: EXITING 0.2초 확인 도중 미검출이 오면 즉시 초기화한다.
+        # (PARKED 5초 dwell은 0.2초 확인이 아니므로 여기서 건드리지 않는다 -
+        #  가려짐에 대한 관용은 dwell 쪽에서 그대로 유지.)
+        if self._exit_confirm_start is not None:
+            self._exit_confirm_start = None
+            self._exit_confirm_confs = []
+            self._last_state_text = 'WAITING (lost detection during EXITING confirm)'
 
     def _on_detection(self, current_roi, conf):
-        now = time.time()
+        now_wall = time.time()
+        now_mono = time.monotonic()
 
         if current_roi is not None:
-            # ROI 안에 있음 -> EXITING 확인 카운트는 리셋
-            self._exit_confirm_confs = []
+            # ROI 안에 있음 -> EXITING 확인 진행 중이었다면 초기화(복귀)
+            if self._exit_confirm_start is not None:
+                self._exit_confirm_start = None
+                self._exit_confirm_confs = []
 
             if self._current_roi != current_roi:
                 # 새 ROI 진입(또는 다른 ROI로 전환)
                 self._current_roi = current_roi
-                self._roi_enter_time = now
-                self._confs_in_roi = [conf]
+                self._roi_enter_time = now_wall
+                self._confs_in_roi = [(now_mono, conf)]
                 self._parked_confirmed = False
             else:
-                self._confs_in_roi.append(conf)
+                self._confs_in_roi.append((now_mono, conf))
 
-            stay_time = now - self._roi_enter_time
+            stay_time = now_wall - self._roi_enter_time
             self._last_state_text = f'{current_roi} stay={stay_time:.1f}s'
 
             if (not self._parked_confirmed
                     and stay_time >= PARKED_SECONDS
-                    and now - self._last_event_time >= EVENT_COOLDOWN_SECONDS):
-                window = self._confs_in_roi[-CONFIRM_FRAMES:]
+                    and now_wall - self._last_event_time >= EVENT_COOLDOWN_SECONDS):
+                window = [c for t, c in self._confs_in_roi if now_mono - t <= CONFIRM_SECONDS]
+                if not window:
+                    window = [self._confs_in_roi[-1][1]]
                 avg_conf = sum(window) / len(window)
                 self._publish_state('PARKED', avg_conf)
-                self._last_event_time = now
+                self._last_event_time = now_wall
                 self._parked_confirmed = True
                 self._last_state_text = f'PARKED {current_roi} (published)'
             return
@@ -208,26 +269,38 @@ class CenterCam(Node):
             self._last_state_text = 'WAITING (left before confirm)'
             return
 
-        # PARKED 상태였는데 ROI 밖으로 보임 -> N프레임 연속 확인 후 EXITING
-        self._exit_confirm_confs.append(conf)
-        self._last_state_text = f'CONFIRMING EXITING ({len(self._exit_confirm_confs)}/{CONFIRM_FRAMES})'
-        if len(self._exit_confirm_confs) >= CONFIRM_FRAMES:
-            if now - self._last_event_time >= EVENT_COOLDOWN_SECONDS:
+        # PARKED 상태였는데 ROI 밖으로 보임 -> 0.2초 연속 확인 후 EXITING
+        if self._exit_confirm_start is None:
+            self._exit_confirm_start = now_mono
+            self._exit_confirm_confs = [conf]
+        else:
+            self._exit_confirm_confs.append(conf)
+
+        elapsed = now_mono - self._exit_confirm_start
+        self._last_state_text = f'CONFIRMING EXITING ({elapsed:.2f}/{CONFIRM_SECONDS:.2f}s)'
+        if elapsed >= CONFIRM_SECONDS:
+            if now_wall - self._last_event_time >= EVENT_COOLDOWN_SECONDS:
                 avg_conf = sum(self._exit_confirm_confs) / len(self._exit_confirm_confs)
                 self._publish_state('EXITING', avg_conf)
-                self._last_event_time = now
+                self._last_event_time = now_wall
                 self._last_state_text = 'EXITING (published)'
             self._current_roi = None
             self._roi_enter_time = None
             self._confs_in_roi = []
             self._parked_confirmed = False
+            self._exit_confirm_start = None
             self._exit_confirm_confs = []
 
     def _publish_state(self, state: str, confidence: float):
+        self._source_sequence += 1
+        event_id = build_event_id(self._source_session_id, state, self._source_sequence)
+
         msg = CameraState()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.event_id = str(uuid.uuid4())
-        msg.camera_id = 'CENTER'
+        msg.event_id = event_id
+        msg.camera_id = CAMERA_ID
+        msg.source_session_id = self._source_session_id
+        msg.source_sequence = self._source_sequence
         msg.state = STATE_MAP[state]
         msg.confidence = confidence
         self.publisher_.publish(msg)

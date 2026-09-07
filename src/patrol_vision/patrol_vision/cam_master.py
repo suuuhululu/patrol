@@ -1,18 +1,28 @@
 #!/usr/bin/env python3
 """cam_master: gate/center CameraState를 구독해 patrol_allowed(Bool) 발행.
 
+CR-관제_09-07_17-53_비전_CameraState와_permit_반영(P0) 반영판. 이전 버전과
+달라진 점:
+- topic-camera_id 일치 검증을 추가했다. gate_event 토픽엔 camera_id='gate_cam',
+  center_event 토픽엔 camera_id='center_cam'만 허용하고 그 외는 폐기+진단 로그.
+- patrol_allowed 발행 방식을 "값이 바뀔 때만 발행"에서 "값이 바뀌면 즉시
+  발행 + 바뀌지 않아도 5Hz로 계속 반복 발행"으로 바꿨다.
+
 문서 근거:
 - 토픽/네임스페이스: interfaces.md 1절, architecture.md 2절 (/vision/cctv/patrol_allowed)
 - QoS: interfaces.md 9절 (patrol_allowed: RELIABLE/VOLATILE/KEEP_LAST(1), deadline 500ms)
 - 상태→permit 매핑, 초기값 true: vision.md 3절
-- topic별 허용 enum만 수락, 그 외 폐기+진단 로그: vision.md 4절
+- topic별 허용 enum·camera_id만 수락, 그 외 폐기+진단 로그: vision.md 4절,
+  CR-관제_09-07_17-53_비전_CameraState와_permit_반영
 - event_id를 Q-13(10분) 동안 보관해 같은 이벤트 1회만 처리: interfaces.md 9절 Q-13
 - 통신 timeout 시 마지막 patrol_allowed 값 유지, 임의로 false로 바꾸지 않음: vision.md 3절
+- permit 5Hz 반복 발행: CR-관제_09-07_17-53_비전_CameraState와_permit_반영 4절
 
-gate_cam.py/center_cam.py(TBD-VIS-001 확정판)는 이제 confidence 필드에
-"확정 프레임(3장) 평균 conf"를 담아 보낸다. cam_master는 그 값의 계산
-방식은 몰라도 되지만, 0~1 범위를 벗어나면 잘못된 값이므로 방어적으로
-폐기한다.
+gate_cam.py/center_cam.py(P0 반영판)는 이제 event_id를 구조화 ID(cam-<source_
+session_id>-<state>-<source_sequence>)로, confidence 필드에 "0.2초 확인
+구간(또는 PARKED는 확정 직전 마지막 0.2초 구간) 평균 conf"를 담아 보낸다.
+cam_master는 event_id 문자열을 파싱하지 않고 그 값의 계산 방식도 몰라도
+되지만, confidence가 0~1 범위를 벗어나면 잘못된 값이므로 방어적으로 폐기한다.
 
 TBD-VIS-002 확정판(2026-09-07, 비전팀):
 - 순서 역전: header.stamp(실제 감지 시각)가 지금까지 반영한 것 중 가장 최신
@@ -24,9 +34,10 @@ TBD-VIS-002 확정판(2026-09-07, 비전팀):
 - 재시작 시 patrol_allowed: 그대로 True로 초기화한다(영속 저장 안 함).
 - 재시작 시 event_id 캐시: 그대로 메모리 초기화한다(영속 저장 안 함).
 
-TBD (관제팀과 확인 필요, 코드에는 임시값으로 반영):
-- TBD-IF-010: patrol_allowed 발행 주기·경고 timeout의 정확한 값
-  (아래 EVENT_TIMEOUT_WARN_SEC 상수는 비전팀 임시값이며 확정 전)
+TBD (관제팀과 확인 필요):
+- TBD-IF-010: 나머지 부분(RobotStatus 변경 발행 rate 제한 등)은 이 CR로
+  해결되지 않았고 여전히 OPEN이다. permit 5Hz·관제 5초 timeout 부분만
+  이번 CR로 결정됐다.
 """
 import time
 from collections import OrderedDict
@@ -54,6 +65,9 @@ PATROL_ALLOWED_QOS = QoSProfile(
     deadline=Duration(seconds=0, nanoseconds=500_000_000),
 )
 
+GATE_CAMERA_ID = 'gate_cam'
+CENTER_CAMERA_ID = 'center_cam'
+
 GATE_ALLOWED_STATES = {CameraState.STATE_ENTERING, CameraState.STATE_EXITED}
 CENTER_ALLOWED_STATES = {CameraState.STATE_PARKED, CameraState.STATE_EXITING}
 
@@ -66,7 +80,8 @@ PATROL_ALLOWED_BY_STATE = {
 }
 
 EVENT_ID_TTL_SEC = 600.0  # Q-13: 10분
-EVENT_TIMEOUT_WARN_SEC = 5.0  # TBD-IF-010 확정 전 임시값
+EVENT_TIMEOUT_WARN_SEC = 5.0  # TBD-IF-010 확정 전 임시값(비전 이벤트 미수신 경고, 관제 permit timeout과는 별개)
+PATROL_ALLOWED_PUBLISH_HZ = 5.0  # CR-관제 0907: permit 5Hz 반복 발행
 
 
 class CamMaster(Node):
@@ -91,16 +106,24 @@ class CamMaster(Node):
 
         self.create_timer(1.0, self._check_timeouts)
         self.create_timer(60.0, self._purge_old_event_ids)
+        # CR-관제 0907: 값이 바뀌지 않아도 5Hz로 patrol_allowed를 계속 반복 발행한다.
+        self.create_timer(1.0 / PATROL_ALLOWED_PUBLISH_HZ, self._republish_patrol_allowed)
 
     def _on_gate_event(self, msg: CameraState):
         self._last_gate_time = time.monotonic()
-        self._handle_event(msg, GATE_ALLOWED_STATES, 'gate')
+        self._handle_event(msg, GATE_ALLOWED_STATES, 'gate', GATE_CAMERA_ID)
 
     def _on_center_event(self, msg: CameraState):
         self._last_center_time = time.monotonic()
-        self._handle_event(msg, CENTER_ALLOWED_STATES, 'center')
+        self._handle_event(msg, CENTER_ALLOWED_STATES, 'center', CENTER_CAMERA_ID)
 
-    def _handle_event(self, msg: CameraState, allowed_states, topic_label: str):
+    def _handle_event(self, msg: CameraState, allowed_states, topic_label: str, expected_camera_id: str):
+        if msg.camera_id != expected_camera_id:
+            self.get_logger().warning(
+                f'[{topic_label}] camera_id={msg.camera_id!r} (기대값 {expected_camera_id!r} 불일치) '
+                f'event_id={msg.event_id} 폐기')
+            return
+
         if msg.state not in allowed_states:
             self.get_logger().warning(
                 f'[{topic_label}] 허용되지 않은 state={msg.state} '
@@ -148,8 +171,14 @@ class CamMaster(Node):
         msg.data = value
         self.publisher_.publish(msg)
 
+    def _republish_patrol_allowed(self):
+        # 값이 바뀌지 않아도 5Hz로 계속 반복 발행한다(CR-관제 0907 4절).
+        self._publish_patrol_allowed(self._patrol_allowed)
+
     def _check_timeouts(self):
-        # TBD-IF-010 확정 전까지는 경고 로그만 남기고 마지막 값을 그대로 유지한다.
+        # TBD-IF-010(비전 이벤트 미수신 경고) 확정 전까지는 경고 로그만 남기고
+        # 마지막 값을 그대로 유지한다. 관제 측 permit 5초 timeout·복구는
+        # 별도 구현 범위다.
         now = time.monotonic()
         for label, last_time in (
                 ('gate', self._last_gate_time),
