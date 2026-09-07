@@ -206,36 +206,53 @@ flowchart TD
 
 원래 파일명이 함의하는 범위(장애물 회피·정지 거리·감속)는 TBD-AMR-006이 "로컬 정지 감속·거리·장애물 및 센서 실패 판정"으로 전부 미정으로 남긴 부분이다. Nav2 후보와 yaw 정렬 후보 사이의 선택은 TBD-AMR-001 "주행 중재"도 미정이다. 두 TBD 모두 실제 로봇 동역학·센서 사양이 필요해 이 저장소의 문서만으로는 근거 없이 숫자를 정할 수 없었다. 사용자에게 확인한 뒤 범위를 좁혀, 이미 문장으로 확정된 것만 구현했다.
 
-- `MotionGuard.evaluate(drive_token_granted, estop_active, candidate)`: `candidate`는 이미 상류에서 결정된(TBD-AMR-001) `(linear, angular)` 실수 쌍이다. 최종 메시지 타입은 TBD-IF-009라 ROS 타입이 아닌 순수 튜플로 표현했다.
+- `MotionGuard.evaluate(drive_token_granted, estop_active, candidate, candidate_age)`: `candidate`는 이미 상류에서 결정된(TBD-AMR-001) `(linear, angular)` 실수 쌍이거나, 아직 후보를 받지 못했으면 `None`이다. TBD-IF-009가 2026-09-08 확정됐지만 이 모듈은 계속 ROS 타입을 쓰지 않는다 — 순수 튜플과 초 단위 실수만 다루고, 실제 `TwistStamped`↔`Twist` 변환은 12단계 `local_safety_supervisor`가 한다.
 - 3절의 두 확정 문장을 AND로 결합한다 — "유효하지 않은 token은 주행에 사용하지 않는다... 안전 정지한다"(token 미부여), "E-stop 활성화는 즉시 반영한다"(E-stop 활성). 둘 중 하나라도 해당하면 `candidate`를 버리고 `STOP = (0.0, 0.0)`을 반환한다. 둘 다 아니면 `candidate`를 그대로 통과시킨다 — 속도 제한·형태 변형은 하지 않는다.
 - 차단 사유는 `MotionBlockReason`으로 전부 보고한다(하나 또는 둘 다). 동시에 여러 사유가 있을 때 어느 것을 "그" 사유로 볼지 우선순위를 정한 문서가 없어 하나를 고르지 않았다. 출력(STOP)은 사유 개수와 무관하다.
-- 상태를 두지 않는다. 매 호출이 독립적이며, 3·4단계 가드의 현재 판정을 매 제어 주기마다 그대로 전달받는다.
+- 상태를 두지 않는다. 매 호출이 독립적이며, 3·4단계 가드의 현재 판정을 매 제어 주기마다 그대로 전달받는다. `candidate_age`도 호출자가 재어 넘기므로 이 모듈에는 시계가 없다.
 
-**TBD-AMR-001·006·TBD-IF-009로 남긴 부분** — 추측해 구현하지 않았다.
+**11단계 추가 — Q-17 후보 신선도(2026-09-08).** [TBD-IF-009 요청서](change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md)에서 확정한 0.5초를 `CANDIDATE_MAX_AGE_SECONDS`로 두고 판정한다.
+
+- 게이트를 두 개로 나눴다. `blocked_reasons(drive_token_granted, estop_active)`는 **권한** 게이트로 token·E-stop만 보고, `evaluate()`는 **출력** 게이트로 여기에 후보 유무·신선도를 더한다. Nav2가 후보를 내고 있는지는 주행이 허용되는지와 다른 질문이므로 합치지 않았다. 덕분에 6단계 `motion_allowed`는 후보 유무에 흔들리지 않고 기존 동작을 그대로 유지한다.
+- 사유를 둘로 구분한다. `CANDIDATE_MISSING`은 후보를 한 번도 못 받은 상태, `CANDIDATE_STALE`은 받았으나 age가 0.5초를 넘은 상태다. Nav2가 아직 안 뜬 것과 떠 있는데 늦는 것은 운영자가 볼 때 원인이 다르다. 출력은 두 경우 모두 `STOP`이다.
+- 경계는 `age > 0.5`가 낡음이다. Q-17이 "0.5초를 넘으면"이므로 0.5초 정확히는 통과한다.
+- 음수 age(후보 stamp가 미래)는 낡음으로 보지 않는다. 후보와 이 게이트는 같은 AMR PC의 같은 시계를 쓰고, 허용 가능한 시계 역행 폭을 정한 문서가 없어 임의 임계값을 만들지 않았다.
+- `candidate`와 `candidate_age`는 짝으로만 받는다. 한쪽만 `None`이면 `ValueError`다. 어느 후보의 신선도인지 말하지 않고 물어볼 수 없게 했다.
+
+**TBD-AMR-001·006으로 남긴 부분** — 추측해 구현하지 않았다.
 
 - Nav2·yaw 후보 중 선택(주행 중재)은 이 모듈에 없다. `candidate` 하나만 받는다.
 - 장애물 감지·정지 거리·감속 프로파일·센서 고장 시 출력 규칙이 없다. 실제 로봇 사양이 정해지면 반영한다.
 - 속도 상한·형태 clamp가 없다. `candidate`가 유한한 실수인지만 확인하고 크기는 검사하지 않는다.
-- 최종 발행 타입(Twist/TwistStamped 등)을 정하지 않았다. `(linear, angular)` 튜플은 6단계에서 실제 타입으로 변환하기 전 임시 표현이다.
 
-**구현 대조 완료** — 2026-09-07 현재 코드 기준. 패키지 실행 등록은 9단계에서 추가한다.
+TBD-IF-009는 2026-09-08 AMR이 확정해 더 이상 이 모듈의 미정 사항이 아니다. 다만 확정된 것은 토픽·타입·Q-17이고, 관제 회신은 아직 대기 중이다.
+
+**구현 대조 완료** — 2026-09-08 현재 코드 기준. 패키지 실행 등록은 9단계에서 추가했다.
 
 ~~~mermaid
 flowchart TD
-    IN[evaluate 호출 / drive_token_granted, estop_active, candidate] --> V{인자 유효?}
+    IN[evaluate 호출 / drive_token_granted, estop_active, candidate, candidate_age] --> V{인자 유효?}
     V -->|아니오| ERR[ValueError]
     V -->|예| D{drive_token_granted?}
     D -->|아니오| R1[DRIVE_TOKEN_NOT_GRANTED 추가]
     D -->|예| E
     R1 --> E{estop_active?}
     E -->|예| R2[ESTOP_ACTIVE 추가]
-    E -->|아니오| CHK
-    R2 --> CHK{사유 있음?}
+    E -->|아니오| C
+    R2 --> C{candidate 있음?}
+    C -->|아니오| R3[CANDIDATE_MISSING 추가]
+    C -->|예| A{age > 0.5초?}
+    A -->|예| R4[CANDIDATE_STALE 추가]
+    A -->|아니오| CHK
+    R3 --> CHK{사유 있음?}
+    R4 --> CHK
     CHK -->|예| STOP[STOP = 0,0 반환 / 사유 전체 반환]
     CHK -->|아니오| PASS[candidate 그대로 반환 / 사유 없음]
 ~~~
 
-검증: [단위시험](../tests/test_motion_guard.py)은 두 조건의 AND 게이트(정상·각 단독 차단·동시 차단), STOP 값의 정확성, candidate 그대로 통과, 상태 비저장(연속 호출 간 사유 미잔존), 호출자 인자 오류를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_motion_guard.py -v`다. 실제 장애물·로봇 동역학 시험은 TBD-AMR-006 해결과 로봇 실기 이후로 남는다.
+`blocked_reasons()`는 위 흐름의 token·E-stop 두 분기까지만 본다. 후보 분기는 `evaluate()`에만 있다.
+
+검증: [단위시험](../tests/test_motion_guard.py) 26건은 두 조건의 AND 게이트(정상·각 단독 차단·동시 차단·세 사유 동시), STOP 값의 정확성, candidate 그대로 통과, 상태 비저장(연속 호출 간 사유 미잔존), 호출자 인자 오류를 확인한다. Q-17은 경계값 0.499·0.5·0.501초, 후보 없음과 낡음의 사유 구분, 미래 stamp 통과, 권한 게이트가 후보 유무에 영향받지 않음, `candidate`·`candidate_age` 짝 강제를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_motion_guard.py -v`다. 실제 장애물·로봇 동역학 시험은 TBD-AMR-006 해결과 로봇 실기 이후로 남는다.
 
 ### 3.4 local_safety_supervisor.py — 구현 대조 완료 (축소 범위)
 

@@ -18,6 +18,7 @@
 | 8 | `status_reporter.py` ROS 노드 (확정 입력 연결 범위) | 구현·단위시험·사용자 ROS 토픽 시험 통과 |
 | 9 | `patrol_amr` 패키지 설정·실행 등록·통합 | 구현·회귀시험·`ros2 launch` 통합 실행 확인 완료, 사용자 검토 대기 |
 | 10 | 단일 robot AMR 로컬 ROS 통합 스모크 시험(구현된 두 경로만) | 자동시험 PASS·사용자 확인 완료(2026-09-08). 전체 시스템 IT는 미실행 |
+| 11 | `motion_guard.py` Q-17 후보 신선도 판정 | 구현·단위시험 26건 완료. 10단계 스모크 회귀 PASS, 사용자 검토 대기 |
 
 최종 ROS 노드는 `battery_monitor`, `local_safety_supervisor`, `status_reporter` 세 개다. guard와 state 파일은 해당 노드가 사용하는 일반 Python 모듈이다. 한 단계씩 구현하고 사용자 시험 통과 확인 전에는 다음 단계로 넘어가지 않는다.
 
@@ -884,7 +885,7 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 
 | 단계 | 대상 | 시험 | 착수 가능 |
 |---|---|---|---|
-| 11 | `motion_guard.py`에 Q-17 후보 신선도 판정 추가 | 단위시험 | **지금 가능** |
+| 11 | `motion_guard.py`에 Q-17 후보 신선도 판정 추가 | 단위시험 | **완료 (2026-09-08)** |
 | 12 | `local_safety_supervisor.py`에 후보 구독·최종 `cmd_vel` 발행 배선 | 단위시험 + 사용자 ROS 토픽 시험 | **지금 가능** |
 | 13 | launch 인자 추가와 스모크 확장 | `ros2 launch` 통합 + 확장 스모크 | **지금 가능** |
 | 14 | 실제 Nav2 후보와 연동해 IT-16 부분 실행 | 통합시험 | 관제 회신 + 박성현 launch 병합 후 |
@@ -895,12 +896,23 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 
 11~13단계는 관제 회신 없이도 진행한다. AMR 자기 코드만 바꾸고 Nav2 launch·params는 건드리지 않으므로, 회신이 늦어도 AMR 쪽 구현·시험은 끝내 둘 수 있다. 회신 결과가 다르면 토픽 이름 상수만 고치면 된다.
 
-### 11단계 — `motion_guard.py` 후보 신선도 판정
+### 11단계 — `motion_guard.py` 후보 신선도 판정 · 완료 2026-09-08
 
-- 구현: `MotionBlockReason`에 후보 stale 사유를 추가하고, `evaluate()`가 후보의 age를 Q-17 0.5초와 비교한다. 기존 token·E-stop AND 게이트는 그대로 두고 사유 하나를 늘린다. 상태 비저장 원칙을 유지해 age는 호출자가 넘긴다.
-- 시험: `tests/test_motion_guard.py` 확장. 경계값 0.499·0.5·0.501초, 후보 없음, 미래 stamp, token·E-stop과 동시 차단, 사유 전체 보고.
-- 통과 기준: `python3 -m unittest discover -s tests -p "test_*.py"` 전체 OK.
-- 사용자 ROS 시험: 불필요. 순수 Python 모듈이다.
+구현 상세는 [amr.md 3.3절](../amr.md#33-motion_guardpy--구현-대조-완료)에 있다. 요약하면 다음과 같다.
+
+- 게이트를 둘로 나눴다. `blocked_reasons()`는 **권한** 게이트(token·E-stop)로 그대로 두고, `evaluate()`만 **출력** 게이트로 후보 유무·신선도를 더한다. Nav2 후보가 있는지는 주행이 허용되는지와 다른 질문이라 합치지 않았다.
+- `CANDIDATE_MAX_AGE_SECONDS = 0.5`(Q-17). 사유는 `CANDIDATE_MISSING`(한 번도 못 받음)과 `CANDIDATE_STALE`(받았으나 낡음)로 구분한다.
+- `evaluate(drive_token_granted, estop_active, candidate, candidate_age)`로 인자가 4개가 됐다. `candidate`와 `candidate_age`는 짝으로만 받는다.
+- 상태 비저장 원칙 유지 — age는 호출자가 재어 넘기므로 이 모듈에 시계가 없다.
+
+**이 단계에서 노드가 깨지지 않은 이유**: `local_safety_supervisor`는 `blocked_reasons()`만 호출하고 `evaluate()`를 쓰지 않는다. `blocked_reasons()` 시그니처·동작을 건드리지 않았으므로 6단계 `motion_allowed`는 그대로다.
+
+시험 결과 (2026-09-08):
+
+- `tests/test_motion_guard.py` 26건. 경계값 0.499·0.5·0.501초, 후보 없음과 낡음의 사유 구분, 미래 stamp 통과, 세 사유 동시 보고, 권한 게이트가 후보 유무에 영향받지 않음, 짝 강제.
+- 전체 단위시험 `Ran 102 tests` `OK` (11단계 전 89건 + 13건).
+- 10단계 스모크 회귀 `STAGE10_PASS`. `motion_allowed`는 여전히 `false → true → false → true → false`다.
+- 사용자 ROS 시험은 불필요하다. 순수 Python 모듈이며 ROS 경로 변화가 없다.
 
 ### 12단계 — `local_safety_supervisor.py` 배선
 
