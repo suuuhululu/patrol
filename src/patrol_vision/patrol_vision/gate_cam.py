@@ -1,28 +1,38 @@
 #!/usr/bin/env python3
 """Gate CCTV 노드: 입구 차량 ENTERING/EXITED 판정 후 CameraState 발행.
 
-TBD-VIS-001 확정값 반영판. 이전 버전과 달라진 점:
-- track_id 기반 다중 트랙 관리를 없애고, 매 프레임 conf가 가장 높은 박스
-  1개만 "그 차"로 취급한다(차량 한 대 전제, vision.md 2절).
-- 라인 교차가 감지돼도 즉시 발행하지 않고, 반대편에 CONFIRM_FRAMES(3)
-  프레임 연속으로 머무는지 재확인한 뒤 발행한다(순간 좌표 흔들림 오탐 방지).
-- CameraState.confidence는 그 확인 프레임들의 평균 conf를 담는다.
+CR-관제_09-07_17-53_비전_CameraState와_permit_반영(P0) 반영판. TBD-VIS-001
+확정값(비전팀 제안) 위에 관제팀 요청을 반영해 아래를 바꿨다.
+- event_id를 UUID 대신 사람이 식별 가능한 구조화 ID로 바꿨다:
+  source_session_id = gate_cam-<YYYYMMDDTHHMMSS>-<restart_sequence>
+  event_id           = cam-<source_session_id>-<state>-<source_sequence>
+  restart_sequence는 노드가 뜰 때마다 로컬 파일에서 읽어 +1 하고 다시 쓰는
+  가벼운 카운터다(패트롤 판단에 영향 없는 진단용 값이라 TBD-VIS-002의
+  "재시작 시 상태 비영속화" 원칙과는 별개로 취급한다).
+- camera_id를 'GATE'에서 'gate_cam'으로 바꿨다.
+- 라인 통과 후 확정 기준을 "3프레임 연속"에서 "time.monotonic() 기준
+  0.2초 연속 유지"로 바꿨다(실측 FPS 변동과 무관하게 판정하기 위함).
+- 미검출 프레임이 오거나 ROI·방향 조건이 깨지면 진행 중인 0.2초 확인을
+  즉시 초기화한다(이전 버전의 "가려짐 대비" 관용은 더 이상 두지 않는다).
+- CameraState.confidence는 그 0.2초 확인 구간에 쓰인 프레임들의 평균 conf다.
 - 카메라가 FAULT_TIMEOUT_SEC(3초) 연속 프레임을 못 읽으면 장애로 로그 남김.
-- DEBUG_VIEW=True면 원래 테스트 스크립트(gate_vertical_line_detector.py)처럼
-  라인·박스·상태 텍스트를 cv2.imshow로 계속 띄운다. 실제 배포 시엔 False로.
+- DEBUG_VIEW=True면 라인·박스·상태 텍스트를 cv2.imshow로 계속 띄운다.
+  실제 배포 시엔 False로.
 
 문서 근거:
 - 토픽/네임스페이스: interfaces.md 1절, architecture.md 2절 (/vision/cctv/gate_event)
 - QoS: interfaces.md 9절 (CCTV event: RELIABLE/VOLATILE/KEEP_LAST(20))
 - state 허용값: vision.md 1절 (gate_cam: ENTERING, EXITED만)
+- event_id·camera_id·0.2초 판정: CR-관제_09-07_17-53_비전_CameraState와_permit_반영,
+  TBD-IF-005(확정 반영)
 
-TBD (아래 상수들은 비전팀 확정 제안, 관제팀 최종 확인 전 — TBD-VIS-001):
+TBD:
 - 장애를 관제/모니터링에 실제로 어떻게 알릴지(별도 토픽 등)는 TBD-IF-008
-- event_id 생성 규칙(uuid4), state 정수 매핑은 TBD-IF-005
 """
+import os
 import time
-import uuid
 from collections import deque
+from datetime import datetime
 
 import cv2
 import rclpy
@@ -43,9 +53,13 @@ LINE_RIGHT_RATIO = 0.70
 ROI_TOP_RATIO = 0.45
 ROI_BOTTOM_RATIO = 0.95
 EVENT_COOLDOWN_SECONDS = 2.0
-CONFIRM_FRAMES = 3          # 연속 프레임 확정 기준
+CONFIRM_SECONDS = 0.2       # 연속 유지 확정 기준 (FPS 무관, monotonic 기준)
 FAULT_TIMEOUT_SEC = 3.0     # 장애 판단 기준
 DEBUG_VIEW = True           # 확인용 화면 표시. 배포 시 False로 변경
+
+CAMERA_ID = 'gate_cam'
+# restart_sequence 저장 위치: 판단에 영향 없는 진단용 카운터 하나만 담는다.
+RESTART_SEQ_DIR = "/home/hv-06/patrol/state"
 
 # interfaces.md 9절: CCTV event QoS
 CCTV_EVENT_QOS = QoSProfile(
@@ -65,6 +79,36 @@ def crossed(prev_x, curr_x, line_x):
     return (prev_x < line_x <= curr_x) or (prev_x > line_x >= curr_x)
 
 
+def load_and_bump_restart_sequence(camera_id: str, state_dir: str = RESTART_SEQ_DIR) -> int:
+    """노드가 뜰 때마다 1씩 증가하는 카운터. 파일이 없거나 손상돼도 1로
+    시작하는 안전한 폴백을 쓴다(patrol_allowed 판단에는 영향 없는 진단용 값).
+    """
+    path = os.path.join(state_dir, f'{camera_id}_restart_seq.txt')
+    seq = 1
+    try:
+        os.makedirs(state_dir, exist_ok=True)
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                seq = int(f.read().strip()) + 1
+    except (OSError, ValueError):
+        seq = 1
+    try:
+        with open(path, 'w') as f:
+            f.write(str(seq))
+    except OSError:
+        pass  # 저장 실패해도 이번 실행은 계속 진행한다.
+    return seq
+
+
+def build_source_session_id(camera_id: str, restart_sequence: int, started_at: datetime = None) -> str:
+    started_at = started_at or datetime.now()
+    return f'{camera_id}-{started_at.strftime("%Y%m%dT%H%M%S")}-{restart_sequence:02d}'
+
+
+def build_event_id(source_session_id: str, state: str, source_sequence: int) -> str:
+    return f'cam-{source_session_id}-{state.lower()}-{source_sequence:04d}'
+
+
 class GateCam(Node):
     def __init__(self):
         super().__init__('gate_cam')
@@ -77,9 +121,14 @@ class GateCam(Node):
         if not self.cap.isOpened():
             self.get_logger().error(f'camera_source={CAMERA_SOURCE} 열기 실패')
 
+        restart_sequence = load_and_bump_restart_sequence(CAMERA_ID)
+        self._source_session_id = build_source_session_id(CAMERA_ID, restart_sequence)
+        self._source_sequence = 0
+        self.get_logger().info(f'gate_cam: source_session_id={self._source_session_id}')
+
         self._last_cx = None
         self._crossing_history = deque(maxlen=2)
-        self._pending = None  # {'state', 'side', 'confs'}
+        self._pending = None  # {'state', 'side', 'confs', 'start_time'}
         self._last_event_time = 0.0
         self._last_state_text = 'WAITING'
 
@@ -151,25 +200,30 @@ class GateCam(Node):
             self._debug_draw(frame, left_x, right_x, roi_top, roi_bottom, best_box, best_conf)
 
     def _on_no_detection(self):
-        # 잠깐 놓친 프레임: 진행 중인 확인은 깨지 않고 그냥 넘어간다(가려짐 대비).
-        pass
+        # CR-관제 0907: 미검출 프레임이 오면 진행 중인 0.2초 확인을 즉시 초기화한다.
+        if self._pending is not None:
+            self._pending = None
+            self._crossing_history.clear()
+            self._last_state_text = 'WAITING (lost detection during confirm)'
 
     def _on_detection(self, w, cx, conf):
         left_x = w * LINE_LEFT_RATIO
         right_x = w * LINE_RIGHT_RATIO
         prev_cx = self._last_cx
         self._last_cx = cx
+        now = time.monotonic()
 
-        # 확인(confirm) 진행 중이면: 반대편에 계속 있는지만 본다.
+        # 확인(confirm) 진행 중이면: 반대편에 0.2초 연속 있는지만 본다.
         if self._pending is not None:
             side = self._pending['side']
             consistent = (cx > right_x) if side == 'right' else (cx < left_x)
             if consistent:
                 self._pending['confs'].append(conf)
+                elapsed = now - self._pending['start_time']
                 self._last_state_text = (
                     f"CONFIRMING {self._pending['state']} "
-                    f"({len(self._pending['confs'])}/{CONFIRM_FRAMES})")
-                if len(self._pending['confs']) >= CONFIRM_FRAMES:
+                    f"({elapsed:.2f}/{CONFIRM_SECONDS:.2f}s)")
+                if elapsed >= CONFIRM_SECONDS:
                     avg_conf = sum(self._pending['confs']) / len(self._pending['confs'])
                     self._publish_state(self._pending['state'], avg_conf)
                     self._last_event_time = time.time()
@@ -177,17 +231,17 @@ class GateCam(Node):
                     self._pending = None
                     self._crossing_history.clear()
             else:
-                # 흔들림 등으로 다시 넘어와버림 -> 오탐으로 보고 취소
+                # 반대편에서 이탈(방향 조건 붕괴) -> 즉시 초기화
                 self._pending = None
                 self._crossing_history.clear()
-                self._last_state_text = 'WAITING (confirm canceled)'
+                self._last_state_text = 'WAITING (confirm canceled: condition broken)'
             return
 
         if prev_cx is None:
             return
 
-        now = time.time()
-        if now - self._last_event_time < EVENT_COOLDOWN_SECONDS:
+        wall_now = time.time()
+        if wall_now - self._last_event_time < EVENT_COOLDOWN_SECONDS:
             return
 
         if crossed(prev_cx, cx, left_x) and 'L' not in self._crossing_history:
@@ -198,15 +252,20 @@ class GateCam(Node):
         seq = list(self._crossing_history)
         if len(seq) >= 2:
             if seq[-2:] == ['L', 'R']:
-                self._pending = {'state': 'ENTERING', 'side': 'right', 'confs': [conf]}
+                self._pending = {'state': 'ENTERING', 'side': 'right', 'confs': [conf], 'start_time': now}
             elif seq[-2:] == ['R', 'L']:
-                self._pending = {'state': 'EXITED', 'side': 'left', 'confs': [conf]}
+                self._pending = {'state': 'EXITED', 'side': 'left', 'confs': [conf], 'start_time': now}
 
     def _publish_state(self, state: str, confidence: float):
+        self._source_sequence += 1
+        event_id = build_event_id(self._source_session_id, state, self._source_sequence)
+
         msg = CameraState()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.event_id = str(uuid.uuid4())
-        msg.camera_id = 'GATE'
+        msg.event_id = event_id
+        msg.camera_id = CAMERA_ID
+        msg.source_session_id = self._source_session_id
+        msg.source_sequence = self._source_sequence
         msg.state = STATE_MAP[state]
         msg.confidence = confidence
         self.publisher_.publish(msg)
