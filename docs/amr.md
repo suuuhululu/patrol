@@ -57,7 +57,9 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 | 중단·복구 대응 | 구현 시 기록 | 미작성 |
 | mission_supervisor | 구현 시 기록 | 미작성 |
 | local_safety_supervisor | 구현 시 기록 | 미작성 |
-| 공통 Nav2 연결·위치·배터리·상태/결과 발행 | 실제 코드 파일·모듈별 행으로 분리하여 기록 | 미작성 |
+| drive_token_guard.py | [src/patrol_amr/patrol_amr/drive_token_guard.py](../src/patrol_amr/patrol_amr/drive_token_guard.py) · `DriveTokenGuard.observe`·`authority` | [3.1절](#31-drive_token_guardpy--구현-대조-완료) 구현 대조 완료 |
+| battery_monitor.py | [src/patrol_amr/patrol_amr/battery_monitor.py](../src/patrol_amr/patrol_amr/battery_monitor.py) · `classify_observation`·`BatteryStateModel.update` | [5.1절](#51-battery_monitorpy--구현-대조-완료) 구현 대조 완료 |
+| 공통 Nav2 연결·위치·상태/결과 발행 | 실제 코드 파일·모듈별 행으로 분리하여 기록 | 미작성 |
 
 각 그림에는 시작 조건, 함수·콜백 호출 순서, 조건별 분기, 외부 Action·토픽 송수신, 성공·실패·취소·안전 중단, 종료·복구 대기 경로를 표시한다. timeout·재시도 수치와 enum을 복제하지 않고 Q-ID·TBD-ID를 참조한다. 구현 대조 시 코드 버전과 관련 통합시험 ID를 기록한다.
 
@@ -111,6 +113,49 @@ local_safety_supervisor가 최종 속도 발행권을 가진다. Nav2나 yaw 정
 - heartbeat 상세 계약은 TBD-IF-004다. 임의 timeout을 추가하지 않는다.
 
 정지 감속 방식·허용 정지 거리·센서 장애에 대한 속도 출력 규칙은 TBD-AMR-006이다. 안전 정지 요청과 실제 정지 관측을 구분한다.
+
+### 3.1 drive_token_guard.py — 구현 대조 완료
+
+2026-09-07: 사용자 3단계 진행 요청에 따라 [drive_token_guard.py](../src/patrol_amr/patrol_amr/drive_token_guard.py)에 [인터페이스 3절](interfaces.md#3-drivetoken)의 수락 규칙과 Q-01 로컬 lease를 구현했다. ROS 노드가 아니라 6단계 `local_safety_supervisor`가 사용하는 일반 Python 모듈이며, 이 파일은 속도를 발행하지 않는다.
+
+- `DriveTokenGuard.observe(token, holder_robot_id, lease_seconds, sequence, now)`: 관측 하나를 적용하고 수락·폐기 사유를 `TokenVerdict`로 반환한다. `now`는 호출자가 전달하는 로컬 monotonic 초다. 다른 holder의 토큰은 폐기하고, 빈 token은 회수로 처리해 즉시 무효화하며, 보유 token과 다른 문자열은 기존 token을 즉시 무효화한다. `sequence`가 마지막 수락 값 이하이거나 lease가 유한한 양수가 아니면 폐기한다.
+- 폐기된 메시지는 lease 만료 시각을 바꾸지 않는다. 수신 사실만으로 lease를 연장하지 않는다는 3절 규칙을 이렇게 만족한다. 갱신은 수락된 관측에서만 일어난다.
+- `DriveTokenGuard.authority(now)`: 보유 token이 없으면 `MISSING`, lease 경과면 `EXPIRED`, 그 밖에는 `GRANTED`다. 각각 [인터페이스 5절](interfaces.md#5-patrolreport)의 600 DRIVE_TOKEN_MISSING과 601 DRIVE_TOKEN_EXPIRED에 대응한다. 공용 코드 목록에 회수 전용 값이 없으므로 회수도 `MISSING`이며, AMR 내부 `DRIVE_TOKEN_REVOKED` 로그는 `revoked_last`로 구분한다.
+- `authority`·`remaining_lease`·`drive_allowed`는 조회 전용이라 시각을 소비하지 않는다. 한 제어 주기 안에서 같은 시각을 여러 번, 임의 순서로 물어볼 수 있다. 시계 역행 검사는 상태를 바꾸는 `observe`에만 적용한다.
+- `duration_to_seconds(sec, nanosec)`는 `builtin_interfaces/Duration` 필드 쌍을 초로 바꾼다. lease 값은 메시지의 `lease_duration`을 사용하며 Q-01의 1.0초는 관제 발행 기준값이다.
+- 주행 허용 여부만 보고하고 주행을 시작하지 않는다. 새 token 수신만으로 자동 출발하지 않는다는 3절 규칙은 6단계 supervisor가 최종 보장한다.
+
+**TBD-IF-002로 남긴 부분** — 추측해 구현하지 않았다.
+
+- `sequence` 재시작·uint32 wraparound 처리가 없다. 마지막 수락 값 이하는 그대로 폐기하므로, 관제가 sequence를 되돌리면 확정 전까지 주행 권한이 살아나지 않는다.
+- token 문자열이 바뀌면서 sequence가 함께 재설정되면 기존 token은 무효화되고 새 token은 폐기된다. 결과는 권한 없음이며 이는 안전 방향의 기본값이다.
+- 공통 토픽에서 다른 holder로 교체될 때 현재 권한을 앞당겨 끊지 않는다. 갱신이 멈추면 Q-01 lease 안에서 만료된다. 즉시 무효화가 필요한지는 미확정이다.
+- 송신 `header.stamp`를 이용한 message age 검증은 구현하지 않았다. 3절이 보장되지 않은 시간 동기화의 직접 비교를 금지하고 결합 방식을 TBD-IF-002로 두었기 때문이다. 현재 경과 판정은 로컬 monotonic lease 하나뿐이다.
+
+**구현 대조 완료** — 2026-09-07 현재 코드 기준. 패키지 실행 등록은 9단계에서 추가한다.
+
+~~~mermaid
+flowchart TD
+    MSG[drive_token 관측 / observe] --> H{holder_robot_id 일치?}
+    H -->|아니오| OTH[OTHER_HOLDER 폐기 / 권한·sequence 불변]
+    H -->|예| EMP{token 빈 문자열?}
+    EMP -->|예| REV[REVOKED / 즉시 무효화 / revoked_last 설정]
+    EMP -->|아니오| CHG{보유 token 과 다른 문자열?}
+    CHG -->|예| INV[기존 token 즉시 무효화 / last_sequence 유지]
+    CHG -->|아니오| SEQ
+    INV --> SEQ{sequence 가 마지막 수락 값 초과?}
+    SEQ -->|아니오| STL[STALE_SEQUENCE 폐기 / lease 연장 없음]
+    SEQ -->|예| LS{lease 가 유한한 양수?}
+    LS -->|아니오| BAD[INVALID_LEASE 폐기]
+    LS -->|예| ACC[ACCEPTED / 만료 시각 = now + lease]
+    Q[제어 주기 조회 / authority] --> HAS{보유 token 있음?}
+    HAS -->|아니오| MIS[MISSING / 600 DRIVE_TOKEN_MISSING]
+    HAS -->|예| EXP{만료 시각 도달?}
+    EXP -->|예| EXD[EXPIRED / 601 DRIVE_TOKEN_EXPIRED]
+    EXP -->|아니오| GRA[GRANTED / 주행 허용]
+~~~
+
+검증: [단위시험](../tests/test_drive_token_guard.py)은 lease 경계와 갱신, 폐기 메시지의 lease 미연장, 다른 holder·역행 sequence·무효 lease 폐기, 회수와 token 교체의 즉시 무효화, sequence 하한 유지, 호출자 인자 오류, 조회의 순서 무관성을 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_drive_token_guard.py -v`다. [IT-03·IT-04](integration.md#4-통합시험-명세)의 로컬 판정 부분이며 관제 연동 통합시험은 미실행이다.
 
 ## 4. Nav2·위치·Keepout
 

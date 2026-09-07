@@ -9,8 +9,8 @@
 | 단계 | 대상 | 상태 |
 |---|---|---|
 | 1 | `patrol_interfaces`: MissionCommand, DriveToken, RobotStatus, PatrolReport, EStop 및 빌드 설정 | 구현·빌드·사용자 interface show 확인 완료 |
-| 2 | `battery_monitor.py`: 배터리 분류·3초 상태 전이·ROS 구독/내부 상태 발행 | 구현·단위시험 완료, 사용자 ROS 토픽 시험 대기 |
-| 3 | `drive_token_guard.py` | 미착수 |
+| 2 | `battery_monitor.py`: 배터리 분류·3초 상태 전이·ROS 구독/내부 상태 발행 | 구현·단위시험·사용자 ROS 토픽 시험 통과 |
+| 3 | `drive_token_guard.py`: DriveToken 수락 규칙·Q-01 로컬 lease | 구현·단위시험 완료, 사용자 검토 대기 |
 | 4 | `estop_guard.py` | 미착수 |
 | 5 | `motion_guard.py` | 미착수 |
 | 6 | `local_safety_supervisor.py` ROS 노드 | 미착수 |
@@ -112,19 +112,49 @@ python3 src/patrol_amr/patrol_amr/battery_monitor.py
 
 초기 예상 로그는 `battery status: UNKNOWN`이다.
 
-터미널 2:
+터미널 2는 발행보다 **먼저** 띄워 계속 구독한다.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+ros2 topic echo /battery_status --qos-durability transient_local
+```
+
+터미널 3에서 발행한다.
 
 ```bash
 source /opt/ros/jazzy/setup.bash
 ros2 topic pub -r 10 --times 35 /battery_state sensor_msgs/msg/BatteryState \
 "{percentage: 0.15, power_supply_status: 2, present: true}"
-
-ros2 topic echo /battery_status --once --qos-durability transient_local
 ```
 
-3초 연속 입력 후 예상 값은 LOW에 해당하는 `data: 2`다. 발행이 끝난 뒤 3초 이상 기다리고 마지막 조회 명령을 다시 실행하면 UNKNOWN인 `data: 0`이어야 한다. 터미널 1은 `Ctrl+C`로 종료한다.
+3초 연속 입력 후 예상 값은 LOW에 해당하는 `data: 2`다. 발행이 끝나고 3초 이상 지나면 UNKNOWN인 `data: 0`이 이어서 찍힌다. 터미널 1·2는 `Ctrl+C`로 종료한다.
 
-결과가 일치하면 2단계 통과를 기록하고 3단계 DriveToken 검증으로 진행한다. 실패하면 2단계 코드만 수정한다.
+`--once`로 그때그때 조회하지 않는다. 새 프로세스가 매번 discovery를 하는 동안 노드가 이미 다음 상태로 넘어가, LOW를 기다리는 자리에서 마지막 latch 값인 `data: 0`을 받아 거짓 실패로 보인다. 2026-09-07 이 현상을 실제로 관측했다.
+
+`ros2 topic echo`가 `does not appear to be published yet`으로 끝나면 노드가 아니라 CLI 조회 경로를 먼저 의심한다. 타입 조회는 `ros2 daemon`을 거치므로, 데몬이 켜질 때와 다른 discovery 설정에서 실행하면 노드를 못 본다. `--no-daemon`을 붙이면 데몬을 건너뛴다. 이때도 노드 로그 자체는 유효한 증거다. `_publish_if_changed()`가 발행과 로그를 같은 블록에서 함께 실행하므로 **로그 한 줄이 곧 토픽에 나간 값 하나**다.
+
+확인 항목은 3초 유지 전이(SOC 0.15 → LOW), 미수신 3초 복귀(UNKNOWN), CRITICAL 즉시 전이(SOC 0.05), SOC 경계(0.19/0.20), 충전 방향(status 1, SOC 0.85 → FULL)이다. CRITICAL은 1초만 발행해도 전이해야 한다. 3초 유지 규칙을 탄다면 전이할 수 없으므로 즉시성의 증거가 된다.
+
+2026-09-07 사용자가 CRITICAL 즉시 전이를 확인하여 2단계를 통과 처리했다. 나머지 항목은 같은 코드로 개발 워크스페이스에서 확인했으며, robot1·robot6 실기와 실제 배터리 드라이버 연동은 미실행이다.
+
+## 6.1 3단계 구현 내용
+
+`src/patrol_amr/patrol_amr/drive_token_guard.py`는 ROS 노드가 아니라 6단계 `local_safety_supervisor`가 사용하는 일반 Python 모듈이다. `/control/drive_token` 관측을 받아 주행 권한만 판정하고 속도를 발행하지 않는다.
+
+- `observe(token, holder_robot_id, lease_seconds, sequence, now)`가 수락·폐기 사유를 `TokenVerdict`로 반환한다. 폐기 사유는 `OTHER_HOLDER`, `REVOKED`, `STALE_SEQUENCE`, `INVALID_LEASE`다.
+- `authority(now)`가 `GRANTED`·`MISSING`·`EXPIRED`를 반환한다. 각각 600 DRIVE_TOKEN_MISSING, 601 DRIVE_TOKEN_EXPIRED에 대응한다.
+- 경과 판정은 호출자가 넘기는 로컬 monotonic 초만 사용한다. 폐기된 메시지는 lease를 연장하지 않는다.
+
+단위시험:
+
+```bash
+cd ~/patrol
+python3 -m unittest discover -s tests -p test_drive_token_guard.py -v
+```
+
+예상 결과는 `Ran 22 tests`와 `OK`다. 두 단계를 함께 돌리려면 `-p "test_*.py"`를 쓴다. 예상 결과는 `Ran 29 tests`와 `OK`다.
+
+이 모듈은 ROS 토픽 시험 대상이 아니다. 실제 `/control/drive_token` 구독과 정지 출력은 6단계에서 붙인다. 상세 설계와 TBD-IF-002로 남긴 부분은 [amr.md 3.1절](../amr.md#31-drive_token_guardpy--구현-대조-완료)에 있다.
 
 ## 7. 결정·미완료 사항
 
