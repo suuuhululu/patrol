@@ -918,3 +918,94 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 ### 14단계 이후
 
 15~17단계의 순서는 의존성이 적은 것부터다. AMR-11은 TBD 하나만 풀리면 되고 남의 코드가 필요 없다. AMR-18·19와 AMR-07은 TBD와 병합 두 가지가 모두 필요하다. 세 단계 모두 착수 전에 해당 TBD의 잔여 항목이 실제로 닫혔는지 [interfaces.md TBD 표](../interfaces.md#tbd)에서 확인하고, 미정 값을 지어내지 않는다.
+
+## 12. 남은 작업의 노드·파일·기능 매핑 — 2026-09-08
+
+11절의 단계 계획을 **어느 노드·파일의 어떤 기능인지**로 다시 정리했다. 아래 상태는 2026-09-08 `feat/amr-safety-status` 소스에서 직접 확인한 것이다.
+
+### 12.1 ROS 노드
+
+#### `local_safety_supervisor` (265줄) — 로컬 안전과 최종 속도 출력
+
+| 구분 | 내용 |
+|---|---|
+| 현재 구독 | `/control/drive_token`(DriveToken), `/control/estop`(EStop) |
+| 현재 발행 | `motion_allowed`(std_msgs/Bool) |
+| 현재 타이머 | 0.1초 신선도 재확인 (`RECHECK_PERIOD_SECONDS`) |
+| 필수 parameter | `robot_id` |
+
+남은 기능은 두 가지다.
+
+- **최종 속도 출력** — 12단계. `cmd_vel_safe`·`cmd_vel_yaw`(TwistStamped)를 구독하고 `MotionGuard.evaluate()`로 게이팅해 `/robotN/cmd_vel`(Twist)을 발행한다. 지금은 `blocked_reasons()`로 차단 여부만 판정하고 실제 속도를 다루지 않는다. `motion_allowed`는 시험·디버그용으로 남긴다.
+- **물리 E-stop latch 반영** — 15단계. `estop_guard`의 로컬 latch 확장분을 이 노드가 사용한다. 현재는 관제가 보낸 `latched` 값을 반영할 뿐 로컬 물리 버튼 경로가 없다.
+
+#### `status_reporter` (240줄) — 상태·결과 보고
+
+| 구분 | 내용 |
+|---|---|
+| 현재 구독 | `battery_status`(내부), `/battery_state`(sensor_msgs/BatteryState) |
+| 현재 발행 | `/robotN/robot_status`(RobotStatus) |
+| 구현된 정책 | Q-02 정기 2 Hz·변경 시 최대 10 Hz, `status_sequence` 단조 증가 |
+| 필수 parameter | `robot_id`, `source_session_id`, `safety_state` |
+
+RobotStatus 27개 필드 중 **현재 안전한 미연결 값으로 두고 있는 것**이다. 코드에 `No agreed odometry/token/mission source is connected yet.`로 표시돼 있다.
+
+| 필드 | 현재 값 | 연결하려면 |
+|---|---|---|
+| `linear_velocity`·`angular_velocity` | `NaN` | 12단계의 최종 cmd_vel 또는 odometry |
+| `motion_stopped` | `false` | 12단계의 최종 cmd_vel |
+| `accepted_token_id`·`token_valid` | `''`, `false` | `local_safety_supervisor`의 token 판정 |
+| `operational_state`·`mission_state`·`docking_state` | `robot_status_state` 기본값 | 박성현 mission 코드 병합 |
+| `pose`·`pose_valid`·`last_valid_pose` | 미입력 | AMCL·odom 구독, 박성현 Nav2 병합 |
+| `current_waypoint_id`·`scan_state` | `''` | TBD-IF-003 잔여(타입 미정) |
+| `safety_state` | parameter 고정값 | TBD-IF-003 잔여(enum 수치 미정) |
+| `reason_code`·`reason` | 미설정 | 보고 정책 확정 후 |
+
+추가로 **`PatrolReport` 발행(AMR-07)이 이 노드에 붙는다** — 17단계. 메시지 정의는 있으나 publisher가 없다. `/robotN/patrol_report`로 `result`(SUCCEEDED/FAILED/CANCELED)와 `reason_code` 32종을 명령·임무 ID에 연결해 발행해야 하며, 입력은 박성현 체크포인트·mission 결과다.
+
+#### `battery_monitor` (208줄) — 배터리 분류
+
+구독 `/battery_state`, 발행 `battery_status`, 0.1초 신선도 타이머. **AMR-12 범위는 완료됐고 남은 기능이 없다.** 7값 enum·SOC 밴드·3초 전이·stale 복귀까지 단위시험과 ROS 경로 검증을 마쳤다. 도킹 실행(AMR-13)과 교대(T-04)는 이 노드가 아니라 별도 미구현 영역이다.
+
+#### `recovery_supervisor` — 파일 없음, 신규 (AMR-18·19)
+
+새 분장에서 조정묵이 새로 받은 항목이다. 기능은 **중단 시 Nav2 goal·spin 취소, 30초 타이머, 재개, 토큰 반납**이다. 16단계이며 다음 두 가지가 모두 필요하다.
+
+- `nav2_client.py`(박성현) 병합 — goal·spin을 취소할 대상 API가 저장소에 없다.
+- TBD-AMR-005 해소 — STOP과 CANCEL의 임무 보존·종료 차이, 재개 지점이 미정이다.
+
+**범위 확인 필요:** 이 문서 1절은 조정묵 범위를 "AMR Python 파일 7개, ROS 노드 3개"로 적고 있다. `recovery_supervisor`는 8번째 파일이며 Nav2 action client가 필요하므로 4번째 ROS 노드가 된다. 새 분장이 기존 범위를 넓힌 것이므로 착수 전에 확인한다.
+
+### 12.2 순수 Python 모듈
+
+ROS에 의존하지 않으며 위 노드들이 import해서 쓴다.
+
+| 파일 | 줄 | 현재 기능 | 남은 기능 | 단계 |
+|---|---|---|---|---|
+| `drive_token_guard.py` | 201 | control session·token ID·message sequence·Q-01 lease 판정 | 송신 timestamp 기반 message age (TBD-IF-002 잔여, 현재는 QoS가 담당한다고 해석) | 없음 |
+| `estop_guard.py` | 93 | 자기 `target_robot_id`의 active·reason·latched 반영, sequence 하한 | **물리 E-stop 로컬 latch와 수동 reset 경로** (TBD-IF-004 잔여) | 15 |
+| `motion_guard.py` | 97 | token·E-stop AND 게이트, STOP=(0,0) 반환, 상태 비저장 | **Q-17 후보 신선도 0.5초 판정.** 속도 상한·감속·장애물은 TBD-AMR-006로 계속 BLOCKED | 11 |
+| `robot_status_state.py` | 272 | operational·mission·docking 독립 상태 축, 현재·마지막 유효 pose snapshot | 실입력 연결(mission·docking·pose). 자료구조는 이미 있고 채워 줄 쪽이 없다 | 17 |
+
+### 12.3 단계 → 노드·파일 대응
+
+| 단계 | 노드·파일 | 기능 |
+|---|---|---|
+| 11 | `motion_guard.py` | Q-17 후보 신선도 판정 추가 |
+| 12 | `local_safety_supervisor.py` | 후보 구독·최종 `cmd_vel` 발행 배선 |
+| 13 | `launch/amr_safety_status.launch.py`, `tests/integration/amr_safety_status_smoke.py` | launch 인자 추가, 스모크에 최종 속도 경로 검증 |
+| 14 | (변경 없음) | 실제 Nav2 후보로 IT-16 부분 실행 |
+| 15 | `estop_guard.py` → `local_safety_supervisor.py` | 물리 latch·수동 reset |
+| 16 | `recovery_supervisor.py` (신규) | goal·spin 취소, 30초 타이머, 재개, 토큰 반납 |
+| 17 | `robot_status_state.py` → `status_reporter.py` | mission·pose 입력 연결, `PatrolReport` 발행 |
+| 18 | (변경 없음) | I-03·T-01·T-03·T-04 통합시험 |
+
+### 12.4 조정묵 범위 밖이거나 BLOCKED
+
+| 항목 | 상태 |
+|---|---|
+| AMR-14 Detection·증적·부저 | 실행 코드 없음. TBD-IF-006·007, TBD-AMR-001·004로 BLOCKED (8절) |
+| AMR-13 도킹 실행·성공 판정 | 미구현 |
+| AMR-08~10 좌표·Keepout·안전구역 | 현재 브랜치에 실행 코드 없음. AMR-09는 담당자 충돌 확인 필요 |
+| AMR-15 robot6 LiDAR 위치 검증 | 미구현/TBD |
+| AMR-16 `nav2_client.py`, AMR-05 `command_store.py` | 박성현 구현 보고. 어느 원격 브랜치에도 없음 |
