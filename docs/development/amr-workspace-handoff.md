@@ -18,19 +18,23 @@
 | 8 | `status_reporter.py` ROS 노드 (확정 입력 연결 범위) | 구현·단위시험·사용자 ROS 토픽 시험 통과 |
 | 9 | `patrol_amr` 패키지 설정·실행 등록·통합 | 구현·회귀시험·`ros2 launch` 통합 실행 확인 완료, 사용자 검토 대기 |
 | 10 | 단일 robot AMR 로컬 ROS 통합 스모크 시험(구현된 두 경로만) | 자동시험 PASS·사용자 확인 완료(2026-09-08). 전체 시스템 IT는 미실행 |
-| 11 | `motion_guard.py` Q-17 후보 신선도 판정 | 구현·단위시험 26건 완료. 10단계 스모크 회귀 PASS, 사용자 검토 대기 |
-| 12 | `local_safety_supervisor.py` 후보 구독·최종 `cmd_vel` 발행 | 구현·단위시험 26건·헤드리스 사전 검증 완료. **사용자 ROS 토픽 시험 대기** |
+| 11 | `motion_guard.py` Q-17 후보 신선도 판정 | 구현·단위시험 26건 완료. 스모크 회귀 PASS |
+| 12 | `local_safety_supervisor.py` 후보 구독·최종 `cmd_vel` 발행 | 구현·단위시험 26건·**사용자 ROS 토픽 시험 통과(2026-09-08)** |
 | 13 | launch namespace·remap 인자, 스모크에 최종 속도 경로 추가 | 구현·자동시험 `AMR_SMOKE_PASS` 완료. 사용자 검토 대기 |
+
+11~13단계로 TBD-IF-009 확정분의 AMR 측 구현이 끝났다. 14단계부터는 전부 TBD 해소 또는 타 담당자 코드 병합이 선행되어야 한다.
 
 최종 ROS 노드는 `battery_monitor`, `local_safety_supervisor`, `status_reporter` 세 개다. guard와 state 파일은 해당 노드가 사용하는 일반 Python 모듈이다. 한 단계씩 구현하고 사용자 시험 통과 확인 전에는 다음 단계로 넘어가지 않는다.
 
 11단계 이후 계획은 [11절](#11-11단계-이후-실행-계획--2026-09-08)에 있다. 11~13단계는 관제 회신 없이 지금 착수할 수 있고, 14단계부터는 TBD 해소 또는 타 담당자 코드 병합이 선행되어야 한다.
 
-### 최신 재개 체크포인트 — 2026-09-08 08:35 KST
+### 최신 재개 체크포인트 — 2026-09-08
 
 - 현재 로컬 HEAD는 `9eb151f`(`test(amr): add stage 10 local integration smoke`)이고 브랜치는 `feat/amr-safety-status`다. `origin/feat/amr-safety-status`와 앞뒤 차이가 없다(`0 0`). 1~10단계가 모두 push되어 있으므로 다른 컴퓨터에서 clone/pull로 현재 상태를 재현할 수 있다.
 - 2026-09-08 08:29 KST 재검증: `colcon build --packages-select patrol_interfaces patrol_amr` `2 packages finished`, 단위시험 `Ran 89 tests`/`OK`, 10단계 스모크 `STAGE10_PASS`. `motion_allowed=false,true,false,true,false`, `battery_state=0,2,0`, `status_sequence=1..19`. 10단계는 사용자 확인까지 통과 처리했다.
-- 다음 작업은 11단계 코드가 아니라 **TBD-IF-009 계약 결정**이다. 근거와 제안은 [요청서](../change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md)에 있고 아래 10.2절에 요약했다.
+- TBD-IF-009를 확정하고 11~13단계로 구현·검증을 끝냈다. 계약과 근거는 [요청서](../change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md), 결정 요약은 10.3절, 단계 계획은 11절에 있다. 12단계 사용자 ROS 토픽 시험까지 통과했다.
+- 최종 검증: `colcon build` `2 packages finished`, 단위시험 `Ran 114 tests`/`OK`, 확장 스모크 `AMR_SMOKE_PASS`(`cmd_vel_publishers=['local_safety_supervisor']`).
+- **다음 작업은 코드가 아니다.** 14~17단계가 전부 관제 회신·TBD 해소·타 담당자 코드 병합에 막혀 있다. 10.2절의 차단 요인 구분과 11절의 단계표를 먼저 본다.
 - 아래 이력 항목의 `0efa7fa` 언급은 당시 기록이며 현재 HEAD가 아니다.
 - 2026-09-07 20:32 KST 재검증에서 `patrol_interfaces` 빌드는 `1 package finished`, 전체 단위시험은 `Ran 89 tests`와 `OK`, `git diff --check`는 출력 없이 통과했다.
 - 6단계 사용자 ROS 토픽 시험 중 drive_token의 `DEADLINE` 불일치와 E-stop의 `DURABILITY` 불일치를 확인했다. drive_token 구독측 deadline 문제는 `13f0412`에서 수정했고, E-stop은 계약에 맞는 QoS 옵션을 시험 명령에 지정해야 한다.
@@ -914,7 +918,7 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 | 단계 | 대상 | 시험 | 착수 가능 |
 |---|---|---|---|
 | 11 | `motion_guard.py`에 Q-17 후보 신선도 판정 추가 | 단위시험 | **완료 (2026-09-08)** |
-| 12 | `local_safety_supervisor.py`에 후보 구독·최종 `cmd_vel` 발행 배선 | 단위시험 + 사용자 ROS 토픽 시험 | 구현 완료, **사용자 시험 대기** |
+| 12 | `local_safety_supervisor.py`에 후보 구독·최종 `cmd_vel` 발행 배선 | 단위시험 + 사용자 ROS 토픽 시험 | **완료 (2026-09-08)** |
 | 13 | launch 인자 추가와 스모크 확장 | `ros2 launch` 통합 + 확장 스모크 | **완료 (2026-09-08)** |
 | 14 | 실제 Nav2 후보와 연동해 IT-16 부분 실행 | 통합시험 | 관제 회신 + 박성현 launch 병합 후 |
 | 15 | AMR-11 물리 E-stop latch·수동 reset | 단위 + 사용자 ROS 토픽 시험 | TBD-IF-004 잔여 해소 후 |
@@ -942,7 +946,7 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 - 10단계 스모크 회귀 `STAGE10_PASS`. `motion_allowed`는 여전히 `false → true → false → true → false`다.
 - 사용자 ROS 시험은 불필요하다. 순수 Python 모듈이며 ROS 경로 변화가 없다.
 
-### 12단계 — `local_safety_supervisor.py` 배선 · 구현 완료 2026-09-08, 사용자 시험 대기
+### 12단계 — `local_safety_supervisor.py` 배선 · 완료 2026-09-08
 
 구현 상세는 [amr.md 3.4절](../amr.md#34-local_safety_supervisorpy--구현-대조-완료)에 있다. 요약이다.
 
@@ -956,8 +960,17 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 자동 시험 결과 (2026-09-08):
 
 - `tests/test_local_safety_supervisor.py` 26건, 전체 단위시험 `Ran 114 tests` `OK`.
-- 10단계 스모크 회귀 `STAGE10_PASS`, `motion_allowed` 전이 동일.
+- 스모크 회귀 통과, `motion_allowed` 전이 동일.
 - 격리 도메인(126)에서 헤드리스 사전 검증 5개 시나리오 통과. 8단계 때와 같이 사용자 시험 전에 QoS 불일치가 없는지 먼저 확인한 것이다.
+
+**사용자 ROS 토픽 시험 통과 — 2026-09-08.** 아래 절차로 사용자가 직접 확인했다. 이 문서를 갱신한 세션은 사용자 터미널 출력을 직접 보지 않았으므로 통과 판정은 사용자 확인에 근거한다.
+
+시험 도중 절차 자체의 결함 두 개를 발견해 고쳤다. 둘 다 `ros2 topic pub`으로는 계약을 만족하는 입력을 만들 수 없다는 같은 원인이었고, **노드 코드는 바꾸지 않았다.**
+
+1. 후보의 `header.stamp`를 채울 방법이 없었다. 미기입은 1970년, 셸의 `$(date +%s)`는 초 단위 절삭으로 최대 1초 과거라 Q-17 0.5초를 넘긴다. → [publish_drive_candidate.py](../../tests/integration/publish_drive_candidate.py)
+2. `message_sequence`를 증가시킬 방법이 없었다. `ros2 topic pub -r 5`는 고정 메시지를 반복하므로 첫 메시지만 수락되고 lease가 갱신되지 않아, 발행 주기와 무관하게 정확히 `lease_duration` 뒤에 권한을 잃는다. 사용자 로그에서 `motion allowed: True` **8.000초** 뒤 `drive_token_not_granted`로 재현됐고 그 8초는 당시 절차의 `lease_duration`이었다. → [publish_drive_token.py](../../tests/integration/publish_drive_token.py)
+
+두 가드 동작 모두 의도된 것이다. 계약대로 stamp를 채우지 않거나 sequence를 증가시키지 않는 발행자를 실제로 걸러낸 것이며, 사용자 시험이 그 방어를 우연히 검증한 셈이다.
 
 #### 12단계 사용자 ROS 토픽 시험
 
