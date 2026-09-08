@@ -63,10 +63,12 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 | motion_guard.py | [src/patrol_amr/patrol_amr/motion_guard.py](../src/patrol_amr/patrol_amr/motion_guard.py) · `MotionGuard.evaluate` | [3.3절](#33-motion_guardpy--구현-대조-완료) 구현 대조 완료 (축소 범위) |
 | local_safety_supervisor.py | [src/patrol_amr/patrol_amr/local_safety_supervisor.py](../src/patrol_amr/patrol_amr/local_safety_supervisor.py) · `SafetyGate`·`LocalSafetySupervisor` | [3.4절](#34-local_safety_supervisorpy--구현-대조-완료-축소-범위) 구현 대조 완료 (축소 범위) |
 | heartbeat_guard.py | [src/patrol_amr/patrol_amr/heartbeat_guard.py](../src/patrol_amr/patrol_amr/heartbeat_guard.py) · `HeartbeatGuard.observe`·`state` | [3.5절](#35-heartbeat_guardpy--구현-대조-완료-순수-모듈) 구현 대조 완료 (ROS 연결 대기) |
+| nav2_client.py | [src/patrol_amr/patrol_amr/nav2_client.py](../src/patrol_amr/patrol_amr/nav2_client.py) · `Nav2Client.execute`·`cancel_active`·`failure_decision` | [4.5절](#45-nav2_clientpy--구현-대조-완료-공통-action-모듈) 구현 대조 완료 (mission 연결·실기 대기) |
+| waypoint_route.py | [src/patrol_amr/patrol_amr/waypoint_route.py](../src/patrol_amr/patrol_amr/waypoint_route.py) · `navigation_goals`·`WaypointRouteExecutor.start`·`cancel` | [4.6절](#46-waypoint_routepy--구현-대조-완료-공통-route-모듈) 구현 대조 완료 (mission 정책·실기 대기) |
 | battery_monitor.py | [src/patrol_amr/patrol_amr/battery_monitor.py](../src/patrol_amr/patrol_amr/battery_monitor.py) · `classify_observation`·`BatteryStateModel.update` | [5.1절](#51-battery_monitorpy--구현-대조-완료) 구현 대조 완료 |
 | robot_status_state.py | [src/patrol_amr/patrol_amr/robot_status_state.py](../src/patrol_amr/patrol_amr/robot_status_state.py) · `RobotStatusState.update_states`·`observe_pose`·`observe_odometry`·`snapshot` | [7.1절](#71-robot_status_statepy--구현-대조-완료) 구현 대조 완료 |
 | status_reporter.py | [src/patrol_amr/patrol_amr/status_reporter.py](../src/patrol_amr/patrol_amr/status_reporter.py) · `PublicationGate`·`StatusReporter` | [7.2절](#72-status_reporterpy--구현-대조-완료-축소-범위) 구현 대조 완료 (축소 범위) |
-| 공통 Nav2 연결·위치·결과 발행 | 실제 코드 파일·모듈별 행으로 분리하여 기록 | 미작성 |
+| 공통 Nav2 연결·위치·결과 발행 | 위 `nav2_client.py`와 `robot_status_state.py`·`status_reporter.py` 행으로 분리 | 공통 Action 모듈 구현, mission·결과 발행 종단 연결 대기 |
 
 각 그림에는 시작 조건, 함수·콜백 호출 순서, 조건별 분기, 외부 Action·토픽 송수신, 성공·실패·취소·안전 중단, 종료·복구 대기 경로를 표시한다. timeout·재시도 수치와 enum을 복제하지 않고 Q-ID·TBD-ID를 참조한다. 구현 대조 시 코드 버전과 관련 통합시험 ID를 기록한다.
 
@@ -116,6 +118,8 @@ Operational/Mission/Docking은 별개 상태 축이다. interfaces.md의 enum을
 - 같은 command ID의 재수신은 현재 내부 상태를 `DUPLICATE_ACCEPTED`·`DUPLICATE_EXECUTING`·`DUPLICATE_COMPLETED`로 돌려준다. mission 실행을 다시 시작하지 않는다. 완료 상태에는 기존 report ID와 직렬화 payload를 함께 보존해 향후 adapter가 같은 PatrolReport를 재발행할 수 있다.
 - 같은 command ID에서 interfaces.md 2절이 지정한 충돌 필드 중 하나라도 바뀌면 `COMMAND_ID_CONFLICT`를 반환하고 기존 행은 바꾸지 않는다. target pose는 JSON-compatible payload를 정규화해 key 순서 차이만 무시한다.
 - Q-14에 따라 24시간 이내 command는 개수와 무관하게 모두 유지하고, 24시간보다 오래된 command도 최신 1,000개를 유지한다. DB 파일 경로는 호출자가 명시하며 프로세스 재시작 뒤 같은 파일을 열면 상태와 완료 report가 남아 있다.
+- `complete_report()`는 검증된 `PatrolReportRecord`의 command ID와 robot ID가 저장된 command와 일치할 때만 canonical JSON으로 저장한다. `completed_report()`는 프로세스 재시작 뒤에도 이를 다시 검증해 같은 record로 복원한다. 다른 command·robot의 report가 연결되는 것을 막는다.
+- `completed_reports()`는 Q-14 보존 범위의 완료 report 전체를 command 수신 순서로 복원한다. report ACK 계약이 없으므로 전송 완료로 표시하거나 삭제하지 않는다.
 - command별 target 필수 여부와 `parameters_json` 상세 스키마는 TBD-IF-001이므로 추측하지 않았다. `parameters_json`은 빈 값 또는 문법상 유효한 JSON인지만 확인하고 target pose도 구조를 해석하지 않는다. 공용 CommandCheck의 `check_state` 숫자도 아직 미정이라 이 모듈의 내부 Enum을 wire 값으로 사용하지 않는다.
 
 ~~~mermaid
@@ -133,12 +137,52 @@ flowchart TD
     SAME -->|예·COMPLETED| REPORT[DUPLICATE_COMPLETED + 기존 report 반환]
     SAVE --> EXEC[mark_executing]
     EXEC --> DONE[complete: report ID + payload 영속 저장]
+    DONE --> LINK{report command / robot ID 일치?}
+    LINK -->|아니오| BADREPORT[거절 / 기존 command 유지]
+    LINK -->|예| CODEC[canonical report JSON 저장]
+    CODEC --> RESTORE[재시작 뒤 completed_report 검증 복원]
+    RESTORE --> ALL[completed_reports: 보존 완료 report 순서 복원]
     PRUNE[prune] --> KEEP[24시간 이내 전부 + 오래된 최신 1000개 유지]
     DONE --> RESTART[프로세스 재시작]
     RESTART --> DB
 ~~~
 
-검증: [단위시험](../tests/test_command_store.py) 14건은 enum, 신규·동일·충돌, ACCEPTED→EXECUTING→COMPLETED, 상태 역행 방지, 완료 report 재전달, DB 재개, JSON/필드 검증, 다른 robot 차단, Q-14 경계와 1,000개 보존을 확인한다. 아직 없는 mission ROS adapter와 공용 CommandCheck 숫자·publisher를 붙인 뒤 IT-02를 통과해야 AMR-05 전체 완료다.
+검증: [단위시험](../tests/test_command_store.py) 17건은 enum, 신규·동일·충돌, ACCEPTED→EXECUTING→COMPLETED, 상태 역행 방지, 완료 report 재전달, 보존 report 전체의 순서 복원, DB 재개, report command/robot 연결과 재시작 복원, JSON/필드 검증, 다른 robot 차단, Q-14 경계와 1,000개 보존을 확인한다. mission ROS node와 확정된 CommandCheck 숫자를 붙인 뒤 IT-02를 통과해야 AMR-05 전체 완료다.
+
+### 2.2 command_check.py — 구현 대조 완료 (순수 모듈)
+
+`CheckStateMapping`은 ACCEPTED·EXECUTING·REJECTED의 서로 다른 uint8 값을 호출자가 모두 제공해야만 생성된다. TBD-IF-001이 확정되기 전에는 기본 숫자를 만들지 않는다. `CommandCheckFactory`는 robot/source session을 검증하고 sequence를 증가시키며, 잘못된 command의 빈 ID도 그대로 echo할 수 있다. `populate_message()`·`publish_record()`는 전체 wire 필드를 변환·발행하고 QoS는 RELIABLE·VOLATILE·KEEP_LAST(10)이다.
+
+~~~mermaid
+flowchart TD
+    CFG[robot/source session + check_state 3값 주입] --> VALID{서로 다른 uint8?}
+    VALID -->|아니오| FAIL[생성 거절]
+    VALID -->|예| FACTORY[CommandCheckFactory]
+    INPUT[command/mission ID + 의미 + reason] --> FACTORY
+    FACTORY --> RECORD[CommandCheckRecord + sequence]
+    RECORD --> MAP[전체 wire 필드 변환]
+    MAP --> PUB[caller-owned publisher]
+    PUB --> QOS[RELIABLE / VOLATILE / KEEP_LAST 10]
+~~~
+
+### 2.3 mission_ingress.py — 구현 대조 완료 (순수 모듈)
+
+`mission_command_fields()`는 `MissionCommand`의 중복 fingerprint 필드와 `PoseStamped` 전체를 누락 없이 복사한다. `MissionIngress.observe()`는 `command_store` 결과를 신규 1회 dispatch, 기존 ACCEPTED/EXECUTING 재응답, 완료 report 재전달, ID 충돌 REJECTED로 변환한다. invalid/conflict reason code는 호출자가 확정 계약으로 주입하며 기본값이 없다. command별 실행은 상태 전이표가 미정이므로 이 모듈이 시작하지 않는다.
+
+~~~mermaid
+flowchart TD
+    RX[MissionCommand wire 필드] --> COPY[PoseStamped 포함 fingerprint 복사]
+    COPY --> STORE[CommandStore.register]
+    STORE -->|NEW| ACCEPT[ACCEPTED + dispatch_new 1회]
+    STORE -->|DUPLICATE_ACCEPTED| ACKA[ACCEPTED 재응답 / dispatch 없음]
+    STORE -->|DUPLICATE_EXECUTING| ACKE[EXECUTING 재응답 / dispatch 없음]
+    STORE -->|DUPLICATE_COMPLETED| REPORT[기존 PatrolReport 재전달]
+    STORE -->|COMMAND_ID_CONFLICT| REJECT[REJECTED + 주입 reason code]
+    STORE -->|입력 무효| INVALID[REJECTED + 주입 invalid code]
+    ACCEPT --> PENDING[확정 전이표의 mission runtime]
+~~~
+
+2.2·2.3절 검증은 [CommandCheck 시험](../tests/test_command_check.py) 9건과 [ingress 시험](../tests/test_mission_ingress.py) 7건이다. 공유 계약 확정 요청은 [AMR 수정 요청서](change_requests/CR-AMR_09-08_11-48_명령_상태_보고_종단_계약.md)로 추적한다.
 
 ## 3. 로컬 안전과 속도 출력
 
@@ -427,7 +471,7 @@ map frame의 pose·측정 시각·covariance를 제공한다. pose가 무효이�
 
 AMR2 LiDAR 위치 검증 기준은 Q-06이며 대상·계산 주체·통신 계약이 불명확하다(TBD-AMR-002). 이를 두 로봇에 임의로 일반화하지 않는다.
 
-Keepout은 각 로봇의 global/local costmap에 필요하다. 계획 구성 예시는 다음과 같다.
+Keepout은 각 로봇의 global/local costmap에 필요하다. 단일 filter 구성 예시는 다음과 같다.
 
 ~~~yaml
 filters: ["keepout_filter"]
@@ -437,9 +481,179 @@ keepout_filter:
   filter_info_topic: costmap_filter_info
 ~~~
 
-mask server와 costmap_filter_info_server도 필요하다. 이는 예시이며 실제 parameter 파일 변경 승인이 아니다. 장비별 Keepout 적용 여부는 TBD-ARCH-001과 TBD-IF-008에 따라 실제 설정을 확인한다.
+mask server와 costmap_filter_info_server도 필요하다. 아래 4.4절에서 사용자 승인 범위의 이중 filter를 실제 AMR overlay와 launch에 반영했다. 관제 transaction과 정식 공유 parameter 계약은 [AMR 이중 Keepout 요청서](change_requests/CR-AMR_09-08_13-02_이중_Keepout_parameter_계약.md) 검토 및 TBD-IF-008 완료가 필요하다.
 
 안전구역은 Q-08 조건을 모두 충족해야 한다. 차량 동선과의 거리를 우선하고 다음으로 경로 비용을 평가한다. 후보가 없으면 현재 위치에서 정지하고 SAFE_ZONE_NOT_FOUND를 보고한다. 계산 주체·지도/차량 동선 공급자는 TBD-CTRL-002다.
+
+### 4.1 safe_zone_selector.py — 구현 대조 완료 (좌표 비의존 판정기)
+
+2026-09-08: 저장소에 실제 map YAML/이미지, Keepout mask, P1~P7·도크·안전구역 좌표가 없음을 확인했다. [safe_zone_selector.py](../src/patrol_amr/patrol_amr/safe_zone_selector.py)는 좌표를 추정하거나 map을 만들지 않고 외부 map·traffic provider가 제공한 후보를 Q-08로만 판정한다.
+
+- `MapPose`는 유한한 x·y·yaw와 frame을 보존한다. 선택 대상은 `map` frame만 통과한다.
+- `rejection_reasons()`는 free cell, Keepout 밖, 장애물 간격 0.5 m 이상, 차량 동선 간격 1.0 m 이상, 경로 가능, 다른 AMR과 비중첩을 독립적으로 검증한다.
+- `select_safe_zone()`는 적합 후보만 차량 동선 거리 내림차순, 경로 비용 오름차순, candidate ID 순으로 정렬해 결정성있게 하나를 고른다. 적합 후보가 없으면 pose를 추정하지 않고 `SAFE_ZONE_NOT_FOUND=400`을 반환한다.
+
+~~~mermaid
+flowchart TD
+    INPUT[map/traffic provider의 후보 목록] --> VALID{후보 ID·pose·거리 유효?}
+    VALID -->|아니오| ERROR[입력 거절]
+    VALID -->|예| FRAME{map frame?}
+    FRAME --> GATES{free + Keepout 밖 + 0.5m + 1.0m + path + 비중첩?}
+    GATES -->|아니오| DROP[후보 제외 + 모든 사유 보존]
+    GATES -->|예| ELIGIBLE[적합 후보]
+    ELIGIBLE --> RANK[차량 거리 우선 → 경로 비용 → ID]
+    RANK --> SELECT[최종 후보]
+    DROP --> NONE{적합 후보 0개?}
+    NONE -->|예| FAIL[SAFE_ZONE_NOT_FOUND / pose 없음]
+~~~
+
+검증은 [safe-zone 단위시험](../tests/test_safe_zone_selector.py)에서 Q-08 경계, 7개 부적합 사유, 우선순위, 무후보 실패, 중복 ID·비유한 입력 차단을 확인한다. 실제 map·mask·Nav2 path 연결은 자료 제공과 TBD-CTRL-002·TBD-INT-003 확정 후에만 구현한다.
+
+### 4.2 waypoint_catalog.py — 구현 대조 완료
+
+2026-09-08 사용자가 제공한 `final_project_map` 원본과 실측 WP1~WP7을 [maps](../src/patrol_amr/maps)와 [patrol_waypoints.yaml](../src/patrol_amr/config/patrol_waypoints.yaml)에 보존했다. 원본과 패키지 PGM의 SHA-256은 모두 `c07df922bb4b520f9a20a9098a507786eb790646d51c98d95443f19e02efa1e6`이다. map은 126×90 px, 0.05 m/px, origin `[-5.801, -3.430, 0]`이다. 7개 waypoint와 8개 Keepout 경계점은 모두 map 범위 안의 free pixel `gray(254)`임을 확인했다.
+
+~~~mermaid
+flowchart TD
+    YAML[patrol_waypoints.yaml] --> LOAD[load_waypoint_catalog]
+    LOAD --> META{map_id / frame_id=map?}
+    META -->|아니오| FAIL[적재 거절]
+    META -->|예| EACH[WP1~WP7 순서 로드]
+    EACH --> VALID{ID 고유 + x/y 유한 + yaw 0~360?}
+    VALID -->|아니오| FAIL
+    VALID -->|예| CATALOG[불변 WaypointCatalog]
+    CATALOG --> LOOKUP[by_id 조회]
+~~~
+
+### 4.3 keepout_mask.py — 구현 대조 완료
+
+사용자 확인에 따라 빨간 기본 Keepout을 `P1-P2-P3-P4`·`P5-P6-P7-P8`, 노란 중앙통로 Keepout을 `P2-P5-P8-P3`으로 [keepout_zones.yaml](../src/patrol_amr/config/keepout_zones.yaml)에 분리했다. 기본 Keepout은 `always`, 중앙통로는 관제가 `/vision/cctv/patrol_allowed=false`를 받았을 때 활성화하는 `control_when_patrol_disallowed`로 표시했다. AMR이 CameraState나 permit을 직접 판단하지 않는다. `keepout_mask.py`는 polygon·map metadata를 검증하고 각 cell 중심을 world 좌표로 변환해 두 장의 map-aligned PGM을 생성한다. 검정 pixel은 occupied Keepout, 흰 pixel은 free다.
+
+~~~mermaid
+flowchart TD
+    ZONES[keepout_zones.yaml] --> ZVALID{map frame / layer / polygon / 면적 유효?}
+    MAP[final_project_map.yaml + PGM] --> MVALID{trinary / negate 0 / yaw 0 / 126x90?}
+    ZVALID -->|아니오| FAIL[생성 거절]
+    MVALID -->|아니오| FAIL
+    ZVALID --> RASTER[cell 중심 world 좌표 변환]
+    MVALID --> RASTER
+    RASTER --> INSIDE{layer polygon 내부?}
+    INSIDE -->|예| BLACK[검정 / occupied Keepout]
+    INSIDE -->|아니오| WHITE[흰색 / free]
+    BLACK --> BASE[base_keepout_mask.pgm]
+    BLACK --> CENTER[center_corridor_keepout_mask.pgm]
+    WHITE --> BASE
+    WHITE --> CENTER
+~~~
+
+두 mask와 metadata는 `setup.py`로 package share에 설치된다. WP3은 중앙통로 mask 내부이고 기본 Keepout 밖이며, 나머지 WP는 두 mask 밖임을 자동시험으로 확인한다. 이는 중앙통로 Keepout이 활성인 동안 WP3를 경로에서 제외해야 한다는 통합 제약이며, 실제 filter 활성 정책과 방문 순서는 Nav2 연결 전에 확정한다.
+
+검증: 전체 자동시험 `Ran 250 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr` `2 packages finished`. 현재 결과는 map·waypoint·mask 자산과 순수 판정/생성 로직이므로 사용자 ROS 토픽 시험 대상은 아니다.
+
+### 4.4 amr_nav2_keepout.launch.py — 구현 대조 완료
+
+2026-09-08 사용자 승인에 따라 [nav2_keepout_filters.yaml](../src/patrol_amr/config/nav2_keepout_filters.yaml)을 기존 TurtleBot4 Nav2 parameter에 overlay하고 [amr_nav2_keepout.launch.py](../src/patrol_amr/launch/amr_nav2_keepout.launch.py)에서 localization·Nav2·이중 mask 서버를 함께 기동하도록 연결했다. `robot_id`는 `robot1` 또는 `robot6`만 허용하며 map·mask·filter info topic을 로봇 namespace 아래에 분리한다.
+
+- global/local costmap 모두 `base_keepout_filter`와 `center_corridor_keepout_filter`를 로드한다.
+- 빨간 기본 filter는 `enabled=true`, 노란 중앙통로 filter는 `enabled=false`로 시작한다.
+- 관제가 변경할 대상은 중앙통로 filter 두 개뿐이다. AMR은 `/vision/cctv/patrol_allowed`를 직접 구독하거나 차량 상태를 재판단하지 않는다.
+- mask topic은 filter info 메시지 안에서도 robot namespace를 잃지 않도록 절대 이름으로 전달한다.
+- 네 mask/info lifecycle 노드는 전용 lifecycle manager가 함께 ACTIVE로 만든다.
+
+~~~mermaid
+flowchart TD
+    START[amr_nav2_keepout.launch.py] --> ID{robot1 또는 robot6?}
+    ID -->|아니오| REJECT[launch 인자 거절]
+    ID -->|예| MAP[final_project_map으로 localization]
+    ID --> SERVERS[base/center mask server + info server]
+    ID --> OVERLAY[TurtleBot4 Nav2 params + Keepout overlay]
+    SERVERS --> ACTIVE{4개 lifecycle ACTIVE?}
+    OVERLAY --> GLOBAL[global_costmap: base ON + center OFF]
+    OVERLAY --> LOCAL[local_costmap: base ON + center OFF]
+    ACTIVE --> GLOBAL
+    ACTIVE --> LOCAL
+    CONTROL[관제 transaction] --> CENTER{patrol_allowed?}
+    CENTER -->|false| ENABLE[global/local center enabled=true]
+    CENTER -->|true| DISABLE[global/local center enabled=false]
+    ENABLE --> READBACK{두 값 read-back 일치?}
+    DISABLE --> READBACK
+    READBACK -->|아니오| ROLLBACK[snapshot rollback 또는 안전 정지]
+    READBACK -->|예| COMMIT[중앙통로 상태 commit]
+    GLOBAL --> BASE[빨간 기본 Keepout 상시 유지]
+    LOCAL --> BASE
+~~~
+
+관제 쪽 snapshot·Q-07 재시도·read-back·rollback은 AMR 책임 범위가 아니므로 해당 코드를 수정하지 않았다. 정식 parameter 이름과 적용 순서는 [CR-AMR_09-08_13-02](change_requests/CR-AMR_09-08_13-02_이중_Keepout_parameter_계약.md)에 제안했으며 합의·실기 전에는 AMR-09를 100%로 표시하지 않는다.
+
+로컬 검증: 전체 단위시험 `Ran 255 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr` `2 packages finished`, 설치된 launch의 `--show-args`에서 `robot1`·`robot6` 선택과 map/parameter 기본 경로를 확인했다. 실제 lifecycle ACTIVE, global/local parameter read-back, RViz costmap 및 WP3 경로 차단은 장비가 연결된 사용자 실기시험으로 남는다.
+
+### 4.5 nav2_client.py — 구현 대조 완료 (공통 Action 모듈)
+
+2026-09-08: [nav2_client.py](../src/patrol_amr/patrol_amr/nav2_client.py)에 robot1·robot6이 공유하는 표준 `NavigateToPose` Action client와 AMR-16 재시도 정책을 구현했다. 로봇 차이는 코드를 복제하지 않고 이 모듈을 소유하는 노드의 namespace로 구분한다.
+
+- `NavigationGoal`은 비어 있지 않은 goal ID, `map` frame, 유한한 x·y, 0도 이상 360도 미만 yaw만 받는다. `pose_stamped()`가 yaw를 quaternion으로 바꾸고 목표 발행 시점의 ROS timestamp를 넣는다.
+- `Nav2Client.execute()`는 동시에 하나의 goal만 허용하고 표준 `navigate_to_pose` Action에 목표와 feedback callback을 연결한다.
+- 최초 시도 실패 뒤 최대 3번 더 시도해 총 4번 실행한다. 네 번째도 실패하면 중간 waypoint는 `SKIPPED`, 최종 goal은 `FAILED`로 구분한다.
+- 성공은 `SUCCEEDED`, 안전 중단 등으로 취소를 요청한 goal은 `CANCELED`로 한 번만 종료하며 재시도하지 않는다. goal 수락 전 취소 요청도 수락 직후 Nav2에 전달한다.
+- feedback에는 goal ID, 현재 시도 횟수, 남은 거리, 주행·예상 잔여 시간, recovery 횟수를 담는다.
+- 계약에 없는 Action server 대기시간·goal 결과 timeout·재시도 간격은 만들지 않았다. server 대기시간은 호출자가 반드시 전달하고 mission timeout은 해당 계약이 정해진 뒤 상위 mission 모듈에서 관리한다.
+
+~~~mermaid
+flowchart TD
+    EXEC[execute: map goal + 완료/feedback callback] --> READY{NavigateToPose server ready?}
+    READY -->|아니오| REJECT[호출 거절 / goal 미시작]
+    READY -->|예| SEND[PoseStamped 생성 / 시도 횟수 +1 / goal 발행]
+    SEND --> ACCEPT{goal 수락?}
+    ACCEPT -->|아니오| FAILED[실패 정책 판정]
+    ACCEPT -->|예| FEEDBACK[거리·시간·recovery feedback 전달]
+    FEEDBACK --> RESULT{Action 결과}
+    RESULT -->|SUCCEEDED| SUCCESS[SUCCEEDED / 종료]
+    RESULT -->|CANCELED 또는 취소 요청| CANCELED[CANCELED / 재시도 없음 / 종료]
+    RESULT -->|그 밖의 실패| FAILED
+    CANCEL[cancel_active: 안전 중단] --> HANDLE{goal handle 수신됨?}
+    HANDLE -->|예| CANCELNAV[Nav2 cancel 요청] --> CANCELED
+    HANDLE -->|아니오| WAIT[수락 응답 직후 cancel 요청] --> CANCELED
+    FAILED --> RETRY{현재 실패까지 총 4회 미만?}
+    RETRY -->|예| SEND
+    RETRY -->|아니오| FINAL{최종 goal?}
+    FINAL -->|아니오| SKIP[SKIPPED / 다음 waypoint 판단은 상위 모듈]
+    FINAL -->|예| ROUTEFAIL[FAILED / route 종료 판단은 상위 모듈]
+~~~
+
+단위시험은 좌표·yaw 변환, goal 검증, 성공, feedback, goal 거절, 최초 1회와 재시도 3회, 중간 waypoint skip, 최종 goal 실패, 취소 시 재시도 금지, server 준비·동시 goal 차단을 확인한다. 전체 자동시험은 `Ran 269 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 `2 packages finished`다. 실제 mission supervisor가 이 callback으로 waypoint를 넘기거나 PatrolReport를 만드는 연결과 robot1·robot6 Nav2 실기는 남아 있으므로 AMR-16을 아직 100%로 표시하지 않는다.
+
+### 4.6 waypoint_route.py — 구현 대조 완료 (공통 route 모듈)
+
+2026-09-08: [waypoint_route.py](../src/patrol_amr/patrol_amr/waypoint_route.py)에 측정된 WP 목록을 4.5절 `Nav2Client`로 순서대로 실행하는 공통 route 계층을 추가했다.
+
+- `navigation_goals()`는 검증된 `WaypointCatalog`의 WP1~WP7 순서·좌표·yaw를 보존하고 마지막 WP7만 final goal로 표시한다.
+- `WaypointRouteExecutor.start()`는 route 전체 입력을 먼저 검증하고 동시에 하나의 route만 실행한다. 각 goal의 final 표시는 호출자 값에 의존하지 않고 route의 실제 마지막 위치로 다시 정한다.
+- 현재 waypoint가 `SUCCEEDED`면 다음 waypoint를 발행한다. `Nav2Client`가 총 4회 실패 뒤 중간 waypoint를 `SKIPPED`로 돌려줘도 기록을 보존하고 다음 waypoint로 진행한다.
+- 마지막 waypoint 성공 시 중간 skip이 없으면 `COMPLETED`, 하나라도 있으면 `COMPLETED_WITH_SKIPS`다. 이 값은 주행 순서가 끝났다는 내부 결과이며 PatrolReport `SUCCEEDED`를 뜻하지 않는다. skip이 있는 임무의 최종 성공·실패 정책은 TBD-AMR-005에 남긴다.
+- final goal `FAILED`, goal ID가 다른 callback, 다음 goal dispatch 실패는 route `FAILED`로 닫는다. `CANCELED`는 다음 waypoint를 발행하지 않는다.
+- Nav2 feedback callback은 변경 없이 상위 호출자에게 전달한다. 현재 goal과 누적 goal 결과도 조회할 수 있어 향후 RobotStatus waypoint 입력으로 사용할 수 있다.
+
+~~~mermaid
+flowchart TD
+    CAT[검증된 WaypointCatalog] --> GOALS[navigation_goals: 순서·좌표 보존 / 마지막만 final]
+    START[start: goal 목록 + 완료/feedback callback] --> VALID{비어 있지 않음 / ID 고유 / goal 타입 유효?}
+    VALID -->|아니오| REJECT[route 시작 거절]
+    VALID -->|예| DISPATCH[현재 goal을 Nav2Client.execute]
+    GOALS --> START
+    DISPATCH --> RESULT{NavigationCompletion}
+    RESULT -->|SUCCEEDED + 중간| NEXT[index +1 / 다음 goal]
+    RESULT -->|SKIPPED + 중간| RECORD[skip 기록] --> NEXT
+    NEXT --> DISPATCH
+    RESULT -->|SUCCEEDED + 마지막| SKIPS{앞선 skip 있음?}
+    SKIPS -->|아니오| COMPLETE[COMPLETED]
+    SKIPS -->|예| PARTIAL[COMPLETED_WITH_SKIPS / mission 성공 여부 미정]
+    RESULT -->|FAILED| FAIL[route FAILED]
+    RESULT -->|CANCELED| CANCEL[route CANCELED / 다음 goal 없음]
+    BAD[goal ID 불일치 또는 dispatch 예외] --> FAIL
+    STOP[cancel] --> NAVCANCEL[Nav2Client.cancel_active] --> CANCEL
+~~~
+
+이 모듈은 START_PATROL 명령 수신, scan, 상태 enum, PatrolReport 결과를 만들지 않는다. 그 연결은 TBD-AMR-005가 필요한 AMR-17 범위다. 전체 자동시험은 `Ran 289 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 `2 packages finished`다. 이번 단계는 순수 route 모듈이므로 사용자 직접시험은 없고, 실제 Nav2와 연결한 AMR-16 종단시험 때 robot1·robot6에서 확인한다.
 
 ## 5. 배터리와 도킹
 
@@ -519,6 +733,7 @@ RobotStatus의 발행·변경 rate는 Q-02다. PatrolReport는 명령과 연결�
 - `safety_state`: 필드 이름은 사용하지만 enum 숫자는 TBD-IF-003이므로 `SafetyState` enum과 기본 숫자를 만들지 않았다. 합의된 값이 호출자에게서 들어오면 uint8 범위만 검증해 보관한다. 초기 `None`은 “계약 매핑이 아직 공급되지 않음”이라는 내부 상태이고 ROS 메시지 값이 아니다.
 - `RobotStatusState.observe_pose(...)`: 유효 위치는 payload, `map` frame, 측정 시각이 모두 있어야 한다. `pose_valid=false`가 들어오면 현재 pose는 무효로 표시하되 마지막 유효 pose는 지우지 않는다. pose payload에는 8단계에서 ROS pose와 covariance가 함께 들어온다.
 - `RobotStatusState.snapshot(snapshot_at)`: 현재 상태의 복사본을 만들고 같은 ROS clock의 snapshot 시각에서 마지막 유효 pose 측정 시각을 빼 `last_valid_pose_age`를 계산한다. token lease처럼 로컬 monotonic 시간을 쓰는 곳과 섞지 않는다.
+- `RobotStatusState.update_mission_context(...)`: active command/mission ID, current waypoint, scan state, reason code/detail을 모두 먼저 검증한 뒤 한 번에 갱신한다. ID와 문자열은 mission 입력을 그대로 보존하며 waypoint·scan 의미는 TBD-IF-003이라 해석하지 않는다. reason code는 공용 필드 타입인 uint32 범위만 검증한다.
 
 새 [interfaces.md](interfaces.md#4-robotstatus)는 상태 필드 이름을 `operational_state`, `mission_state`, `docking_state`, `battery_state`, `safety_state`로 명확히 했으므로 내부 모델도 이 이름을 사용한다. 2026-09-07 사용자 요청으로 [RobotStatus.msg](../src/patrol_interfaces/msg/RobotStatus.msg)도 같은 이름과 의미 필드로 동기화했다. safety enum 숫자와 waypoint·scan 상세 동작은 여전히 TBD-IF-003이다.
 
@@ -530,6 +745,9 @@ flowchart TD
     VALIDATE -->|예| CHANGED{기존 값과 다른가?}
     CHANGED -->|예| APPLY[축을 독립적으로 반영 + revision 증가]
     CHANGED -->|아니오| KEEP[상태와 revision 유지]
+    CONTEXT[update_mission_context] --> CVALID{ID / waypoint / scan / reason 모두 유효?}
+    CVALID -->|아니오| ERROR
+    CVALID -->|예| CKEEP[mission context 원자 갱신 / 변경 시 revision 증가]
     POSE[observe_pose] --> PVALID{pose_valid?}
     PVALID -->|예| PCHECK{payload + map frame + 측정 시각 유효?}
     PCHECK -->|아니오| ERROR
@@ -556,7 +774,7 @@ flowchart TD
 - 미래 stamp(음수 age)는 낡음으로 보지 않는다. Q-17과 같은 판단이다 — 같은 ROS 시계이고 허용 역행 폭을 정한 문서가 없다.
 - 시각이 역행하는 표본과 유한하지 않은 값은 거절한다.
 
-검증: [단위시험](../tests/test_robot_status_state.py) 32건은 안전한 초기값, 독립 상태 축, 원자적 검증, 미합의 safety 숫자의 불투명 처리, 유효 pose 저장, 무효 pose 뒤 마지막 유효 pose 보존, age 계산, 입력·snapshot 복사, 잘못된 frame·시각 거절을 확인한다. 14단계분은 네 상수가 interfaces.md 값과 일치하는지, 유지 창 경계, 한도 포함 여부와 초과, 신선도 경계, 관측 단절 시 창 재개, 미수신·stale의 NaN, 시각 역행·비유한 값 거절, 그리고 관측 없이는 정지라고 말하지 않는지를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_robot_status_state.py -v`다.
+검증: [단위시험](../tests/test_robot_status_state.py) 39건은 안전한 초기값, 독립 상태 축, mission context 6필드의 원자적 갱신·해제·uint32 경계, 미합의 safety/waypoint/scan 값의 불투명 처리, 유효 pose 저장, 무효 pose 뒤 마지막 유효 pose 보존, age 계산, 입력·snapshot 복사, 잘못된 frame·시각 거절을 확인한다. 14단계분은 네 상수가 interfaces.md 값과 일치하는지, 유지 창 경계, 한도 포함 여부와 초과, 신선도 경계, 관측 단절 시 창 재개, 미수신·stale의 NaN, 시각 역행·비유한 값 거절, 그리고 관측 없이는 정지라고 말하지 않는지를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_robot_status_state.py -v`다.
 
 ### 7.2 status_reporter.py — 구현 대조 완료
 
@@ -567,6 +785,7 @@ flowchart TD
 - **14단계 odometry 연결(2026-09-08):** 상대 토픽 `odom`(`nav_msgs/Odometry`)을 구독해 `linear_velocity`·`angular_velocity`·`motion_stopped`를 채운다. 판정은 7.1절의 `RobotStatusState`가 하고 이 노드는 ROS 변환만 한다. `odom`은 로봇 드라이버가 내는 표준 토픽이며 interfaces.md TBD 표에 없다 — 미정 항목이 아니다. launch의 `odom_topic` 인자로 드라이버 위치를 바꿀 수 있다(TBD-ARCH-001).
 - **16단계 token 연결(2026-09-08):** 상대 내부 토픽 `accepted_token_id`(`std_msgs/String`)를 구독한다. 값이 비어 있지 않으면 같은 값을 `accepted_token_id`에 쓰고 `token_valid=true`, 빈 값이면 `''`·`false`로 한 snapshot에서 함께 쓴다. Q-02의 즉시 발행 목록에는 token이 없으므로 다음 정기 2 Hz snapshot에 반영한다.
 - **17단계 pose 연결(2026-09-08):** Nav2 AMCL 표준 상대 토픽 `amcl_pose`(`geometry_msgs/PoseWithCovarianceStamped`)를 구독한다. `map` frame이고 pose·covariance 전부가 유한한 메시지는 현재 pose와 last-valid pose에 함께 보존한다. frame·수치가 무효면 `pose_valid=false`로 바꾸되 last-valid pose는 지우지 않는다. `pose_valid` 전이만 Q-02의 변경 발행 대상으로 표시하고 일반 위치 이동은 정기 2 Hz snapshot에 반영한다.
+- **업무표 100% 연결 준비(2026-09-08):** `populate_mission_fields()`가 상태 snapshot의 active command/mission ID, waypoint, scan, reason code/detail을 실제 RobotStatus wire 필드에 모두 쓴다. mission subscriber는 아직 없으므로 기본값은 비어 있으며, future mission adapter가 `RobotStatusState.update_mission_context()`를 호출해야 실제 값이 들어간다.
 - pose 수신이 끊겨도 임의 timeout으로 `pose_valid=false`를 만들지 않는다. Q-03·Q-05의 1.5초는 관제 STALE 및 주행 재개 조건이지 pose 유효성 정의가 아니다. RobotStatus의 pose와 last-valid pose가 측정 timestamp를 포함하므로 소비자가 그 시각으로 age를 판단한다.
 - odometry 수신은 **즉시 발행 대상이 아니다.** Q-02가 즉시 발행을 요구하는 것은 mission·safety·battery enum과 `pose_valid`이고 속도는 그 목록에 없다. 속도는 매 표본마다 바뀌므로 변경 트리거로 다루면 이유 없이 10 Hz 제한을 넘긴다.
 - 남은 안전한 미연결 값은 mission supervisor가 공급해야 하는 operational·mission·docking·command·mission·waypoint·scan·reason 축과 미정인 safety enum이다. SOC 미수신은 0으로 오해하지 않도록 NaN으로 낸다.
@@ -594,6 +813,8 @@ flowchart TD
     DUE -->|아니오| WAIT[대기]
     DUE -->|예| SNAP[RobotStatusState.snapshot]
     SNAP --> MAP[새 RobotStatus 필드명으로 변환]
+    CTX[future mission context] --> MCTX[active IDs / waypoint / scan / reason]
+    MCTX --> MAP
     KEEP_TOKEN --> MAP
     KEEP_POSE --> SNAP
     INVALID_POSE --> SNAP
@@ -601,7 +822,7 @@ flowchart TD
     SEQ --> PUB[/{robot}/robot_status 발행]
 ~~~
 
-검증: [단위시험](../tests/test_status_reporter.py) 16건은 필수 설정, 최초·정기 2 Hz·변경 최대 10 Hz 판정, 시간 역행 거절, status_sequence, token 필드 매핑, pose·orientation·covariance의 유한성 판정을 확인한다. [robot_status_state 단위시험](../tests/test_robot_status_state.py) 32건은 유효 pose 저장, 무효 pose 뒤 last-valid 보존과 age 계산을 포함한다. 실제 토픽 echo는 사용자 환경에서 확인해야 한다.
+검증: [단위시험](../tests/test_status_reporter.py) 17건은 필수 설정, 최초·정기 2 Hz·변경 최대 10 Hz 판정, 시간 역행 거절, status_sequence, token 필드와 mission context 6필드 매핑, pose·orientation·covariance의 유한성 판정을 확인한다. [robot_status_state 단위시험](../tests/test_robot_status_state.py) 39건은 mission context 원자성, 유효 pose 저장, 무효 pose 뒤 last-valid 보존과 age 계산을 포함한다. 전체 회귀는 `Ran 208 tests`/`OK`이며 실제 mission 입력 토픽 echo는 adapter 연결 후 확인해야 한다.
 
 ### 7.3 patrol_report.py — 구현 대조 완료
 
@@ -613,7 +834,8 @@ flowchart TD
 - FAILED와 CANCELED는 `NONE`이 아닌 reason code와 비어 있지 않은 reason이 모두 필요하다. 성공·실패·취소 모두 시작·종료 시각을 보존하고 종료가 시작보다 앞서면 거절한다.
 - 같은 command ID와 완전히 같은 결과를 다시 넣으면 기존 record 객체와 report ID를 그대로 반환한다. 다른 결과로 덮으려 하면 거절하고 sequence도 소비하지 않는다.
 - `populate_message()`는 header 발행 시각을 호출자에게 명시적으로 받고 `PatrolReport.msg`의 모든 payload 필드를 채운다. `publish_record()`는 호출자가 소유한 publisher와 message type을 사용해 한 번 발행한다. publisher QoS helper는 계약 그대로 RELIABLE·VOLATILE·KEEP_LAST(20)이다.
-- 이번 단계는 영속 큐·ACK·ROS publisher를 구현하지 않는다. 미전송 report를 저장하고 재연결·재시작 뒤 재발행하려면 mission 결과 입력, 저장 위치와 수명, 수신 확인·삭제 계약이 더 필요하다. 메모리 중복 방지를 영속 완료로 오해하지 않는다.
+- `record_to_json()`·`record_from_json()`은 terminal record 전체를 canonical JSON으로 보존·재검증한다. `command_store`가 이 값을 영속 저장하므로 재시작 뒤에도 같은 report ID와 payload를 복원할 수 있다.
+- `command_store`가 영속 저장·복원을 담당하고 `report_replay.py`가 재연결 재발행을 담당한다. ACK·삭제 계약이 없으므로 보존 report를 자체 삭제하지 않는다. mission 결과 콜백과 실제 ROS publisher node 연결은 남아 있다.
 
 ~~~mermaid
 flowchart TD
@@ -632,10 +854,29 @@ flowchart TD
     RETURN --> MAP[populate_message: header 시각 + 전체 wire 필드]
     MAP --> EMIT[publish_record: caller-owned publisher로 1회 발행]
     EMIT --> QOS[RELIABLE / VOLATILE / KEEP_LAST 20]
-    QOS --> PENDING[mission 병합 후 ROS publisher·영속 outbox 연결]
+    RETURN --> JSON[record_to_json canonical 저장]
+    JSON --> RESTORE[record_from_json 전체 계약 재검증]
+    QOS --> PENDING[mission runtime + ROS publisher node 연결 대기]
+    RESTORE --> REPLAY[report_replay 재연결 재발행]
 ~~~
 
-검증: [단위시험](../tests/test_patrol_report.py) 22건은 result/reason 상수 일치, report ID 형식과 sequence 복원, 필수 필드·시각 경계, 실패·취소 reason 강제, 동일 command 재요청의 ID 재사용, 충돌 거절과 sequence 비소비, 전체 wire 필드 변환, event ID 복사, 1회 발행 helper와 QoS depth를 확인한다. 전체 단위시험은 `Ran 196 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 두 패키지 성공이다. ROS 환경에서 QoS 객체가 `20 RELIABLE VOLATILE KEEP_LAST`인 것도 확인했다. mission 입력 subscriber가 없으므로 아직 사용자 종단 토픽 시험 대상은 아니다.
+검증: [단위시험](../tests/test_patrol_report.py) 24건은 result/reason 상수 일치, report ID 형식과 sequence 복원, 필수 필드·시각 경계, 실패·취소 reason 강제, 동일 command 재요청의 ID 재사용, 충돌 거절과 sequence 비소비, 전체 wire 필드 변환, event ID 복사, 1회 발행 helper와 QoS depth, canonical JSON 왕복과 손상 payload 거절을 확인한다. 전체 단위시험은 `Ran 200 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 두 패키지 성공이다. ROS 환경에서 QoS 객체가 `20 RELIABLE VOLATILE KEEP_LAST`인 것도 확인했다. mission 입력 subscriber가 없으므로 아직 사용자 종단 토픽 시험 대상은 아니다.
+
+### 7.4 report_replay.py — 구현 대조 완료 (순수 모듈)
+
+`SubscriberConnectionReplay.observe()`는 report publisher의 구독자 수가 0에서 양수로 바뀐 연결 epoch당 한 번만 replay를 요청한다. 시작 시 이미 구독자가 있어도 1회 발생하며 연결 유지 중에는 재발행하지 않는다. `replay_completed_reports()`는 보존 record 순서와 report ID를 유지하고, 발행 시각은 호출자 clock으로 공급받는다.
+
+~~~mermaid
+flowchart TD
+    COUNT[subscription count] --> EDGE{0 → 양수?}
+    EDGE -->|아니오| WAIT[재발행 없음]
+    EDGE -->|예| LOAD[completed_reports 순서 복원]
+    LOAD --> STAMP[호출자 ROS clock]
+    STAMP --> PUB[같은 report ID로 재발행]
+    PUB --> KEEP[ACK 계약 없음 / 영속 보존]
+~~~
+
+[replay 단위시험](../tests/test_report_replay.py) 6건을 포함한 전체 자동시험은 `Ran 231 tests`/`OK`다.
 
 다음 기존 안전 로그를 보존한다.
 

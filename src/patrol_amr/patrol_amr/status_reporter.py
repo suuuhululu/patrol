@@ -64,6 +64,17 @@ def pose_payload_is_finite(pose_with_covariance) -> bool:
     )
 
 
+def populate_mission_fields(message, snapshot):
+    """Map mission-owned snapshot fields without interpreting TBD strings."""
+    message.active_command_id = snapshot.active_command_id
+    message.active_mission_id = snapshot.active_mission_id
+    message.current_waypoint_id = snapshot.current_waypoint_id
+    message.scan_state = snapshot.scan_state
+    message.reason_code = snapshot.reason_code
+    message.reason = snapshot.reason
+    return message
+
+
 class PublicationGate:
     """Q-02: periodic 2 Hz and changed-status publication at max 10 Hz."""
 
@@ -131,7 +142,7 @@ def create_node_class():
     from builtin_interfaces.msg import Time
     from geometry_msgs.msg import PoseWithCovarianceStamped
     from nav_msgs.msg import Odometry
-    from patrol_interfaces.msg import RobotStatus
+    from patrol_interfaces.msg import CommandCheck, RobotStatus
     from sensor_msgs.msg import BatteryState
     from std_msgs.msg import String, UInt8
 
@@ -183,6 +194,15 @@ def create_node_class():
                 String,
                 'accepted_token_id',
                 self._on_accepted_token_id,
+                internal_qos,
+            )
+            # 19단계: command_gateway 가 판정을 끝낸 뒤 내보내는 내부 신호다.
+            # 여기서는 check_state 정수 매핑(TBD-IF-001)을 알 필요가 없다 --
+            # 이 토픽에 올라온 것은 이미 거절이 아닌 현재 명령이다.
+            self.create_subscription(
+                CommandCheck,
+                'active_command',
+                self._on_active_command,
                 internal_qos,
             )
             self.create_subscription(
@@ -252,6 +272,31 @@ def create_node_class():
             if self._state.pose_valid != previous_valid:
                 self._gate.note_change()
 
+        def _on_active_command(self, message) -> None:
+            """Fill active_command_id / active_mission_id from the gateway.
+
+            Q-02 lists mission/safety/battery enum and pose_valid as the
+            fields whose change forces immediate publication. The active
+            command IDs are not enum axes, so this marks a change to be
+            picked up by the next regular publication instead of forcing
+            one -- the same treatment odometry gets.
+
+            Clearing these when a command reaches a terminal state needs
+            the mission owner (A1) that marks completion in the command
+            store. Until that exists the last accepted command stays
+            reported, which is accurate for what this robot currently
+            knows rather than a guess at a transition rule (TBD-AMR-005).
+            """
+            try:
+                self._state.update_mission_context(
+                    active_command_id=message.command_id,
+                    active_mission_id=message.mission_id,
+                )
+            except ValueError as error:
+                self.get_logger().warning(
+                    f'ignored active_command update: {error}'
+                )
+
         def _on_battery_status(self, message) -> None:
             try:
                 changed = self._state.update_states(battery_state=message.data)
@@ -300,6 +345,7 @@ def create_node_class():
             message.docking_state = int(snapshot.docking_state)
             message.battery_state = int(snapshot.battery_state)
             message.safety_state = snapshot.safety_state
+            populate_mission_fields(message, snapshot)
 
             if snapshot.pose is not None:
                 message.pose = snapshot.pose.value

@@ -22,6 +22,14 @@ setup(
             os.path.join("share", package_name, "launch"),
             glob("launch/*.launch.py"),
         ),
+        (
+            os.path.join("share", package_name, "maps"),
+            glob("maps/*"),
+        ),
+        (
+            os.path.join("share", package_name, "config"),
+            glob("config/*.yaml"),
+        ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -32,6 +40,7 @@ setup(
     entry_points={
         "console_scripts": [
             "battery_monitor = patrol_amr.battery_monitor:main",
+            "command_gateway = patrol_amr.command_gateway:main",
             "local_safety_supervisor = "
             "patrol_amr.local_safety_supervisor:main",
             "status_reporter = patrol_amr.status_reporter:main",

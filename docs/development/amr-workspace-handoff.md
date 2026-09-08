@@ -1,6 +1,6 @@
 # AMR 개발 워크스페이스 인수인계
 
-작성일: 2026-09-07 · 최종 갱신: 2026-09-08 11:11 KST · 작업 브랜치: `feat/amr-safety-status`
+작성일: 2026-09-07 · 최종 갱신: 2026-09-08 11:48 KST · 로컬 작업 브랜치: `codex/amr-row-completion`
 
 ## 1. 작업 범위와 현재 상태
 
@@ -8,7 +8,7 @@
 
 사용자 지시로 현재 구현은 로컬 `codex/amr-row-completion` 브랜치에서만 진행한다. 사용자가 다시 요청하기 전에는 commit·push·fetch·merge를 하지 않고 `main`을 변경하지 않는다.
 
-조정묵 담당 범위는 공용 메시지 기반과 기존 AMR Python 파일 7개, ROS 노드 3개였다. 2026-09-08 사용자가 업무표 전 행 100%를 목표로 로컬 구현을 승인해 순수 모듈 `patrol_report.py`, `command_store.py`, `heartbeat_guard.py`가 추가되어 현재 Python 파일은 10개다. ROS 노드는 여전히 3개다. 과거 업무 분장 자료의 `parking_interfaces`와 `final_turtlebot_pkg`는 현재 저장소 경로가 아니다. 현재 이름은 `patrol_interfaces`와 `patrol_amr`이며, 옛 이름의 패키지를 새로 만들지 않는다.
+조정묵 담당 범위는 공용 메시지 기반과 기존 AMR Python 파일 7개, ROS 노드 3개였다. 2026-09-08 사용자가 업무표 전 행 100%를 목표로 로컬 구현을 승인해 순수 모듈 6개가 추가되어 현재 Python 파일은 13개다. ROS 노드는 여전히 3개다. 과거 업무 분장 자료의 `parking_interfaces`와 `final_turtlebot_pkg`는 현재 저장소 경로가 아니다. 현재 이름은 `patrol_interfaces`와 `patrol_amr`이며, 옛 이름의 패키지를 새로 만들지 않는다.
 
 | 단계 | 대상 | 상태 |
 |---|---|---|
@@ -53,6 +53,13 @@
 - 2026-09-08 업무표 100% 계획 착수: `command_store.py`에 SQLite 영속 command ID, 동일/충돌 재수신 판정, 실행 상태와 완료 report 보존, Q-14의 24시간+오래된 최신 1,000개 유지를 구현했다. 단위시험 14건 통과. public CommandCheck 숫자와 mission ROS adapter가 없어 AMR-05는 아직 전체 완료가 아니다.
 - 2026-09-08 AMR-20 확정 부분 구현: `heartbeat_guard.py`에 control session·증가 sequence와 Q-16의 1초 초과 timeout을 구현했다. 단위시험 10건, 전체 `Ran 190 tests`/`OK`, 두 패키지 빌드 성공. wire 메시지 타입과 `local_safety_supervisor` ROS 연결이 없어 AMR-20은 아직 전체 완료가 아니다.
 - 2026-09-08 AMR-07 확정 부분 확장: `PatrolReportRecord`를 실제 wire 필드로 변환하고 caller-owned publisher로 1회 발행하는 helper와 RELIABLE·VOLATILE·KEEP_LAST(20) QoS helper를 추가했다. 전용 22건, 전체 `Ran 196 tests`/`OK`, 실제 QoS 객체 확인과 두 패키지 빌드 성공. mission 입력과 영속 재전송 trigger가 없어 AMR-07은 아직 전체 완료가 아니다.
+- 2026-09-08 AMR-05·07 영속 연결: PatrolReport canonical JSON codec과 `CommandStore.complete_report()`·`completed_report()`를 추가했다. command/robot ID가 일치하는 report만 저장하고 재시작 뒤 같은 record로 복원한다. PatrolReport 24건, CommandStore 16건, 전체 `Ran 200 tests`/`OK`, 두 패키지 빌드 성공.
+- 2026-09-08 AMR-06 mission context 준비: `robot_status_state`에 active command/mission ID, waypoint, scan, reason code/detail 원자 저장을 추가하고 `status_reporter`의 wire 필드에 매핑했다. 전용 39+17건, 전체 `Ran 208 tests`/`OK`, 두 패키지 빌드 성공. mission 입력 adapter가 없어 기본값은 비어 있으며 AMR-06은 아직 전체 완료가 아니다.
+- 2026-09-08 20단계 확정 부분 확장: `command_check.py`·`mission_ingress.py`·`report_replay.py`를 추가해 신규 명령 1회 dispatch, 중복 ACK, 충돌 거절, 완료 report 재전달, 재연결 epoch replay를 연결했다. 전체 `Ran 231 tests`/`OK`. 종단 ROS 연결의 미정 5항목은 [수정 요청서](../change_requests/CR-AMR_09-08_11-48_명령_상태_보고_종단_계약.md)에 분리했다. 현재는 사용자 직접 ROS 시험 대상이 아니다.
+- 2026-09-08 21단계 첫 구현: 저장소에 Nav2 map YAML/이미지, Keepout mask, P1~P7·도크·안전구역 좌표가 없음을 확인했다. `safe_zone_selector.py`는 외부에서 측정된 후보에 Q-08의 map/free/Keepout/0.5m/1.0m/path/비중첩 게이트를 적용하고, 차량 동선 거리→경로 비용 순으로 선택한다. 무후보는 `SAFE_ZONE_NOT_FOUND=400`이며 좌표를 임의 생성하지 않는다.
+- 2026-09-08 map·Keepout 자료 반영: 사용자 제공 `final_project_map` 원본과 WP1~WP7 실측 pose를 package share 자산으로 추가했다. 원본/복사 PGM SHA-256은 `c07df922bb4b520f9a20a9098a507786eb790646d51c98d95443f19e02efa1e6`으로 일치한다. 빨간 기본 Keepout은 `P1-P2-P3-P4`·`P5-P6-P7-P8`, 노란 중앙통로 Keepout은 `P2-P5-P8-P3`으로 분리해 126×90 binary PGM mask 2장을 생성했다. 실제 Nav2 filter 연결 전에 기본/중앙 mask의 활성 정책을 확정해야 한다.
+- 사용자 확인으로 빨간 기본 mask는 상시, 노란 중앙통로 mask는 관제가 `/vision/cctv/patrol_allowed=false`를 받았을 때 활성하는 정책으로 기록했다. AMR이 비전 상태를 직접 판단하지 않는다. 전체 자동시험 `Ran 250 tests`/`OK`, 두 패키지 빌드 성공. 다음 기능은 Nav2 dual-filter parameter·launch·read-back 연결이다.
+- 사용자 지시: 다음 기능 구현은 항상 현재 결과를 보고한 뒤 사용자의 `진행` 확인을 받고 시작한다. 자동시험은 구현 묶음 마무리 시 1회로 통합한다.
 - 실제 Nav2 후보 연동은 성현님 launch 병합이 선행된다. 그 전까지 AMR 자체 항목을 먼저 채운다.
 - 아래 이력 항목의 `0efa7fa` 언급은 당시 기록이며 현재 HEAD가 아니다.
 - 2026-09-07 20:32 KST 재검증에서 `patrol_interfaces` 빌드는 `1 package finished`, 전체 단위시험은 `Ran 89 tests`와 `OK`, `git diff --check`는 출력 없이 통과했다.
@@ -1499,3 +1506,23 @@ ros2 topic info /robot1/cmd_vel --verbose
 **AMR-07** — `PatrolReport.msg`의 `result` 3종과 `reason_code` 29종, `interfaces.md` 1.2절의 report ID 형식을 확인해 18단계 순수 모듈을 완료했다. `command_id`·`mission_id`·`started_at`·`finished_at`을 채울 mission 결과가 없으므로 **ROS 발행 호출자는 병합 후에 붙인다.** 미전송 report의 저장·ACK·삭제 정책도 확정한 뒤 영속 outbox를 연결해야 재시작 뒤 같은 report ID 재전송까지 충족한다.
 
 **AMR-11** — 15단계로 완료했다. 위 15단계 절에 상세가 있다.
+
+## 14. 업무표 21단계 공통 Nav2 Action 모듈 — 2026-09-08
+
+사용자 업무표의 AMR-16 중 독립 구현 가능한 공통 `NavigateToPose` 경로를 [nav2_client.py](../../src/patrol_amr/patrol_amr/nav2_client.py)에 추가했다. robot1·robot6은 같은 모듈을 사용하고 실제 action 이름은 소유 노드의 namespace 아래에서 해석된다.
+
+- map goal을 `PoseStamped`로 변환해 발행하고 Nav2 feedback을 호출자에게 전달한다.
+- 최초 실행 뒤 실패 시 최대 3회 재시도한다. 총 4회 실패 뒤 중간 waypoint는 `SKIPPED`, 최종 goal은 `FAILED`다.
+- 안전 중단의 cancel은 재시도하지 않고 `CANCELED`로 종료한다.
+- 계약에 없는 server/result timeout이나 재시도 지연은 임의로 넣지 않았다.
+- `mission_supervisor`가 없어 waypoint 진행·최종 PatrolReport까지는 아직 연결하지 않았다. 따라서 이는 AMR-16의 공통 Action 모듈 완료이며 업무 행 100% 완료는 아니다.
+
+코드 흐름도와 세부 동작은 [amr.md 4.5절](../amr.md#45-nav2_clientpy--구현-대조-완료-공통-action-모듈)에 둔다. 전체 자동시험은 `Ran 269 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 `2 packages finished`로 통과했다.
+
+## 15. 업무표 21단계 공통 waypoint route 모듈 — 2026-09-08
+
+[waypoint_route.py](../../src/patrol_amr/patrol_amr/waypoint_route.py)가 측정된 WP1~WP7을 14절의 `Nav2Client`에 순서대로 전달한다. 현재 WP 성공 또는 중간 WP skip은 다음 WP를 시작하고, final 실패와 취소는 route를 끝낸다.
+
+중간 skip이 있는 route 완료는 `COMPLETED_WITH_SKIPS`, 전부 성공은 `COMPLETED`로 구분했다. 이는 내부 route 종료 상태이며 PatrolReport `SUCCEEDED`를 미리 결정하지 않는다. skip 후 임무 성공 여부는 TBD-AMR-005가 정해진 뒤 mission supervisor가 판단한다.
+
+잘못된·중복 goal, 동시 route, callback goal ID 불일치, Nav2 dispatch 실패는 거절하거나 실패 방향으로 닫는다. feedback은 상위 호출자에게 그대로 전달한다. 코드 흐름은 [amr.md 4.6절](../amr.md#46-waypoint_routepy--구현-대조-완료-공통-route-모듈)에 기록했다. 전체 자동시험은 `Ran 289 tests`/`OK`, 두 패키지 빌드는 성공했다.

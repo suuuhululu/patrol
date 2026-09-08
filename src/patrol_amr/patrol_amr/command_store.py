@@ -250,6 +250,30 @@ class CommandStore:
             return None
         return patrol_report.record_from_json(row['report_payload_json'])
 
+    def completed_reports(self):
+        """Restore every retained terminal report in receive order.
+
+        The store deliberately does not mark a report as acknowledged: the
+        shared contract has no report ACK yet.  Callers may therefore replay
+        these immutable records after a transport reconnection, and receivers
+        deduplicate them by report ID as required by interfaces.md section 5.
+        """
+        from patrol_amr import patrol_report
+
+        rows = self._connection.execute(
+            '''
+            SELECT report_payload_json
+            FROM mission_commands
+            WHERE state = ?
+            ORDER BY received_at ASC, rowid ASC
+            ''',
+            (CommandState.COMPLETED.value,),
+        ).fetchall()
+        return tuple(
+            patrol_report.record_from_json(row['report_payload_json'])
+            for row in rows
+        )
+
     def observation(self, command_id: str) -> CommandObservation:
         row = self._required(command_id)
         return _observation_for_row(row)

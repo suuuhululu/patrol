@@ -33,6 +33,8 @@ PATROL_REPORT_QOS_DEPTH = 20
 _SOURCE_SESSION_RE = re.compile(
     r'^(robot1|robot6)-[0-9]{8}T[0-9]{6}(?:-[a-z0-9]+)*$'
 )
+# 노드가 parameter 단계에서 같은 규칙으로 먼저 거절할 수 있도록 공개한다.
+SOURCE_SESSION_PATTERN = _SOURCE_SESSION_RE
 
 
 class PatrolResult(IntEnum):
