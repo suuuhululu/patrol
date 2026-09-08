@@ -277,6 +277,7 @@
 .estop-state.estop-clear { color: #74d4ad; }
 .estop-state.estop-active { color: #ff8f8f; }
 .estop-state.estop-wait { color: #9db0c4; }
+.safety-state.safety-warning { color: #ff8f8f; font-weight: 600; }
 .keepout-state.keepout-warning { color: #ffb020; font-weight: 600; }
 
 /* [한 화면 밀도] 상태 줄과 제목을 줄여 지도·영상·로그가 스크롤 없이 들어가게 한다. */

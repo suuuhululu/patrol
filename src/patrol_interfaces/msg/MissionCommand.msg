@@ -9,7 +9,7 @@
 uint8 STOP=0              # 정지. 임무 보존, mission_state=MISSION_PAUSED. PatrolReport 없음
 uint8 START_PATROL=1
 uint8 MOVE_TO_SAFE_ZONE=2
-uint8 RESUME_PATROL=3     # last_completed_waypoint 다음부터
+uint8 RESUME_PATROL=3     # 재개할 기존 mission ID 필수. CANCEL 된 mission 은 재개 불가
 uint8 DOCK=4
 uint8 CANCEL=5            # 임무 종료. PatrolReport result=CANCELED 발행 (CR-002)
 
@@ -27,8 +27,18 @@ string robot_id
 
 uint8 command
 
-# command 별 target 필수 여부는 interfaces.md 2절을 따른다.
+# command 별 필수값 (interfaces.md 2절, 2026-09-08 결정). 빈 값은 타입 기본값이다.
+#   STOP              mission_id: 활성 mission 있으면 해당 ID   target_id: 빈 값
+#   START_PATROL      mission_id: 새 ID 필수                   target_id: patrol_plan_id 필수
+#   MOVE_TO_SAFE_ZONE mission_id: 활성 mission ID 필수         target_id: 빈 값
+#   RESUME_PATROL     mission_id: 재개할 mission ID 필수       target_id: 빈 값
+#   DOCK              mission_id: 기존 또는 신규 ID 필수       target_id: dock_1 | dock_6
+#   CANCEL            mission_id: 취소할 활성 mission ID 필수  target_id: 빈 값
 string target_id
+
+# 합의된 명령에서는 사용하지 않는다. 필드 제거는 AMR 검토 후 결정하므로 유지한다.
 geometry_msgs/PoseStamped target_pose
 
 string issued_by
+
+# parameters_json 은 2026-09-08 계약에서 제거됐다. 명령별 값 오류는 INVALID_PARAMETERS(205)다.

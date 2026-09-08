@@ -36,6 +36,12 @@ const renderRobot = (robot) => {
     card.querySelector('[data-field="battery"]').textContent = robot.battery === null ? "—" : Math.round(robot.battery);
     card.querySelector('[data-field="battery-fill"]').style.width = `${robot.battery === null ? 0 : robot.battery}%`;
     card.querySelector('[data-field="mission"]').textContent = robot.mission_label;
+    const safety = card.querySelector('[data-field="safety"]');
+    if (safety) {
+        // [안전 표시] ESTOPPED·ERROR만 경고색이며 문구에 실제 정지 확인 여부를 함께 적는다.
+        safety.className = `safety-state${robot.safety_warning ? " safety-warning" : ""}`;
+        safety.textContent = robot.safety_label;
+    }
     card.querySelector('[data-field="location"]').textContent = robot.location_label;
     card.querySelector('[data-field="received"]').textContent = robot.received_label;
 };

@@ -6,7 +6,9 @@ from ..database import get_db
 STATUS_COLUMNS = (
     "robot_id", "message_id", "battery", "x", "y", "frame_id",
     "pose_valid", "last_valid_pose_at",
-    "mission_status", "connection_status", "observed_at",
+    "mission_status", "safety_state", "motion_stopped",
+    "safety_reason_code", "safety_reason",
+    "connection_status", "observed_at",
 )
 
 
@@ -24,7 +26,8 @@ def list_latest():
         """
         SELECT r.robot_id, r.name, s.message_id, s.battery, s.x, s.y,
                s.frame_id, s.pose_valid, s.last_valid_pose_at,
-               s.mission_status, s.connection_status,
+               s.mission_status, s.safety_state, s.motion_stopped,
+               s.safety_reason_code, s.safety_reason, s.connection_status,
                s.observed_at, s.received_at
           FROM robots AS r
           LEFT JOIN robot_latest_status AS s ON s.robot_id = r.robot_id
@@ -47,7 +50,8 @@ def store_status(status, received_at):
         db.execute("BEGIN IMMEDIATE")
         duplicate = db.execute(
             "SELECT robot_id, message_id, battery, x, y, frame_id, pose_valid, "
-            "last_valid_pose_at, mission_status, connection_status, observed_at, "
+            "last_valid_pose_at, mission_status, safety_state, motion_stopped, "
+            "safety_reason_code, safety_reason, connection_status, observed_at, "
             "received_at FROM robot_status_history WHERE message_id = ?",
             (status["message_id"],),
         ).fetchone()
@@ -76,9 +80,10 @@ def store_status(status, received_at):
             """
             INSERT INTO robot_status_history
                 (robot_id, message_id, battery, x, y, frame_id, pose_valid,
-                 last_valid_pose_at, mission_status, connection_status,
+                 last_valid_pose_at, mission_status, safety_state, motion_stopped,
+                 safety_reason_code, safety_reason, connection_status,
                  observed_at, received_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             values,
         )
@@ -86,9 +91,10 @@ def store_status(status, received_at):
             """
             INSERT INTO robot_latest_status
                 (robot_id, message_id, battery, x, y, frame_id, pose_valid,
-                 last_valid_pose_at, mission_status, connection_status,
+                 last_valid_pose_at, mission_status, safety_state, motion_stopped,
+                 safety_reason_code, safety_reason, connection_status,
                  observed_at, received_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(robot_id) DO UPDATE SET
                 message_id = excluded.message_id,
                 battery = excluded.battery,
@@ -98,6 +104,10 @@ def store_status(status, received_at):
                 pose_valid = excluded.pose_valid,
                 last_valid_pose_at = excluded.last_valid_pose_at,
                 mission_status = excluded.mission_status,
+                safety_state = excluded.safety_state,
+                motion_stopped = excluded.motion_stopped,
+                safety_reason_code = excluded.safety_reason_code,
+                safety_reason = excluded.safety_reason,
                 connection_status = excluded.connection_status,
                 observed_at = excluded.observed_at,
                 received_at = excluded.received_at

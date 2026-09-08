@@ -1,4 +1,4 @@
-"""KeepoutStatus·EStopState 계약 검증과 안전 상태 화면 표시 처리."""
+"""KeepoutStatus·EStop 계약 검증과 안전 상태 화면 표시 처리."""
 
 from datetime import datetime, timedelta, timezone
 import re
@@ -7,6 +7,7 @@ import uuid
 from flask import current_app
 
 from ..models import safety as safety_model
+from ..ros.registry import ESTOP_REASONS, ESTOP_TARGETS
 
 
 UUID_V4_PATTERN = re.compile(
@@ -19,6 +20,14 @@ KEEPOUT_STATES = {
 }
 # 되돌리기 실패는 로봇이 금지 구역 설정을 원래대로 되돌리지 못한 상태다. 화면에서 경고로 구분한다.
 KEEPOUT_WARNING_STATES = {"ROLLBACK_FAILED"}
+# [계약] interfaces.md 3.1절 EStop 대상과 대표 원인(2026-09-08). 관제가 정한 값만 표시한다.
+ESTOP_TARGET_NAMES = {"robot1": "로봇 1", "robot6": "로봇 2", "all": "전체"}
+ESTOP_REASON_LABELS = {
+    "UNKNOWN": "원인 미분류", "OPERATOR": "운영자 정지 요청",
+    "COMMUNICATION": "안전 통신 상실", "TOKEN": "주행 권한 없음",
+    "OBSTACLE": "장애물 안전 차단", "KEEPOUT_FAILURE": "Keepout 적용 실패",
+    "SYSTEM_FAULT": "시스템 고장",
+}
 
 
 class SafetyValidationError(ValueError):
@@ -91,24 +100,23 @@ def validate_keepout(payload, now=None):
 
 
 def validate_estop(payload, now=None):
-    """EStopState를 저장 가능한 계약 값으로 정규화한다."""
+    """계약 EStop 값을 저장 가능한 형식으로 정규화한다."""
     if not isinstance(payload, dict):
-        raise SafetyValidationError("EStopState 객체가 필요합니다.")
+        raise SafetyValidationError("EStop 객체가 필요합니다.")
     current = now or datetime.now(timezone.utc)
+    target = payload.get("target_robot_id")
+    if target not in ESTOP_TARGETS:
+        raise SafetyValidationError("target_robot_id는 robot1, robot6, all 중 하나여야 합니다.")
+    reason = payload.get("reason", 0)
+    if isinstance(reason, bool) or reason not in ESTOP_REASONS:
+        raise SafetyValidationError("reason은 계약 E-stop 원인 enum(0~6) 중 하나여야 합니다.")
     sequence = payload.get("sequence")
     if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
         raise SafetyValidationError("sequence는 0 이상의 정수여야 합니다.")
-    source_id = payload.get("source_id", "")
-    if not isinstance(source_id, str):
-        raise SafetyValidationError("source_id는 문자열이어야 합니다.")
     return {
-        "estop_id": _uuid_v4(payload.get("estop_id"), "estop_id"),
-        "message_id": _uuid_v4(payload.get("message_id"), "message_id"),
+        "target_robot_id": target,
         "active": _flag(payload, "active"),
-        "reason_code": _reason_code(payload),
-        "reason": str(payload.get("reason", "")),
-        "manual_reset_required": _flag(payload, "manual_reset_required"),
-        "source_id": source_id.strip(),
+        "reason": reason,
         "sequence": sequence,
         "observed_at": _timestamp(payload.get("observed_at"), current, "observed_at"),
         "received_at": current.astimezone(timezone.utc).isoformat(
@@ -153,32 +161,13 @@ def dashboard_safety(now=None):
             "reason_code": row["reason_code"], "detail": row["detail"],
             "observed_label": _display_time(row["observed_at"]),
         })
-    latest = safety_model.latest_estop()
-    if latest is None:
-        # [미수신 구분] E-stop을 받은 적이 없는 상태와 해제 상태를 같은 값으로 표시하지 않는다.
-        estop = {
-            "available": False, "active": None, "state_label": "E-stop 수신 대기",
-            "stale": False, "reason_code": None, "reason": "",
-            "manual_reset_required": False, "received_label": "—",
-        }
-    else:
-        stale = _seconds_since(latest["received_at"], current) > timeout
-        estop = {
-            "available": True, "active": bool(latest["active"]),
-            "state_label": "비상정지 활성" if latest["active"] else "정상",
-            # [단절 표시] 마지막 값을 유지하고 오래된 수신임을 따로 알린다.
-            "stale": stale,
-            "estop_id": latest["estop_id"],
-            "reason_code": latest["reason_code"], "reason": latest["reason"],
-            "manual_reset_required": bool(latest["manual_reset_required"]),
-            "source_id": latest["source_id"], "sequence": latest["sequence"],
-            "observed_label": _display_time(latest["observed_at"]),
-            "received_label": _display_time(latest["received_at"]),
-        }
+    estop = _estop_view(safety_model.latest_estops(), current, timeout)
     history = [{
-        "estop_id": row["estop_id"], "active": bool(row["active"]),
+        "target_robot_id": row["target_robot_id"],
+        "target_name": ESTOP_TARGET_NAMES[row["target_robot_id"]],
+        "active": bool(row["active"]),
         "state_label": "활성" if row["active"] else "해제",
-        "reason_code": row["reason_code"], "reason": row["reason"],
+        "reason_code": row["reason"], "reason": _reason_label(row["reason"]),
         "observed_label": _display_time(row["observed_at"]),
     } for row in safety_model.recent_estop_history()]
     warning_count = sum(1 for item in keepouts if item["warning"])
@@ -189,4 +178,67 @@ def dashboard_safety(now=None):
             "되돌리기 실패" if warning_count
             else (keepouts[0]["state_label"] if keepouts else "Keepout 수신 대기")
         ),
+    }
+
+
+def _reason_label(value):
+    name = ESTOP_REASONS.get(value, "UNKNOWN")
+    return ESTOP_REASON_LABELS[name]
+
+
+def _estop_view(rows, current, timeout):
+    """대상별 마지막 EStop을 화면 요약으로 만든다.
+
+    `all` 대상이 활성이면 두 로봇 모두 정지 대상이다. 정지 명령이 있었다는 사실만 보여 주고,
+    실제 정지 여부는 RobotStatus의 safety_state·motion_stopped로 따로 표시한다.
+    """
+    by_target = {row["target_robot_id"]: row for row in rows}
+    if not by_target:
+        # [미수신 구분] E-stop을 받은 적이 없는 상태와 해제 상태를 같은 값으로 표시하지 않는다.
+        return {
+            "available": False, "active": None, "state_label": "E-stop 수신 대기",
+            "stale": False, "reason_code": None, "reason": "", "received_label": "—",
+            "targets": [],
+        }
+    targets = []
+    for target in ESTOP_TARGETS:
+        row = by_target.get(target)
+        if row is None:
+            targets.append({
+                "target_robot_id": target, "target_name": ESTOP_TARGET_NAMES[target],
+                "available": False, "active": False, "stale": False,
+                "reason_code": None, "reason": "", "sequence": None,
+                "observed_label": "—", "received_label": "—",
+            })
+            continue
+        targets.append({
+            "target_robot_id": target, "target_name": ESTOP_TARGET_NAMES[target],
+            "available": True, "active": bool(row["active"]),
+            # [단절 표시] 마지막 값을 유지하고 오래된 수신임을 따로 알린다.
+            "stale": _seconds_since(row["received_at"], current) > timeout,
+            "reason_code": row["reason"], "reason": _reason_label(row["reason"]),
+            "sequence": row["sequence"],
+            "observed_label": _display_time(row["observed_at"]),
+            "received_label": _display_time(row["received_at"]),
+        })
+    active_targets = [item for item in targets if item["active"]]
+    latest = max(by_target.values(), key=lambda row: row["received_at"])
+    if active_targets:
+        names = ", ".join(item["target_name"] for item in active_targets)
+        # 대표 원인은 가장 최근에 받은 활성 대상의 값을 보여 준다.
+        primary = max(
+            (by_target[item["target_robot_id"]] for item in active_targets),
+            key=lambda row: row["received_at"],
+        )
+        state_label = f"비상정지 활성 ({names})"
+        reason_code, reason = primary["reason"], _reason_label(primary["reason"])
+    else:
+        state_label = "정상"
+        reason_code, reason = latest["reason"], ""
+    return {
+        "available": True, "active": bool(active_targets), "state_label": state_label,
+        "stale": any(item["stale"] for item in targets if item["available"]),
+        "reason_code": reason_code, "reason": reason,
+        "received_label": _display_time(latest["received_at"]),
+        "targets": targets,
     }

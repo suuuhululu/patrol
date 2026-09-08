@@ -52,60 +52,50 @@ def latest_keepouts():
 
 
 def store_estop(record):
-    """최신 E-stop 상태를 갱신하고 활성·해제가 바뀐 시점만 이력에 남긴다."""
+    """대상(robot1·robot6·all)별 최신 E-stop을 갱신하고 상태가 바뀐 시점만 이력에 남긴다."""
     db = get_db()
     try:
         db.execute("BEGIN IMMEDIATE")
         existing = db.execute(
-            "SELECT estop_id, active, observed_at FROM estop_latest WHERE singleton = 1"
+            "SELECT active, reason, observed_at FROM estop_latest WHERE target_robot_id = ?",
+            (record["target_robot_id"],),
         ).fetchone()
         if existing is not None and record["observed_at"] < existing["observed_at"]:
             db.commit()
             return "stale", record
         # [변경 판정] 같은 상태의 반복 발행은 최신 행만 갱신해 이력이 무한히 늘지 않게 한다.
+        # 대표 원인이 바뀌는 것도 운영자가 봐야 할 변화라 이력에 남긴다.
         changed = (
             existing is None
             or bool(existing["active"]) != bool(record["active"])
-            or existing["estop_id"] != record["estop_id"]
+            or existing["reason"] != record["reason"]
         )
+        columns = (
+            "target_robot_id", "active", "reason", "sequence", "observed_at", "received_at",
+        )
+        values = tuple(record[column] for column in columns)
         if changed:
             db.execute(
                 """
                 INSERT INTO estop_history
-                    (message_id, estop_id, active, reason_code, reason,
-                     manual_reset_required, source_id, sequence, observed_at, received_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(message_id) DO NOTHING
+                    (target_robot_id, active, reason, sequence, observed_at, received_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                tuple(record[column] for column in (
-                    "message_id", "estop_id", "active", "reason_code", "reason",
-                    "manual_reset_required", "source_id", "sequence",
-                    "observed_at", "received_at",
-                )),
+                values,
             )
         db.execute(
             """
             INSERT INTO estop_latest
-                (singleton, estop_id, message_id, active, reason_code, reason,
-                 manual_reset_required, source_id, sequence, observed_at, received_at)
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(singleton) DO UPDATE SET
-                estop_id = excluded.estop_id,
-                message_id = excluded.message_id,
+                (target_robot_id, active, reason, sequence, observed_at, received_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(target_robot_id) DO UPDATE SET
                 active = excluded.active,
-                reason_code = excluded.reason_code,
                 reason = excluded.reason,
-                manual_reset_required = excluded.manual_reset_required,
-                source_id = excluded.source_id,
                 sequence = excluded.sequence,
                 observed_at = excluded.observed_at,
                 received_at = excluded.received_at
             """,
-            tuple(record[column] for column in (
-                "estop_id", "message_id", "active", "reason_code", "reason",
-                "manual_reset_required", "source_id", "sequence",
-                "observed_at", "received_at",
-            )),
+            values,
         )
         db.commit()
         return "changed" if changed else "refreshed", record
@@ -114,10 +104,10 @@ def store_estop(record):
         raise
 
 
-def latest_estop():
+def latest_estops():
     return get_db().execute(
-        "SELECT * FROM estop_latest WHERE singleton = 1"
-    ).fetchone()
+        "SELECT * FROM estop_latest ORDER BY target_robot_id"
+    ).fetchall()
 
 
 def recent_estop_history(limit=10):

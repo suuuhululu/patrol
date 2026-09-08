@@ -154,20 +154,37 @@ def _patrol_visit_query(filters):
     return sql, parameters
 
 
+ESTOP_REASON_SQL = """
+    CASE s.reason
+        WHEN 1 THEN '운영자 정지 요청' WHEN 2 THEN '안전 통신 상실' WHEN 3 THEN '주행 권한 없음'
+        WHEN 4 THEN '장애물 안전 차단' WHEN 5 THEN 'Keepout 적용 실패' WHEN 6 THEN '시스템 고장'
+        ELSE '원인 미분류'
+    END
+"""
+ESTOP_TARGET_SQL = """
+    CASE s.target_robot_id
+        WHEN 'robot1' THEN '로봇 1' WHEN 'robot6' THEN '로봇 2' ELSE '전체'
+    END
+"""
+
+
 def _estop_query(filters):
+    # [대상 필터] 화면 로봇 ID(AMR1·AMR2)로 검색하면 해당 로봇과 전체(all) 대상 기록을 함께 보여 준다.
     clauses, parameters = _common_conditions(
-        filters, "s.observed_at", "0 = ?",
-        ("s.estop_id", "s.reason", "s.source_id"),
+        filters, "s.observed_at",
+        "(s.target_robot_id = CASE ? WHEN 'AMR1' THEN 'robot1' WHEN 'AMR2' THEN 'robot6' ELSE ? END "
+        "OR s.target_robot_id = 'all')",
+        ("s.target_robot_id", ESTOP_REASON_SQL, ESTOP_TARGET_SQL),
     )
-    sql = """
-        SELECT 'ESTOP' AS record_type, s.estop_id AS record_id,
-               s.observed_at AS recorded_at, NULL AS robot_id,
-               '안전 제어' AS robot_name, 'ESTOP' AS title_code,
+    sql = f"""
+        SELECT 'ESTOP' AS record_type, CAST(s.id AS TEXT) AS record_id,
+               s.observed_at AS recorded_at, s.target_robot_id AS robot_id,
+               '안전 제어 · ' || {ESTOP_TARGET_SQL} AS robot_name, 'ESTOP' AS title_code,
                CASE WHEN s.active = 1 THEN '비상정지 활성' ELSE '비상정지 해제' END ||
-               CASE WHEN s.reason = '' THEN '' ELSE ' · ' || s.reason END AS summary,
+               CASE WHEN s.active = 1 THEN ' · ' || {ESTOP_REASON_SQL} ELSE '' END AS summary,
                NULL AS risk_level,
                CASE WHEN s.active = 1 THEN 'ACTIVE' ELSE 'CLEARED' END AS status_code,
-               NULL AS event_id, s.source_id AS actor, 0 AS has_evidence
+               NULL AS event_id, 'safety_arbiter' AS actor, 0 AS has_evidence
           FROM estop_history s
     """ + _where(clauses)
     return sql, parameters
