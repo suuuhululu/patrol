@@ -1,12 +1,19 @@
 std_msgs/Header header
-string message_id
-string candidate_id
+
 string robot_id
+string candidate_id
+
+# Vision team proposal - final enum values require interface approval
+uint8 FIRE=0
+uint8 LEAK=1
+uint8 OBSTACLE=2
 uint8 event_type
+
 float32 confidence
-uint32 image_width
-uint32 image_height
-float32 bbox_center_x
-float32 bbox_center_y
-float32 bbox_width
-float32 bbox_height
+
+# Vision team proposal - AMR agreement required
+# negative : target is left
+# 0.0      : target is center
+# positive : target is right
+# normalized range approximately -1.0 ~ +1.0
+float32 horizontal_error
