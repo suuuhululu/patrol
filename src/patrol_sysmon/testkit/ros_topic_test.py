@@ -78,6 +78,40 @@ class RosTopicTestConfig:
                 raise ValueError(f"{name}는 0 이상의 유한한 숫자여야 합니다.")
 
 
+def fill(message, **fields):
+    """정의에 있는 필드만 채운다.
+
+    공용 계약과 기존 정의의 필드가 서로 달라, 없는 필드는 건너뛰어야
+    한쪽 정의로 빌드된 환경에서도 같은 시험 코드를 쓸 수 있다.
+    """
+    for name, value in fields.items():
+        if hasattr(message, name):
+            setattr(message, name, value)
+    return message
+
+
+def inner_pose(pose):
+    """position을 가진 단계까지 내려간다. PoseWithCovariance와 Stamped를 함께 받는다."""
+    node = pose
+    for _ in range(3):
+        if hasattr(node, "position"):
+            return node
+        node = getattr(node, "pose", None)
+        if node is None:
+            break
+    raise AttributeError("pose에서 position을 찾을 수 없습니다.")
+
+
+def set_enum(message, field, *candidates):
+    """이름이 다를 수 있는 enum 상수를 순서대로 찾아 넣는다."""
+    for name in candidates:
+        value = getattr(type(message), name, None)
+        if value is not None:
+            setattr(message, field, value)
+            return value
+    return None
+
+
 @contextmanager
 def _isolated_ros_environment(domain_id, log_dir):
     """시험 프로세스에만 별도 도메인·발견 범위·로그 경로를 적용하고 복원한다."""
@@ -131,7 +165,7 @@ def _create_viewer(app):
 def build_virtual_publisher(config):
     """선택한 단계의 계약 타입·QoS로 가상 토픽을 발행하는 노드를 만든다."""
     from nav_msgs.msg import OccupancyGrid
-    from parking_interfaces.msg import (
+    from patrol_interfaces.msg import (
         CameraState, DetectionEvent, EStopState, EvidenceChunk, IngestionAck,
         KeepoutStatus, PatrolReport, PatrolVisit, RobotStatus,
     )
@@ -264,28 +298,33 @@ def build_virtual_publisher(config):
                 message = RobotStatus()
                 message.header.stamp = stamp
                 message.header.frame_id = "map"
-                message.message_id = str(uuid.uuid4())
-                message.boot_id = self._boot_id
-                message.sequence = sequence
-                message.robot_id = robot_id
-                message.operational_state = RobotStatus.OP_MOVING
-                message.mission_state = RobotStatus.MISSION_PATROLLING
-                message.docking_state = RobotStatus.DOCK_UNDOCKED
-                message.battery_state = RobotStatus.BATTERY_NORMAL
-                message.battery_soc = 0.8 - index * 0.1
-                message.pose.pose.position.x = float(sequence) / 10.0
-                message.pose.pose.position.y = float(index)
-                message.pose.pose.orientation.w = 1.0
-                message.pose_valid = True
-                message.last_valid_pose_stamp = stamp
-                message.active_command_id = ""
-                message.mission_id = str(uuid.uuid4())
-                message.patrol_id = "local-stage15"
-                message.safety_flags = RobotStatus.SAFETY_NONE
-                message.drive_token_valid = False
-                message.keepout_enabled = False
-                message.diagnostic_code = 0
-                message.diagnostic_text = "virtual stage15 publisher"
+                fill(
+                    message,
+                    message_id=str(uuid.uuid4()), boot_id=self._boot_id,
+                    source_session_id=f"{self._boot_id}-{robot_id}",
+                    sequence=sequence, status_sequence=sequence,
+                    robot_id=robot_id, battery_soc=0.8 - index * 0.1,
+                    pose_valid=True, last_valid_pose_stamp=stamp,
+                    active_command_id="", mission_id=str(uuid.uuid4()),
+                    active_mission_id=str(uuid.uuid4()), patrol_id="local-stage15",
+                    drive_token_valid=False, keepout_enabled=False,
+                    token_valid=False, motion_stopped=False,
+                    diagnostic_code=0, reason_code=0,
+                    diagnostic_text="virtual stage15 publisher",
+                    reason="virtual stage15 publisher",
+                )
+                set_enum(message, "operational_state", "OP_MOVING")
+                set_enum(message, "mission_state", "MISSION_PATROLLING")
+                set_enum(message, "docking_state", "DOCK_UNDOCKED")
+                set_enum(message, "battery_state", "BATTERY_NORMAL", "NORMAL")
+                set_enum(message, "safety_flags", "SAFETY_NONE")
+                # 공용 계약 pose는 Stamped라 한 단계 더 들어간다.
+                pose = inner_pose(message.pose)
+                pose.position.x = float(sequence) / 10.0
+                pose.position.y = float(index)
+                pose.orientation.w = 1.0
+                if hasattr(message, "last_valid_pose"):
+                    message.last_valid_pose.header.stamp = stamp
                 publisher.publish(message)
                 self.published_counts[f"/{robot_id}/robot_status"] += 1
 
@@ -434,19 +473,21 @@ def build_virtual_publisher(config):
                     report = PatrolReport()
                     report.header.stamp = stamp
                     report.header.frame_id = "map"
-                    report.message_id = str(uuid.uuid4())
-                    report.report_id = str(uuid.uuid4())
-                    report.patrol_id = patrol_id
-                    report.mission_id = ""
-                    report.command_id = ""
-                    report.robot_id = robot_id
-                    report.result = PatrolReport.SUCCEEDED
-                    report.reason_code = 0
-                    report.reason = ""
-                    report.started_at = stamp
-                    report.ended_at = stamp
-                    report.planned_visit_count = 2
-                    report.completed_visit_count = 2
+                    fill(
+                        report,
+                        message_id=str(uuid.uuid4()),
+                        source_session_id=f"{self._boot_id}-{robot_id}",
+                    source_sequence=self._patrol_sequence,
+                        report_id=str(uuid.uuid4()),
+                        patrol_id=patrol_id,
+                        # 공용 계약에는 patrol_id가 없어 mission_id로 회차를 잇는다.
+                        mission_id=patrol_id, command_id="", robot_id=robot_id,
+                        reason_code=0, reason="",
+                        started_at=stamp, ended_at=stamp, finished_at=stamp,
+                        final_waypoint_id="", planned_visit_count=2,
+                        completed_visit_count=2,
+                    )
+                    set_enum(report, "result", "SUCCEEDED")
                     self._patrol_report_publishers[robot_id].publish(report)
                     self.published_counts[f"/{robot_id}/patrol_report"] += 1
 
@@ -492,21 +533,25 @@ def build_virtual_publisher(config):
 
         def publish_cctv_state(self):
             """진입·주차·출차 상태와 그에 대응하는 permit을 계약 순서로 발행한다."""
+            # [enum 이름 기준] 상수 숫자가 정의마다 다르므로 이름으로 지정한다.
             cases = (
-                ("gate_cam", CameraState.ENTERING, False),
-                ("center_cam", CameraState.PARKED, True),
-                ("center_cam", CameraState.EXITING, False),
-                ("gate_cam", CameraState.EXITED, True),
+                ("gate_cam", "ENTERING", False),
+                ("center_cam", "PARKED", True),
+                ("center_cam", "EXITING", False),
+                ("gate_cam", "EXITED", True),
             )
-            camera_id, state, allowed = cases[self._cctv_sequence % len(cases)]
+            camera_id, state_name, allowed = cases[self._cctv_sequence % len(cases)]
             self._cctv_sequence += 1
             message = CameraState()
             message.header.stamp = self.get_clock().now().to_msg()
             message.header.frame_id = camera_id
-            message.event_id = str(uuid.uuid4())
-            message.camera_id = camera_id
-            message.state = state
-            message.confidence = 0.92
+            fill(
+                message, event_id=str(uuid.uuid4()), camera_id=camera_id,
+                source_session_id=f"{self._boot_id}-{camera_id}",
+                source_sequence=self._cctv_sequence, confidence=0.92,
+            )
+            # [enum 값 차이] 상태 숫자가 정의마다 달라 이름으로 넣는다.
+            set_enum(message, "state", f"STATE_{state_name}", state_name)
             topic = (
                 "/vision/cctv/gate_event"
                 if camera_id == "gate_cam" else "/vision/cctv/center_event"

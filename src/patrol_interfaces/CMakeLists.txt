@@ -19,6 +19,19 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PatrolReport.msg"
   "msg/EStop.msg"
   "msg/CameraState.msg"
+  # [시스템 모니터 수신용] 공용 패키지에 없던 메시지를 옮겨 이름을 patrol_interfaces로 통일한다.
+  "msg/MissionCommandAck.msg"
+  "msg/ControlHeartbeat.msg"
+  "msg/EStopState.msg"
+  "msg/PatrolVisit.msg"
+  "msg/IngestionAck.msg"
+  "msg/DetectionCandidate.msg"
+  "msg/DetectionEvent.msg"
+  "msg/EvidenceChunk.msg"
+  "msg/KeepoutStatus.msg"
+  "msg/DetectionCandidate.msg"
+  "msg/AlignmentStatus.msg"
+  DEPENDENCIES std_msgs
   DEPENDENCIES std_msgs geometry_msgs builtin_interfaces
 )
 
