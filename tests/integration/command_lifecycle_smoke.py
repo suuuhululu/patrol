@@ -33,11 +33,13 @@ from rclpy.qos import (  # noqa: E402
 from std_msgs.msg import String  # noqa: E402
 
 
-ROBOT_ID = 'robot1'
-NS = '/robot1'
-COMMAND_ID = 'cmd-ctrl-20260908T200000-robot1-start-0001'
-MISSION_ID = 'msn-ctrl-20260908T200000-robot1-0001'
-SOURCE_SESSION_ID = 'robot1-20260908T200000'
+ROBOT_ID = os.environ.get('PATROL_SMOKE_ROBOT_ID', 'robot1')
+if ROBOT_ID not in ('robot1', 'robot6'):
+    raise ValueError('PATROL_SMOKE_ROBOT_ID must be robot1 or robot6')
+NS = f'/{ROBOT_ID}'
+COMMAND_ID = f'cmd-ctrl-20260908T200000-{ROBOT_ID}-start-0001'
+MISSION_ID = f'msn-ctrl-20260908T200000-{ROBOT_ID}-0001'
+SOURCE_SESSION_ID = f'{ROBOT_ID}-20260908T200000'
 
 
 def qos(depth, durability=DurabilityPolicy.VOLATILE):
@@ -81,14 +83,14 @@ class Probe(Node):
             qos(20, DurabilityPolicy.TRANSIENT_LOCAL),
         )
 
-    def command(self, *, target_id='robot1_default'):
+    def command(self, *, target_id=None):
         message = MissionCommand()
         message.header.stamp = self.get_clock().now().to_msg()
         message.command_id = COMMAND_ID
         message.mission_id = MISSION_ID
         message.robot_id = ROBOT_ID
         message.command = MissionCommand.START_PATROL
-        message.target_id = target_id
+        message.target_id = f'{ROBOT_ID}_default' if target_id is None else target_id
         return message
 
 
@@ -117,7 +119,8 @@ def main():
         '-r', f'__ns:={NS}',
         '-p', f'robot_id:={ROBOT_ID}',
         '-p', f'source_session_id:={SOURCE_SESSION_ID}',
-        '-p', f'database_path:={database_path}',
+        # A filename relative to the node working directory must also work.
+        '-p', f'database_path:={database_path.name}',
     ]
     with log_path.open('w') as log:
         process = subprocess.Popen(
@@ -126,6 +129,7 @@ def main():
             stderr=subprocess.STDOUT,
             start_new_session=True,
             env=os.environ.copy(),
+            cwd=root,
         )
 
     rclpy.init()
@@ -155,7 +159,7 @@ def main():
         dispatched = probe.dispatches[0]
         assert dispatched.command_id == COMMAND_ID
         assert dispatched.mission_id == MISSION_ID
-        assert dispatched.target_id == 'robot1_default'
+        assert dispatched.target_id == f'{ROBOT_ID}_default'
 
         probe.command_publisher.publish(probe.command())
         time.sleep(0.2)
@@ -211,7 +215,10 @@ def main():
             log_path,
         )
         assert len(probe.dispatches) == 1
+        check_command_matrix(probe, process, log_path)
         print('COMMAND_LIFECYCLE_SMOKE_PASS')
+        print(f'robot_id={ROBOT_ID}, relative_database_path=PASS')
+        print('command_matrix=six_types,invalid_robot,invalid_enum,invalid_target,duplicate,conflict')
     finally:
         probe.destroy_node()
         rclpy.shutdown()
@@ -224,6 +231,62 @@ def main():
                 process.wait(timeout=2)
         runtime.cleanup()
         _ROS_LOG.cleanup()
+
+
+def check_command_matrix(probe, process, log_path):
+    """Exercise the real gateway only; no mission worker or robot is started."""
+    for index, (kind, label, target) in enumerate((
+        (MissionCommand.STOP, 'stop', ''),
+        (MissionCommand.MOVE_TO_SAFE_ZONE, 'evacuate', ''),
+        (MissionCommand.RESUME_PATROL, 'resume', ''),
+        (MissionCommand.DOCK, 'dock', 'dock_1' if ROBOT_ID == 'robot1' else 'dock_6'),
+        (MissionCommand.CANCEL, 'cancel', ''),
+    ), start=2):
+        message = probe.command(target_id=target)
+        message.command_id = f'cmd-ctrl-20260908T200000-{ROBOT_ID}-{label}-{index:04d}'
+        message.command = kind
+        if kind == MissionCommand.STOP:
+            message.mission_id = ''
+        before = len(probe.dispatches)
+        probe.command_publisher.publish(message)
+        wait_for(probe, process, lambda: (
+            len(probe.dispatches) == before + 1
+            and any(item.command_id == message.command_id
+                    and item.check_state == CommandCheck.CHECK_ACCEPTED
+                    for item in probe.checks)
+        ), f'{label} accepted and dispatched', log_path)
+
+    # A valid new START command stays stored once, even when its payload conflicts.
+    valid = probe.command()
+    valid.command_id = f'cmd-ctrl-20260908T200000-{ROBOT_ID}-start-0010'
+    before = len(probe.dispatches)
+    probe.command_publisher.publish(valid)
+    wait_for(probe, process, lambda: len(probe.dispatches) == before + 1,
+             'new START for duplicate and conflict', log_path)
+    for change, value, expected in (
+        (None, None, CommandCheck.CHECK_ACCEPTED),
+        ('mission_id', f'msn-ctrl-20260908T200000-{ROBOT_ID}-9999', CommandCheck.CHECK_REJECTED),
+        ('robot_id', 'robot6' if ROBOT_ID == 'robot1' else 'robot1', CommandCheck.CHECK_REJECTED),
+        ('command', 99, CommandCheck.CHECK_REJECTED),
+        ('target_id', 'unknown_plan', CommandCheck.CHECK_REJECTED),
+    ):
+        message = probe.command()
+        message.command_id = valid.command_id
+        if change:
+            setattr(message, change, value)
+        check_start = len(probe.checks)
+        dispatch_start = len(probe.dispatches)
+        probe.command_publisher.publish(message)
+        wait_for(probe, process, lambda: any(
+            item.command_id == message.command_id and item.check_state == expected
+            for item in probe.checks[check_start:]
+        ), f'duplicate/rejection {change}', log_path)
+        deadline = time.monotonic() + 0.3
+        while time.monotonic() < deadline:
+            rclpy.spin_once(probe, timeout_sec=0.02)
+        assert len(probe.dispatches) == dispatch_start, change
+        if change == 'mission_id':
+            assert any(item.reason_code == 203 for item in probe.checks[check_start:])
 
 
 if __name__ == '__main__':

@@ -112,6 +112,7 @@ def _nodes(
                 ('/control/estop', estop_topic),
                 ('cmd_vel_safe', candidate_topic),
                 ('cmd_vel', output_topic),
+                ('odom', odom_topic),
                 ('motion_allowed', motion_allowed_topic),
                 ('safety_state', safety_state_topic),
                 ('accepted_token_id', accepted_token_topic),

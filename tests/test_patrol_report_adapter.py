@@ -1,4 +1,5 @@
 from pathlib import Path
+from dataclasses import replace
 import sys
 from types import SimpleNamespace
 import unittest
@@ -107,6 +108,25 @@ class PatrolReportAdapterTest(unittest.TestCase):
     def test_nanosecond_conversion_rejects_negative_time(self):
         with self.assertRaises(ValueError):
             nanoseconds_to_time(-1, time_message())
+
+    def test_ros_time_range_and_types(self):
+        for invalid in (True, 1.5, '1', None, (2 ** 31) * 1_000_000_000):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    nanoseconds_to_time(invalid, time_message())
+        message = nanoseconds_to_time((2 ** 31) * 1_000_000_000 - 1, time_message())
+        self.assertEqual((message.sec, message.nanosec), (2 ** 31 - 1, 999_999_999))
+
+    def test_conversion_failure_keeps_record_and_recovery_can_retry(self):
+        outbox = FakeOutbox([replace(record(), finished_at_ns=(2 ** 31) * 1_000_000_000)])
+        publisher = FakePublisher()
+        drain = PatrolReportDrain(outbox, publisher, report_message, lambda: 'now')
+        with self.assertRaises(PatrolReportPublishError):
+            drain.publish_pending()
+        self.assertEqual(publisher.messages, [])
+        self.assertEqual(outbox.removed, [])
+        outbox.records = [record()]
+        self.assertEqual(drain.publish_pending(), 1)
 
 
 if __name__ == '__main__':

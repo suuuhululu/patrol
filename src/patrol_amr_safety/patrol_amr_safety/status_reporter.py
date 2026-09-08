@@ -15,6 +15,7 @@ from pathlib import Path
 import time
 
 from patrol_amr_safety import robot_status_state as rss
+from patrol_amr_safety import provisional_status_policy as status_policy
 from patrol_amr.mission_status_store import (
     MissionStatusStore, MissionStatusStoreError)
 from patrol_amr_safety.patrol_report_adapter import (
@@ -284,6 +285,9 @@ def create_node_class():
                 f'status reporter ready: robot_id={robot_id} '
                 f'source_session_id={source_session_id!r}'
             )
+            self.get_logger().warning(
+                f'using provisional reporting policy {status_policy.POLICY_VERSION}; '
+                'operational/docking/scan projections must be reviewed at merge')
 
         def _poll_mission_and_reports(self) -> None:
             """Refresh mission fields and retry durable terminal reports."""
@@ -423,6 +427,16 @@ def create_node_class():
 
         def _tick(self) -> None:
             monotonic_now = time.monotonic()
+            snapshot = self._state.snapshot(self.get_clock().now().nanoseconds / 1e9)
+            axes = status_policy.project_axes(
+                snapshot, self._mission_bridge.snapshot,
+                has_mission=self._mission_bridge.has_snapshot)
+            if self._state.update_states(
+                operational_state=axes.operational_state,
+                docking_state=axes.docking_state,
+            ):
+                self._gate.note_change()
+            self._state.update_mission_context(scan_state=axes.scan_state)
             if not self._gate.due(monotonic_now):
                 return
             self._publish(monotonic_now)
@@ -466,7 +480,7 @@ def create_node_class():
                 '' if mission.waypoint_index < 0
                 else f'W{mission.waypoint_index + 1}'
             )
-            message.scan_state = ''
+            message.scan_state = snapshot.scan_state
             message.reason_code = mission.reason_code
             message.reason = mission.reason
 

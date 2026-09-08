@@ -143,7 +143,7 @@ def create_node_class():
                 self.get_parameter('database_path').value
                 or default_database_path(robot_id)
             )
-            os.makedirs(os.path.dirname(database_path), exist_ok=True)
+            os.makedirs(os.path.dirname(os.path.abspath(database_path)), exist_ok=True)
             self._store = cs.CommandStore(database_path, robot_id)
             self._ingress = mi.MissionIngress(self._store)
             patrol_plan_id = self.get_parameter('patrol_plan_id').value

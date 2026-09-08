@@ -18,6 +18,10 @@ class MissionStatusBridge:
     def snapshot(self) -> MissionStateSnapshot:
         return self._snapshot
 
+    @property
+    def has_snapshot(self) -> bool:
+        return self._last_revision >= 0
+
     def refresh(self, state: rss.RobotStatusState) -> bool:
         snapshot = self._store.read()
         if snapshot is None or snapshot.revision == self._last_revision:

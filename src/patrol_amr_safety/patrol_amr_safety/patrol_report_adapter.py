@@ -8,8 +8,10 @@ class PatrolReportPublishError(RuntimeError):
 
 
 def nanoseconds_to_time(nanoseconds, message):
-    if nanoseconds < 0:
-        raise ValueError('time cannot be negative')
+    # builtin_interfaces/Time uses signed int32 seconds and uint32 nanoseconds.
+    if (isinstance(nanoseconds, bool) or not isinstance(nanoseconds, int)
+            or not 0 <= nanoseconds < (2 ** 31) * 1_000_000_000):
+        raise ValueError('time must be non-negative integer nanoseconds within ROS Time range')
     message.sec = nanoseconds // 1_000_000_000
     message.nanosec = nanoseconds % 1_000_000_000
     return message
@@ -50,9 +52,9 @@ class PatrolReportDrain:
             return 0
         published = 0
         for record in self._outbox.pending():
-            message = self._message_factory()
-            fill_message(message, record, self._now_message())
             try:
+                message = self._message_factory()
+                fill_message(message, record, self._now_message())
                 self._publisher.publish(message)
                 removed = self._outbox.mark_published(record.report_id)
             except Exception as exc:
