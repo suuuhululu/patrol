@@ -15,6 +15,11 @@
 # 수신 로직(cam_master)은 event_id 문자열을 파싱하지 않고 별도 필드·enum만 사용한다.
 #
 # vehicle_track_id는 사용하지 않는다. 차량은 한 대만 존재한다 (vision.md 2절).
+#
+# 대시보드용 CCTV 영상 스트림(/vision/cctv/gate_image/compressed,
+# /vision/cctv/center_image/compressed, sensor_msgs/CompressedImage)은 이 메시지와
+# 별개의 독립된 토픽이며, 이 .msg 파일에는 영향이 없다
+# (CR-비전_09-08_12-21_대시보드_CCTV_영상_스트림_추가 참고).
 
 std_msgs/Header header
 string event_id

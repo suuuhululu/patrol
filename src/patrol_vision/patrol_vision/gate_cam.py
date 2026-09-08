@@ -1,321 +1,264 @@
 #!/usr/bin/env python3
-"""Gate CCTV 노드: 입구 차량 ENTERING/EXITED 판정 후 CameraState 발행.
-
-CR-관제_09-07_17-53_비전_CameraState와_permit_반영(P0) 반영판. TBD-VIS-001
-확정값(비전팀 제안) 위에 관제팀 요청을 반영해 아래를 바꿨다.
-- event_id를 UUID 대신 사람이 식별 가능한 구조화 ID로 바꿨다:
-  source_session_id = gate_cam-<YYYYMMDDTHHMMSS>-<restart_sequence>
-  event_id           = cam-<source_session_id>-<state>-<source_sequence>
-  restart_sequence는 노드가 뜰 때마다 로컬 파일에서 읽어 +1 하고 다시 쓰는
-  가벼운 카운터다(패트롤 판단에 영향 없는 진단용 값이라 TBD-VIS-002의
-  "재시작 시 상태 비영속화" 원칙과는 별개로 취급한다).
-- camera_id를 'GATE'에서 'gate_cam'으로 바꿨다.
-- 라인 통과 후 확정 기준을 "3프레임 연속"에서 "time.monotonic() 기준
-  0.2초 연속 유지"로 바꿨다(실측 FPS 변동과 무관하게 판정하기 위함).
-- 미검출 프레임이 오거나 ROI·방향 조건이 깨지면 진행 중인 0.2초 확인을
-  즉시 초기화한다(이전 버전의 "가려짐 대비" 관용은 더 이상 두지 않는다).
-- CameraState.confidence는 그 0.2초 확인 구간에 쓰인 프레임들의 평균 conf다.
-- 카메라가 FAULT_TIMEOUT_SEC(3초) 연속 프레임을 못 읽으면 장애로 로그 남김.
-- DEBUG_VIEW=True면 라인·박스·상태 텍스트를 cv2.imshow로 계속 띄운다.
-  실제 배포 시엔 False로.
-
-문서 근거:
-- 토픽/네임스페이스: interfaces.md 1절, architecture.md 2절 (/vision/cctv/gate_event)
-- QoS: interfaces.md 9절 (CCTV event: RELIABLE/VOLATILE/KEEP_LAST(20))
-- state 허용값: vision.md 1절 (gate_cam: ENTERING, EXITED만)
-- event_id·camera_id·0.2초 판정: CR-관제_09-07_17-53_비전_CameraState와_permit_반영,
-  TBD-IF-005(확정 반영)
-
-TBD:
-- 장애를 관제/모니터링에 실제로 어떻게 알릴지(별도 토픽 등)는 TBD-IF-008
-"""
-import os
+"""Gate CCTV 노드: 입구 차량 ENTERING/EXITED 판정 후 CameraState 발행."""
 import time
 from collections import deque
-from datetime import datetime
-
 import cv2
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from ultralytics import YOLO
-
+from sensor_msgs.msg import CompressedImage
 from patrol_interfaces.msg import CameraState
-
-# ---- 설정값: 실제 장비에 맞춰 여기만 수정 ----
-CAMERA_SOURCE = 2
-MODEL_PATH = "/home/hv-06/patrol/car_data/car_best.pt"
-IMG_SIZE = 512
-CONFIDENCE = 0.7
-CAR_CLASS_ID = 0
-LINE_LEFT_RATIO = 0.32
-LINE_RIGHT_RATIO = 0.70
-ROI_TOP_RATIO = 0.45
-ROI_BOTTOM_RATIO = 0.95
-EVENT_COOLDOWN_SECONDS = 2.0
-CONFIRM_SECONDS = 0.2       # 연속 유지 확정 기준 (FPS 무관, monotonic 기준)
-FAULT_TIMEOUT_SEC = 3.0     # 장애 판단 기준
-DEBUG_VIEW = True           # 확인용 화면 표시. 배포 시 False로 변경
-
-CAMERA_ID = 'gate_cam'
-# restart_sequence 저장 위치: 판단에 영향 없는 진단용 카운터 하나만 담는다.
-RESTART_SEQ_DIR = "/home/hv-06/patrol/state"
-
-# interfaces.md 9절: CCTV event QoS
-CCTV_EVENT_QOS = QoSProfile(
-    reliability=ReliabilityPolicy.RELIABLE,
-    durability=DurabilityPolicy.VOLATILE,
-    history=HistoryPolicy.KEEP_LAST,
-    depth=20,
+from patrol_vision.cam_common import (
+    CCTV_EVENT_QOS,
+    IMAGE_STREAM_QOS,
+    build_event_id,
+    build_source_session_id,
+    load_and_bump_restart_sequence,
 )
 
-STATE_MAP = {
-    'ENTERING': CameraState.STATE_ENTERING,
-    'EXITED': CameraState.STATE_EXITED,
-}
-
-
 def crossed(prev_x, curr_x, line_x):
+    # 이전 x좌표와 현재 x좌표 사이에 line_x가 끼어 있으면(양방향) 교차로 판정
     return (prev_x < line_x <= curr_x) or (prev_x > line_x >= curr_x)
-
-
-def load_and_bump_restart_sequence(camera_id: str, state_dir: str = RESTART_SEQ_DIR) -> int:
-    """노드가 뜰 때마다 1씩 증가하는 카운터. 파일이 없거나 손상돼도 1로
-    시작하는 안전한 폴백을 쓴다(patrol_allowed 판단에는 영향 없는 진단용 값).
-    """
-    path = os.path.join(state_dir, f'{camera_id}_restart_seq.txt')
-    seq = 1
-    try:
-        os.makedirs(state_dir, exist_ok=True)
-        if os.path.exists(path):
-            with open(path, 'r') as f:
-                seq = int(f.read().strip()) + 1
-    except (OSError, ValueError):
-        seq = 1
-    try:
-        with open(path, 'w') as f:
-            f.write(str(seq))
-    except OSError:
-        pass  # 저장 실패해도 이번 실행은 계속 진행한다.
-    return seq
-
-
-def build_source_session_id(camera_id: str, restart_sequence: int, started_at: datetime = None) -> str:
-    started_at = started_at or datetime.now()
-    return f'{camera_id}-{started_at.strftime("%Y%m%dT%H%M%S")}-{restart_sequence:02d}'
-
-
-def build_event_id(source_session_id: str, state: str, source_sequence: int) -> str:
-    return f'cam-{source_session_id}-{state.lower()}-{source_sequence:04d}'
-
 
 class GateCam(Node):
     def __init__(self):
         super().__init__('gate_cam')
 
-        self.publisher_ = self.create_publisher(
-            CameraState, '/vision/cctv/gate_event', CCTV_EVENT_QOS)
+        self.publisher_ = self.create_publisher(CameraState, '/vision/cctv/gate_event', CCTV_EVENT_QOS)
+        self.image_publisher_ = self.create_publisher(                # 대시보드용 영상 스트림 발행자 생성
+            CompressedImage, '/vision/cctv/gate_image/compressed', IMAGE_STREAM_QOS)
 
-        self.model = YOLO(MODEL_PATH)
-        self.cap = cv2.VideoCapture(CAMERA_SOURCE, cv2.CAP_V4L2)
+        self.model = YOLO("/home/hv-06/patrol/car_data/car_best.pt")  # YOLO 가중치 경로(설치된 실제 장비 기준)
+        self.cap = cv2.VideoCapture(2, cv2.CAP_V4L2)                  # 게이트 카메라 장치 인덱스(설치 완료, 고정값)
         if not self.cap.isOpened():
-            self.get_logger().error(f'camera_source={CAMERA_SOURCE} 열기 실패')
+            self.get_logger().error('camera_source=2 열기 실패')
 
-        restart_sequence = load_and_bump_restart_sequence(CAMERA_ID)
-        self._source_session_id = build_source_session_id(CAMERA_ID, restart_sequence)
-        self._source_sequence = 0
+        restart_sequence = load_and_bump_restart_sequence(            # 이번 실행의 재시작 순번
+            'gate_cam', "/home/hv-06/patrol/state")                   # camera_id / 카운터 파일 저장 폴더
+        self._source_session_id = build_source_session_id('gate_cam', restart_sequence)  # 이번 실행 세션 id
+        self._source_sequence = 0                                     # 이번 세션 내 이벤트 순번(0부터 시작, 발행 시 +1)
         self.get_logger().info(f'gate_cam: source_session_id={self._source_session_id}')
 
-        self._last_cx = None
-        self._crossing_history = deque(maxlen=2)
-        self._pending = None  # {'state', 'side', 'confs', 'start_time'}
-        self._last_event_time = 0.0
-        self._last_state_text = 'WAITING'
+        self._last_cx = None                                          # 직전 프레임의 차량 중심 x좌표
+        self._crossing_history = deque(maxlen=2)                      # 최근 라인 교차 순서(L/R) 최대 2개
+        self._pending = None                                          # 확정 대기 중인 상태 {'state','side','confs','start_time'}
+        self._last_event_time = 0.0                                   # 마지막 이벤트 발행 시각(wall-clock, cooldown용)
+        self._last_state_text = 'WAITING'                             # 디버그 화면 표시용 현재 상태 문구
 
-        self._last_ok_read_time = time.time()
-        self._camera_fault = False
+        self._last_ok_read_time = time.time()                         # 마지막으로 프레임 읽기에 성공한 시각
+        self._camera_fault = False                                    # 카메라 장애 여부 플래그
+        self._image_frame_count = 0                                   # 영상 스트림 발행 주기 조절용(30Hz -> 10Hz)
 
-        self.create_timer(1.0 / 30.0, self._process_frame)
+        self.create_timer(1.0 / 30.0, self._process_frame)            # 30Hz로 프레임 처리 반복
 
     # ---- 프레임 읽기 & 장애 판단 ----
     def _process_frame(self):
-        ok, frame = self.cap.read()
+        ok, frame = self.cap.read()                                   # 카메라에서 프레임 한 장 읽기
         now = time.time()
 
-        if not ok:
+        if not ok:                                                    # 읽기 실패한 경우
             self.get_logger().warning('gate_cam: 프레임 읽기 실패')
-            if not self._camera_fault and now - self._last_ok_read_time >= FAULT_TIMEOUT_SEC:
-                self._camera_fault = True
+            if not self._camera_fault and now - self._last_ok_read_time >= 3.0:  # 3초 연속 실패 = 장애 판단 기준
+                self._camera_fault = True                             # 3초 연속 실패 시 장애로 확정
                 self.get_logger().error(
-                    f'gate_cam: {FAULT_TIMEOUT_SEC:.0f}초 연속 프레임 읽기 실패 - 카메라 장애로 판단')
-            return
+                    'gate_cam: 3초 연속 프레임 읽기 실패 - 카메라 장애로 판단')
+            return                                                    # 이번 tick은 여기서 종료(탐지 안 함)
 
-        self._last_ok_read_time = now
+        self._last_ok_read_time = now                                 # 성공 시각 갱신
         if self._camera_fault:
-            self._camera_fault = False
+            self._camera_fault = False                                # 장애 상태였다면 복구 처리
             self.get_logger().info('gate_cam: 카메라 복구됨')
 
-        self._detect_and_track(frame)
+        self._detect_and_track(frame)                                 # 정상 프레임이면 탐지 로직 실행
+
+        # 30Hz 프레임을 그대로 다 보내면 대역폭 낭비라 3프레임마다(약 10Hz) 한 번만
+        # 대시보드용으로 압축 발행한다(탐지 판정 자체는 이 주기와 무관하게 매 프레임 실행됨).
+        self._image_frame_count += 1
+        if self._image_frame_count % 3 == 0:
+            self._publish_image(frame)
 
     # ---- 탐지: 이번 프레임에서 conf가 가장 높은 박스 1개만 사용 ----
     def _detect_and_track(self, frame):
-        h, w = frame.shape[:2]
-        roi_top = h * ROI_TOP_RATIO
-        roi_bottom = h * ROI_BOTTOM_RATIO
-        left_x = w * LINE_LEFT_RATIO
-        right_x = w * LINE_RIGHT_RATIO
+        h, w = frame.shape[:2]                                        # 프레임 크기
+        roi_top = h * 0.45                                            # 판정 영역 상단(프레임 높이의 45% 지점, 설치 기준 확정값)
+        roi_bottom = h * 0.95                                         # 판정 영역 하단(프레임 높이의 95% 지점, 설치 기준 확정값)
+        left_x = w * 0.32                                             # 왼쪽 판정선(프레임 폭의 32% 지점, 설치 기준 확정값)
+        right_x = w * 0.70                                            # 오른쪽 판정선(프레임 폭의 70% 지점, 설치 기준 확정값)
 
-        results = self.model.predict(
+        results = self.model.predict(                                 # YOLO 추론 실행
             frame,
-            imgsz=IMG_SIZE,
-            conf=CONFIDENCE,
-            classes=[CAR_CLASS_ID],
+            imgsz=512,          # YOLO 추론 입력 크기
+            conf=0.7,           # YOLO 자체 conf 임계값(이 값 미만 박스는 애초에 안 나옴)
+            classes=[0],         # 탐지할 클래스 id(차량)
             verbose=False,
         )
-        result = results[0]
+        result = results[0]                                           # 프레임 1장 결과
 
-        best_box = None
-        best_cx = None
-        best_conf = -1.0
+        best_box = None                                               # 최종 선택된 박스(디버그 표시용)
+        best_cx = None                                                # 최종 선택된 박스의 중심 x
+        best_conf = -1.0                                              # 지금까지 찾은 최고 conf
         if result.boxes is not None and len(result.boxes) > 0:
-            boxes = result.boxes.xyxy.cpu().numpy()
-            confs = result.boxes.conf.cpu().numpy()
+            boxes = result.boxes.xyxy.cpu().numpy()                   # 박스 좌표 배열
+            confs = result.boxes.conf.cpu().numpy()                   # 박스별 conf 배열
             for box, conf in zip(boxes, confs):
                 x1, y1, x2, y2 = box
-                cx = (x1 + x2) / 2
-                cy = (y1 + y2) / 2
+                cx = (x1 + x2) / 2                                    # 박스 중심 x
+                cy = (y1 + y2) / 2                                    # 박스 중심 y
                 if not (0 <= cx <= w and roi_top <= cy <= roi_bottom):
-                    continue
-                if conf > best_conf:
+                    continue                                          # 판정 영역 밖 박스는 무시
+                if conf > best_conf:                                  # 영역 안 박스 중 conf 최고값 갱신
                     best_conf = float(conf)
                     best_cx = cx
                     best_box = box
 
-        if best_cx is None:
+        if best_cx is None:                                           # 영역 안에 탐지된 차량이 없으면
             self._on_no_detection()
-        else:
+        else:                                                         # 있으면 위치·conf로 상태 판정
             self._on_detection(w, best_cx, best_conf)
 
-        if DEBUG_VIEW:
-            self._debug_draw(frame, left_x, right_x, roi_top, roi_bottom, best_box, best_conf)
+        self._debug_draw(frame, left_x, right_x, roi_top, roi_bottom, best_box, best_conf)
 
+    # YOLO가 이번 프레임에서 판정 영역 안에 차량을 하나도 못 찾았을 때 호출된다.
+    # 확정 대기(pending) 중이 아니면 할 일이 없다(원래도 대기 상태였을 뿐).
+    # 확정 대기 중이었다면, 차량을 놓쳤다는 뜻이므로 지금까지 쌓아온 대기 상태를
+    # 전부 버리고 처음(WAITING)부터 다시 시작한다 - 잠깐 가려졌다고 봐주지 않는다.
     def _on_no_detection(self):
-        # CR-관제 0907: 미검출 프레임이 오면 진행 중인 0.2초 확인을 즉시 초기화한다.
+        # 확정 대기(pending) 중에 미검출이 오면 즉시 취소(가려짐 관용 없음)
         if self._pending is not None:
-            self._pending = None
-            self._crossing_history.clear()
-            self._last_state_text = 'WAITING (lost detection during confirm)'
+            self._pending = None                                      # 대기 상태 초기화
+            self._crossing_history.clear()                            # 교차 이력도 초기화
+            self._last_state_text = 'WAITING'
 
+
+##############################################################################핵심내용
+    # "차가 들어왔다/나갔다"를 판정하는 핵심 함수. 크게 두 갈래로 나뉜다:
+    # self._pending이 없으면(아직 대기 중인 판정이 없으면) 아래쪽 "선 교차 감지" 코드로 가고,
+    # self._pending이 있으면(방금 선을 넘어서 확정 대기 중이면) 바로 아래 if문에서 확정 여부만 본다.
     def _on_detection(self, w, cx, conf):
-        left_x = w * LINE_LEFT_RATIO
-        right_x = w * LINE_RIGHT_RATIO
-        prev_cx = self._last_cx
-        self._last_cx = cx
-        now = time.monotonic()
+        left_x = w * 0.32                                             # 왼쪽 판정선(프레임 폭의 32% 지점)
+        right_x = w * 0.70                                            # 오른쪽 판정선(프레임 폭의 70% 지점)
+        prev_cx = self._last_cx                                       # 직전 프레임 위치 저장해두고
+        self._last_cx = cx                                            # 이번 프레임 위치로 갱신
+        now = time.monotonic()                                        # 0.2초 확정 판단은 monotonic 기준
 
-        # 확인(confirm) 진행 중이면: 반대편에 0.2초 연속 있는지만 본다.
+        # ---- [갈래 1] 확정 대기 중(self._pending 있음): 아래 "선 교차 감지"는 이미 끝났고,
+        # 지금은 "그 방향에 0.2초간 안정적으로 머무는지"만 확인하는 단계다. 여기서 바로
+        # return하기 때문에, 대기 중일 때는 밑에 있는 교차 감지 코드가 실행되지 않는다.
         if self._pending is not None:
-            side = self._pending['side']
-            consistent = (cx > right_x) if side == 'right' else (cx < left_x)
+            side = self._pending['side']                              # 확정에 필요한 목표 방향(left/right)
+            consistent = (cx > right_x) if side == 'right' else (cx < left_x)  # 계속 그 방향에 있는지
             if consistent:
-                self._pending['confs'].append(conf)
-                elapsed = now - self._pending['start_time']
-                self._last_state_text = (
-                    f"CONFIRMING {self._pending['state']} "
-                    f"({elapsed:.2f}/{CONFIRM_SECONDS:.2f}s)")
-                if elapsed >= CONFIRM_SECONDS:
-                    avg_conf = sum(self._pending['confs']) / len(self._pending['confs'])
-                    self._publish_state(self._pending['state'], avg_conf)
-                    self._last_event_time = time.time()
-                    self._last_state_text = f"{self._pending['state']} (published)"
-                    self._pending = None
-                    self._crossing_history.clear()
+                # 아직 그 방향에 잘 있음 -> conf 누적하고 0.2초 다 채웠는지만 확인
+                self._pending['confs'].append(conf)                   # 평균 계산용 conf 누적
+                elapsed = now - self._pending['start_time']            # 대기 시작 후 경과 시간
+                self._last_state_text = self._pending['state']         # 확정 대기 중에도 목표 상태 표시
+                if elapsed >= 0.2:                                     # 0.2초(CONFIRM_SECONDS) 다 채웠으면 확정 발행
+                    avg_conf = sum(self._pending['confs']) / len(self._pending['confs'])  # 구간 평균 conf
+                    self._publish_state(self._pending['state'], avg_conf)  # 이벤트 발행
+                    self._last_event_time = time.time()                # cooldown 기준 시각 갱신
+                    self._last_state_text = self._pending['state']
+                    self._pending = None                                # 대기 상태 종료
+                    self._crossing_history.clear()                     # 다음 판정을 위해 이력 초기화
             else:
-                # 반대편에서 이탈(방향 조건 붕괴) -> 즉시 초기화
+                # 차가 다시 반대 방향으로 돌아감(오탐 or 유턴) -> 0.2초를 다 못 채웠으니
+                # 지금까지 쌓은 대기 상태를 버리고 WAITING으로 되돌아간다. 봐주는 여지 없음.
                 self._pending = None
                 self._crossing_history.clear()
-                self._last_state_text = 'WAITING (confirm canceled: condition broken)'
-            return
+                self._last_state_text = 'WAITING'
+            return                                                     # 대기 중이었으면 아래 교차 판정은 스킵
 
-        if prev_cx is None:
+        # ---- [갈래 2] 확정 대기 중이 아님: 이번 프레임에서 선을 "막 넘었는지"부터 확인한다.
+        if prev_cx is None:                                            # 첫 프레임(비교할 직전 위치가 없음)이면 대기
             return
 
         wall_now = time.time()
-        if wall_now - self._last_event_time < EVENT_COOLDOWN_SECONDS:
+        if wall_now - self._last_event_time < 2.0:                     # 방금 이벤트 쐈으면(쿨다운 2.0초 중) 새 판정 시작 안 함
             return
 
+        # 이번 프레임에서 왼쪽/오른쪽 선을 넘었으면 순서대로 기록해둔다(deque maxlen=2라
+        # 최근 2개만 남음). 예: 왼쪽 선 넘고 → 오른쪽 선 넘으면 history=['L','R'] = 입차 방향.
         if crossed(prev_cx, cx, left_x) and 'L' not in self._crossing_history:
-            self._crossing_history.append('L')
+            self._crossing_history.append('L')                        # 왼쪽 선 교차 기록
         if crossed(prev_cx, cx, right_x) and 'R' not in self._crossing_history:
-            self._crossing_history.append('R')
+            self._crossing_history.append('R')                        # 오른쪽 선 교차 기록
 
         seq = list(self._crossing_history)
         if len(seq) >= 2:
-            if seq[-2:] == ['L', 'R']:
+            # 두 선을 순서대로 다 넘었다 = 방향이 확정됐다 -> 이제 그 방향에 0.2초간
+            # 안정적으로 머무는지 확인하는 대기 상태(self._pending)를 시작한다.
+            # (다음 프레임부터는 위쪽 "[갈래 1]"이 실행돼서 이 코드는 다시 안 타게 된다.)
+            if seq[-2:] == ['L', 'R']:                                 # 왼쪽→오른쪽 순서 완성 = 입차 방향
                 self._pending = {'state': 'ENTERING', 'side': 'right', 'confs': [conf], 'start_time': now}
-            elif seq[-2:] == ['R', 'L']:
+            elif seq[-2:] == ['R', 'L']:                               # 오른쪽→왼쪽 순서 완성 = 출차 방향
                 self._pending = {'state': 'EXITED', 'side': 'left', 'confs': [conf], 'start_time': now}
+##############################################################################핵심내용
+
+
 
     def _publish_state(self, state: str, confidence: float):
-        self._source_sequence += 1
+        state_map = {                                                  # 문자열 상태 -> CameraState enum 값 변환표
+            'ENTERING': CameraState.STATE_ENTERING,
+            'EXITED': CameraState.STATE_EXITED,
+        }
+        self._source_sequence += 1                                    # 이번 세션 내 이벤트 순번 증가
         event_id = build_event_id(self._source_session_id, state, self._source_sequence)
 
         msg = CameraState()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.event_id = event_id
-        msg.camera_id = CAMERA_ID
-        msg.source_session_id = self._source_session_id
-        msg.source_sequence = self._source_sequence
-        msg.state = STATE_MAP[state]
-        msg.confidence = confidence
-        self.publisher_.publish(msg)
+        msg.header.stamp = self.get_clock().now().to_msg()            # 실제 판정(발행) 시각
+        msg.event_id = event_id                                       # 구조화 이벤트 id
+        msg.camera_id = 'gate_cam'                                    # CameraState.camera_id 고정값
+        msg.source_session_id = self._source_session_id               # 이번 노드 실행 세션 id
+        msg.source_sequence = self._source_sequence                   # 세션 내 순번
+        msg.state = state_map[state]                                  # ENTERING 또는 EXITED
+        msg.confidence = confidence                                   # 0.2초 확인 구간 평균 conf
+        self.publisher_.publish(msg)                                  # 실제 발행
         self.get_logger().info(
             f'[GATE] state={state} conf={confidence:.2f} event_id={msg.event_id}')
 
-    # ---- 확인용 화면 (DEBUG_VIEW=True일 때만) ----
+    # 대시보드가 CCTV 화면을 실시간으로 띄울 수 있게 원본 프레임을 JPEG로 압축해 발행한다.
+    # 판정용 원본 프레임을 그대로 쓴다(라인·박스 등 디버그용 그림은 안 그린 순수 화면).
+    def _publish_image(self, frame):
+        ok, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])  # JPEG 압축(품질 70)
+        if not ok:                                                    # 인코딩 실패 시 이번 프레임은 건너뜀
+            return
+        msg = CompressedImage()
+        msg.header.stamp = self.get_clock().now().to_msg()            # 촬영(발행) 시각
+        msg.format = 'jpeg'
+        msg.data = buf.tobytes()
+        self.image_publisher_.publish(msg)
+
+    # ---- 확인용 화면 (항상 표시) ----
     def _debug_draw(self, frame, left_x, right_x, roi_top, roi_bottom, best_box, best_conf):
-        annotated = frame.copy()
+        annotated = frame.copy()                                      # 원본 보존을 위해 복사본에 그림
         overlay = annotated.copy()
         cv2.rectangle(overlay, (0, int(roi_top)), (frame.shape[1], int(roi_bottom)), (70, 70, 70), -1)
-        annotated = cv2.addWeighted(overlay, 0.18, annotated, 0.82, 0)
+        annotated = cv2.addWeighted(overlay, 0.18, annotated, 0.82, 0)  # 판정 영역 반투명 표시
 
-        cv2.line(annotated, (int(left_x), int(roi_top)), (int(left_x), int(roi_bottom)), (255, 0, 0), 2)
-        cv2.line(annotated, (int(right_x), int(roi_top)), (int(right_x), int(roi_bottom)), (0, 255, 255), 2)
-        cv2.putText(annotated, 'LINE L', (int(left_x) + 5, int(roi_top) + 24),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-        cv2.putText(annotated, 'LINE R', (int(right_x) + 5, int(roi_top) + 24),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        cv2.line(annotated, (int(left_x), int(roi_top)), (int(left_x), int(roi_bottom)), (255, 0, 0), 2)   # 왼쪽 라인
+        cv2.line(annotated, (int(right_x), int(roi_top)), (int(right_x), int(roi_bottom)), (0, 255, 255), 2)  # 오른쪽 라인
 
-        if best_box is not None:
+        if best_box is not None:                                      # 탐지된 차량 박스가 있으면 표시
             x1, y1, x2, y2 = best_box
-            cx = int((x1 + x2) / 2)
-            cy = int((y1 + y2) / 2)
             cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-            cv2.circle(annotated, (cx, cy), 5, (0, 0, 255), -1)
             cv2.putText(annotated, f'car {best_conf:.2f}', (int(x1), max(20, int(y1) - 8)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
 
-        cv2.putText(annotated, f'STATE: {self._last_state_text}', (10, 30),
+        cv2.putText(annotated, f'STATE: {self._last_state_text}', (10, 30),          # 현재 상태 문구
                     cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 255), 2)
-        cv2.putText(annotated, 'left -> right: ENTERING | right -> left: EXITED',
-                    (10, frame.shape[0] - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
 
-        cv2.imshow('gate_cam (DEBUG_VIEW)', annotated)
+        cv2.imshow('gate_cam', annotated)                             # 화면에 표시
         cv2.waitKey(1)
 
-
 def main():
-    rclpy.init()
-    node = GateCam()
+    rclpy.init()                                                      # ROS2 초기화
+    node = GateCam()                                                  # 노드 생성
     try:
-        rclpy.spin(node)
+        rclpy.spin(node)                                              # 콜백/타이머 반복 실행
     finally:
-        node.cap.release()
-        if DEBUG_VIEW:
-            cv2.destroyAllWindows()
-        node.destroy_node()
+        node.cap.release()                                            # 카메라 리소스 해제
+        cv2.destroyAllWindows()                                       # 디버그 창 정리
+        node.destroy_node()                                           # ROS2 노드 정리
         rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
