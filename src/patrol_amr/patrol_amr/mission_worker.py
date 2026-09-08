@@ -6,7 +6,7 @@ from queue import Empty
 import threading
 import time
 
-from patrol_amr.command_store import (
+from patrol_amr.mission_command_store import (
     ClaimResult, CommandStore, StoreError)
 from patrol_amr.mission_arbiter import MissionArbiter
 from patrol_amr.mission_config import MissionConfig

@@ -1,11 +1,23 @@
-# AMR -> control server and system monitor command result.
-# Topic: /{robot}/patrol_report
-# QoS: RELIABLE / VOLATILE / KEEP_LAST(20)
+# AMR -> 관제·모니터. 임무 결과 보고.
+#
+# 토픽 : /{robot}/patrol_report
+# QoS  : RELIABLE / VOLATILE / KEEP_LAST(20)
+#
+# result 는 3값 고정이다. UNREPORTED 를 추가하지 않는다 — 결과가 없는 임무는
+# 관제가 UNREPORTED 로 유지하며 보고서를 대필하지 않는다 (interfaces.md 5절).
+# 그래서 대필 표시 필드도 두지 않는다.
+#
+# STOP 은 보존형이라 보고서를 내지 않고 mission=MISSION_PAUSED 로만 표현한다.
+# CANCEL 은 종료형이라 result=CANCELED 로 1회 발행한다.            (CR-002)
+#
+# 같은 report_id로 재전송하며 수신자는 중복 제거한다.
 
-uint8 SUCCEEDED=0
-uint8 FAILED=1
-uint8 CANCELED=2
+# ---- result : [계약] interfaces.md 5절 -----------------------------------
+uint8 SUCCEEDED=0     # 목표 정상 달성
+uint8 FAILED=1        # 자체 장애·주행 실패·위치 검증 또는 시스템 실패
+uint8 CANCELED=2      # 관제 취소·명령 대체·정책 중단·역할 교대
 
+# ---- reason_code : interfaces.md 6절 -------------------------------------
 uint32 NONE=0
 uint32 CONTROL_CANCELED=100
 uint32 COMMAND_SUPERSEDED=101

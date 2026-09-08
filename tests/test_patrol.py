@@ -3,7 +3,7 @@ import tempfile
 import threading
 import unittest
 
-from patrol_amr.command_store import CommandStore
+from patrol_amr.mission_command_store import CommandStore
 from patrol_amr.navigation_adapter import NavigationResult, Waypoint
 from patrol_amr.scenarios.patrol import PatrolScenario
 

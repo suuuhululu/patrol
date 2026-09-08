@@ -4,7 +4,7 @@ import threading
 from types import SimpleNamespace
 import unittest
 
-from patrol_amr.command_store import CommandStore
+from patrol_amr.mission_command_store import CommandStore
 from patrol_amr.mission_controller import ExecutionResult
 from patrol_amr.mission_reporter import MissionReporter
 from patrol_amr.mission_state import MissionStateTracker

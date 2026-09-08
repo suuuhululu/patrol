@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import threading
 from typing import Callable, Sequence
 
-from patrol_amr.command_store import CommandStore
+from patrol_amr.mission_command_store import CommandStore
 from patrol_amr.mission_types import MissionRequest, MissionType
 from patrol_amr.navigation_types import NavigationResult, Waypoint
 from patrol_amr.patrol_report_reason import navigation_result_reason

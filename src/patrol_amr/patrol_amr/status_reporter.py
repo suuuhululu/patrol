@@ -1,9 +1,9 @@
-"""
-Publish RobotStatus and PatrolReport from isolated AMR state modules.
+"""Publish live RobotStatus snapshots and durable PatrolReport results.
 
-Implemented inputs are the internal battery observation and the process-shared
-mission snapshot. Terminal mission results are drained from a persistent local
-outbox into the fixed public PatrolReport contract.
+The node combines live AMR observations (battery, odometry, AMCL pose, and the
+accepted drive token) with the mission snapshot persisted by
+``mission_supervisor``. Terminal mission results are drained from a persistent
+local outbox into the fixed public ``PatrolReport`` contract.
 
 ``safety_state`` is a required parameter because TBD-IF-003 has not assigned
 its enum numbers. The node transports the explicitly supplied uint8 but does
@@ -37,6 +37,11 @@ def runtime_file(robot_id, configured_path, file_name):
     return ros_home / 'patrol_amr' / robot_id / file_name
 
 
+def stamp_to_seconds(stamp) -> float:
+    """builtin_interfaces/Time to the float seconds the state model uses."""
+    return stamp.sec + stamp.nanosec / 1e9
+
+
 def validate_configuration(robot_id, source_session_id, safety_state):
     """Validate values that must be explicit before a status can be emitted."""
     if robot_id not in rss.ROBOT_IDS:
@@ -47,6 +52,34 @@ def validate_configuration(robot_id, source_session_id, safety_state):
         raise ValueError('safety_state must be an int')
     if not 0 <= safety_state <= rss.UINT8_MAX:
         raise ValueError('safety_state must fit in uint8')
+
+
+def accepted_token_fields(value: str):
+    """Map the one internal token value to the two RobotStatus fields."""
+    if not isinstance(value, str):
+        raise ValueError('accepted_token_id must be a str')
+    return value, bool(value)
+
+
+def pose_payload_is_finite(pose_with_covariance) -> bool:
+    """Whether every numeric AMCL pose/covariance component is finite."""
+    pose = pose_with_covariance.pose
+    values = (
+        pose.position.x,
+        pose.position.y,
+        pose.position.z,
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z,
+        pose.orientation.w,
+        *pose_with_covariance.covariance,
+    )
+    return all(
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        for value in values
+    )
 
 
 class PublicationGate:
@@ -94,11 +127,15 @@ class StatusSequence:
     def __init__(self):
         self._value = 0
 
-    def next_value(self) -> int:
+    def next(self) -> int:
         if self._value >= UINT64_MAX:
             raise OverflowError('status_sequence exhausted uint64')
         self._value += 1
         return self._value
+
+    def next_value(self) -> int:
+        """Compatibility alias for the AMR-07 implementation and its tests."""
+        return self.next()
 
 
 def create_node_class():
@@ -114,9 +151,11 @@ def create_node_class():
         qos_profile_sensor_data,
     )
     from builtin_interfaces.msg import Time
+    from geometry_msgs.msg import PoseWithCovarianceStamped
+    from nav_msgs.msg import Odometry
     from patrol_interfaces.msg import PatrolReport, RobotStatus
     from sensor_msgs.msg import BatteryState
-    from std_msgs.msg import UInt8
+    from std_msgs.msg import String, UInt8
 
     class StatusReporter(Node):
         """Publish robot status snapshots and terminal mission reports."""
@@ -153,6 +192,7 @@ def create_node_class():
             self._sequence = StatusSequence()
             self._battery_soc = float('nan')
             self._battery_timestamp = Time()
+            self._accepted_token_id = ''
             self._mission_bridge = MissionStatusBridge(
                 MissionStatusStore(mission_status_path))
             self._mission_read_error = ''
@@ -192,10 +232,29 @@ def create_node_class():
                 UInt8, 'battery_status', self._on_battery_status, internal_qos
             )
             self.create_subscription(
+                String,
+                'accepted_token_id',
+                self._on_accepted_token_id,
+                internal_qos,
+            )
+            self.create_subscription(
                 BatteryState,
                 'battery_state',
                 self._on_battery_observation,
                 qos_profile_sensor_data,
+            )
+            # 14단계: odometry 는 로봇 드라이버가 내는 센서 스트림이므로
+            # battery_state 와 같은 sensor data QoS 를 쓴다.
+            self.create_subscription(
+                Odometry, 'odom', self._on_odometry, qos_profile_sensor_data
+            )
+            # 17단계: Nav2 AMCL 표준 상대 토픽. 신선도 timeout은 계약에
+            # 없으므로 수신 중단만으로 pose_valid를 false로 만들지 않는다.
+            self.create_subscription(
+                PoseWithCovarianceStamped,
+                'amcl_pose',
+                self._on_pose,
+                10,
             )
             self.create_timer(self.TICK_SECONDS, self._tick)
             self.create_timer(0.1, self._poll_mission_and_reports)
@@ -205,6 +264,7 @@ def create_node_class():
             )
 
         def _poll_mission_and_reports(self) -> None:
+            """Refresh mission fields and retry durable terminal reports."""
             try:
                 if self._mission_bridge.refresh(self._state):
                     self._gate.note_change()
@@ -214,6 +274,7 @@ def create_node_class():
                 if error != self._mission_read_error:
                     self.get_logger().error(error)
                     self._mission_read_error = error
+
             try:
                 count = self._report_drain.publish_pending()
                 if count:
@@ -226,6 +287,48 @@ def create_node_class():
                     self.get_logger().error(error)
                     self._report_error = error
 
+        def _on_odometry(self, message) -> None:
+            """Feed measured velocity into the motion_stopped judgment.
+
+            This deliberately does NOT call note_change(). Q-02 lists the
+            enum axes and pose_valid as the fields whose change forces an
+            immediate publication; velocity is not among them, and it moves
+            on every sample, so treating it as a change trigger would push
+            the reporter past the 10 Hz change limit for no benefit.
+            """
+            try:
+                self._state.observe_odometry(
+                    message.twist.twist.linear.x,
+                    message.twist.twist.angular.z,
+                    stamp_to_seconds(message.header.stamp),
+                )
+            except ValueError as error:
+                self.get_logger().warning(f'ignored odometry sample: {error}')
+
+        def _on_pose(self, message) -> None:
+            """Accept a finite map-frame AMCL pose and preserve its stamp.
+
+            Q-02 makes a *validity transition* an immediate publication
+            trigger. Ordinary pose movement stays on the regular 2 Hz path.
+            No local age threshold changes pose_valid after this callback;
+            consumers compare the embedded measurement stamp themselves.
+            """
+            previous_valid = self._state.pose_valid
+            try:
+                if not pose_payload_is_finite(message.pose):
+                    raise ValueError('pose or covariance is not finite')
+                self._state.observe_pose(
+                    message,
+                    True,
+                    measured_at=stamp_to_seconds(message.header.stamp),
+                    frame_id=message.header.frame_id,
+                )
+            except ValueError as error:
+                self._state.observe_pose(None, False)
+                self.get_logger().warning(f'pose marked invalid: {error}')
+            if self._state.pose_valid != previous_valid:
+                self._gate.note_change()
+
         def _on_battery_status(self, message) -> None:
             try:
                 changed = self._state.update_states(battery_state=message.data)
@@ -236,6 +339,11 @@ def create_node_class():
                 return
             if changed:
                 self._gate.note_change()
+
+        def _on_accepted_token_id(self, message) -> None:
+            # Q-02 does not list token changes among immediate-publication
+            # triggers, so the next regular 2 Hz snapshot carries this value.
+            self._accepted_token_id = message.data
 
         def _on_battery_observation(self, message) -> None:
             percentage = message.percentage
@@ -263,7 +371,7 @@ def create_node_class():
             message.header.stamp = ros_now.to_msg()
             message.robot_id = snapshot.robot_id
             message.source_session_id = self._source_session_id
-            message.status_sequence = self._sequence.next_value()
+            message.status_sequence = self._sequence.next()
             message.operational_state = int(snapshot.operational_state)
             message.mission_state = int(snapshot.mission_state)
             message.docking_state = int(snapshot.docking_state)
@@ -276,12 +384,14 @@ def create_node_class():
             if snapshot.last_valid_pose is not None:
                 message.last_valid_pose = snapshot.last_valid_pose.value
 
-            # Odometry and accepted-token status need their own agreed source.
-            message.linear_velocity = float('nan')
-            message.angular_velocity = float('nan')
-            message.motion_stopped = False
-            message.accepted_token_id = ''
-            message.token_valid = False
+            message.linear_velocity = snapshot.linear_velocity
+            message.angular_velocity = snapshot.angular_velocity
+            message.motion_stopped = snapshot.motion_stopped
+
+            (
+                message.accepted_token_id,
+                message.token_valid,
+            ) = accepted_token_fields(self._accepted_token_id)
             message.battery_soc = self._battery_soc
             message.battery_timestamp = self._battery_timestamp
 

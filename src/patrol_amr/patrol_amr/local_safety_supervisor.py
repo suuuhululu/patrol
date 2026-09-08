@@ -37,10 +37,18 @@ running the file directly no longer resolves those imports.
 
 import math
 import time
+from typing import NamedTuple
 
 from patrol_amr import drive_token_guard as dtg
 from patrol_amr import estop_guard as eg
 from patrol_amr import motion_guard as mg
+
+
+class TokenStatus(NamedTuple):
+    """One atomic view for RobotStatus.accepted_token_id/token_valid."""
+
+    accepted_token_id: str
+    token_valid: bool
 
 
 def estop_transition_event(previous_stopped, current_stopped, verdict):
@@ -88,6 +96,22 @@ class SafetyGate:
     def estop_active(self) -> bool:
         """Current reflected E-stop state; True is the fail-safe default."""
         return self._estop_guard.stopped
+
+    def token_status(self, now: float) -> TokenStatus:
+        """Return the currently valid token, or the fail-safe empty state.
+
+        An expired, revoked, invalid, or other-holder token is not accepted
+        by this robot, so its public ID is empty as well as invalid. Keeping
+        the two values in one view prevents a reporter from pairing a stale
+        ID with a newer validity decision.
+        """
+        valid = (
+            self._token_guard.authority(now) is dtg.DriveAuthority.GRANTED
+        )
+        return TokenStatus(
+            self._token_guard.token_id if valid else '',
+            valid,
+        )
 
     def observe_drive_token(
         self,
@@ -191,7 +215,7 @@ def create_node_class():
     from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
     from geometry_msgs.msg import Twist, TwistStamped
     from patrol_interfaces.msg import DriveToken, EStop
-    from std_msgs.msg import Bool
+    from std_msgs.msg import Bool, String
 
     def to_twist(pair):
         """Final output is unstamped Twist: the drive base takes no stamp.
@@ -224,6 +248,7 @@ def create_node_class():
                 )
             self._gate = SafetyGate(robot_id)
             self._last_published = None
+            self._last_accepted_token_id = None
             self._last_output_reasons = None
 
             # 9절: drive_token은 BEST_EFFORT・VOLATILE・KEEP_LAST(3). 표의
@@ -277,6 +302,13 @@ def create_node_class():
             self._publisher = self.create_publisher(
                 Bool, 'motion_allowed', output_qos
             )
+            # 16단계 AMR 내부 연결. 비어 있지 않은 값 하나가
+            # RobotStatus의 accepted_token_id와 token_valid=true를 함께
+            # 뜻한다. 두 독립 토픽으로 나누지 않아 서로 다른 시점의 ID와
+            # validity가 한 snapshot에 섞이지 않는다.
+            self._accepted_token_publisher = self.create_publisher(
+                String, 'accepted_token_id', output_qos
+            )
             self._cmd_vel_publisher = self.create_publisher(
                 Twist, 'cmd_vel', velocity_qos
             )
@@ -296,6 +328,7 @@ def create_node_class():
             )
             self.create_timer(self.RECHECK_PERIOD_SECONDS, self._recheck)
             self._publish_if_changed()
+            self._publish_token_status_if_changed()
             self._publish_output(always=True)
 
         def _on_drive_token(self, message) -> None:
@@ -312,6 +345,7 @@ def create_node_class():
                 now,
             )
             self._publish_if_changed()
+            self._publish_token_status_if_changed()
             self._publish_output(always=False)
 
         def _on_estop(self, message) -> None:
@@ -358,7 +392,17 @@ def create_node_class():
             no new message arriving nothing else would notice them.
             """
             self._publish_if_changed()
+            self._publish_token_status_if_changed()
             self._publish_output(always=False)
+
+        def _publish_token_status_if_changed(self) -> None:
+            token_id = self._gate.token_status(
+                time.monotonic()
+            ).accepted_token_id
+            if token_id == self._last_accepted_token_id:
+                return
+            self._last_accepted_token_id = token_id
+            self._accepted_token_publisher.publish(String(data=token_id))
 
         def _publish_if_changed(self) -> None:
             now = time.monotonic()

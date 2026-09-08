@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from patrol_amr.command_store import (
+from patrol_amr.mission_command_store import (
     ClaimResult, CommandStore, StoreError)
 
 

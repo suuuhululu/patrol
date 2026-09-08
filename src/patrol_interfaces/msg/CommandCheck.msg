@@ -1,8 +1,7 @@
-# AMR -> control server command admission and execution state.
-# Topic: /{robot}/command_check
+# AMR -> 관제. MissionCommand 수락·실행 여부 확인.
+# 토픽: /{robot}/command_check
 # QoS: RELIABLE / VOLATILE / KEEP_LAST(10)
-# check_state numeric values remain TBD-IF-001 and are intentionally not
-# declared as constants here.
+# check_state 정수 매핑은 TBD-IF-001이므로 상수를 임의로 정의하지 않는다.
 
 std_msgs/Header header
 string command_id

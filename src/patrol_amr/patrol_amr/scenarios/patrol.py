@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Callable, Sequence
 
-from patrol_amr.command_store import CommandStore
+from patrol_amr.mission_command_store import CommandStore
 from patrol_amr.navigation_types import NavigationResult, Waypoint
 
 

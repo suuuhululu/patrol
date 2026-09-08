@@ -4,6 +4,12 @@ This module deliberately has no ROS dependency.  It keeps the state axes
 whose numeric values are already fixed in interfaces.md and separates the
 current pose validity from the last valid pose.
 
+14단계 added the odometry axis: measured velocities and the ``motion_stopped``
+judgment.  interfaces.md 3절 fixes every number it needs, so nothing here is
+guessed.  Note that "stopped" is a statement about odometry, not about the
+velocity local_safety_supervisor commanded -- a commanded zero says the gate
+closed, not that the wheels have actually come to rest.
+
 Not implemented here:
 
 * Allowed/forbidden transitions between state-axis combinations
@@ -12,9 +18,9 @@ Not implemented here:
 * RobotStatus publication cadence, QoS, session ID, or wire-message mapping;
   those belong to the stage-8 status_reporter ROS node.
 
-Pose timestamps and ``snapshot_at`` are caller-supplied seconds from the
-same ROS clock.  They are not monotonic lease times and must not be mixed
-with the local monotonic clocks used by the safety guards.
+Pose timestamps, odometry timestamps and ``snapshot_at`` are caller-supplied
+seconds from the same ROS clock.  They are not monotonic lease times and must
+not be mixed with the local monotonic clocks used by the safety guards.
 """
 
 from copy import deepcopy
@@ -26,6 +32,14 @@ from typing import Any, NamedTuple, Optional
 ROBOT_IDS = ('robot1', 'robot6')
 UINT8_MAX = 0xFF
 _UNCHANGED = object()
+
+# interfaces.md 3절 "실제 정지" 판정. 네 값 모두 문서에 확정돼 있어 이 파일이
+# 정한 것이 아니다: 선속도 절댓값 ≤ 0.05 m/s, 각속도 절댓값 ≤ 0.1 rad/s가
+# 0.5초 연속 유지되고 측정 age ≤ 0.5초일 때만 정지로 본다.
+STOP_LINEAR_LIMIT = 0.05
+STOP_ANGULAR_LIMIT = 0.1
+STOP_HOLD_SECONDS = 0.5
+ODOMETRY_MAX_AGE_SECONDS = 0.5
 
 
 class OperationalState(IntEnum):
@@ -79,6 +93,14 @@ class PoseSample(NamedTuple):
     measured_at: float
 
 
+class OdometrySample(NamedTuple):
+    """One odometry observation reduced to the two axes RobotStatus carries."""
+
+    linear: float
+    angular: float
+    measured_at: float
+
+
 class RobotStatusSnapshot(NamedTuple):
     """Immutable view consumed later by status_reporter."""
 
@@ -92,6 +114,9 @@ class RobotStatusSnapshot(NamedTuple):
     pose_valid: bool
     last_valid_pose: Optional[PoseSample]
     last_valid_pose_age: Optional[float]
+    linear_velocity: float
+    angular_velocity: float
+    motion_stopped: bool
     revision: int
 
 
@@ -119,6 +144,12 @@ class RobotStatusState:
         self._pose = None
         self._pose_valid = False
         self._last_valid_pose = None
+
+        self._odometry = None
+        # 정지 조건을 만족하기 시작한 관측 시각. 조건이 깨지거나 관측이
+        # 끊기면 None 으로 되돌려 연속 유지 창을 다시 연다.
+        self._stop_held_since = None
+
         self._revision = 0
 
     @property
@@ -128,6 +159,11 @@ class RobotStatusState:
     @property
     def revision(self) -> int:
         return self._revision
+
+    @property
+    def pose_valid(self) -> bool:
+        """Current localization validity without creating a snapshot."""
+        return self._pose_valid
 
     def update_states(
         self,
@@ -217,6 +253,78 @@ class RobotStatusState:
         self._revision += 1
         return True
 
+    def observe_odometry(self, linear, angular, measured_at) -> bool:
+        """Record one odometry observation; True if it changed the model.
+
+        Only the two axes RobotStatus reports are kept. This does not decide
+        ``motion_stopped`` on its own -- the freshness half of interfaces.md
+        3절 depends on when the snapshot is taken, so the judgment is
+        completed in snapshot().
+        """
+        for name, value in (
+            ('linear', linear),
+            ('angular', angular),
+        ):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f'odometry {name} must be a real number')
+            if not math.isfinite(value):
+                raise ValueError(f'odometry {name} must be finite')
+        self._finite_time(measured_at, 'measured_at')
+
+        sample = OdometrySample(
+            float(linear), float(angular), float(measured_at)
+        )
+        previous = self._odometry
+        if previous is not None and sample.measured_at < previous.measured_at:
+            raise ValueError('odometry measured_at must not go backwards')
+
+        within_limits = (
+            abs(sample.linear) <= STOP_LINEAR_LIMIT
+            and abs(sample.angular) <= STOP_ANGULAR_LIMIT
+        )
+        if not within_limits:
+            self._stop_held_since = None
+        else:
+            # 관측이 끊긴 구간은 "연속 유지"로 주장할 수 없다. 표본 간격이
+            # 신선도 한도를 넘으면 창을 다시 연다. 정지 선언이 어려워지는
+            # 방향이므로 관제가 근거 없이 새 token 을 발급하지 않는다.
+            gap_too_large = (
+                previous is None
+                or sample.measured_at - previous.measured_at
+                > ODOMETRY_MAX_AGE_SECONDS
+            )
+            if self._stop_held_since is None or gap_too_large:
+                self._stop_held_since = sample.measured_at
+
+        self._odometry = sample
+        if sample == previous:
+            return False
+        self._revision += 1
+        return True
+
+    def _odometry_view(self, snapshot_at: float):
+        """Return (linear, angular, motion_stopped) for one snapshot time.
+
+        Unreceived or stale odometry reports NaN rather than zero, matching
+        how battery SOC is handled: a missing measurement must not be read
+        as "measured, and it was zero".
+        """
+        sample = self._odometry
+        if sample is None:
+            return float('nan'), float('nan'), False
+        age = float(snapshot_at) - sample.measured_at
+        if age > ODOMETRY_MAX_AGE_SECONDS:
+            return float('nan'), float('nan'), False
+
+        stopped = (
+            self._stop_held_since is not None
+            and abs(sample.linear) <= STOP_LINEAR_LIMIT
+            and abs(sample.angular) <= STOP_ANGULAR_LIMIT
+            and sample.measured_at - self._stop_held_since
+            >= STOP_HOLD_SECONDS
+        )
+        return sample.linear, sample.angular, stopped
+
     def snapshot(self, snapshot_at: float) -> RobotStatusSnapshot:
         """Return an immutable copy and compute age from the same ROS clock."""
         self._finite_time(snapshot_at, 'snapshot_at')
@@ -231,6 +339,10 @@ class RobotStatusState:
                     'snapshot_at must not precede the last valid pose timestamp'
                 )
 
+        linear_velocity, angular_velocity, motion_stopped = (
+            self._odometry_view(snapshot_at)
+        )
+
         return RobotStatusSnapshot(
             robot_id=self._robot_id,
             operational_state=self._operational_state,
@@ -242,6 +354,9 @@ class RobotStatusState:
             pose_valid=self._pose_valid,
             last_valid_pose=deepcopy(self._last_valid_pose),
             last_valid_pose_age=last_valid_age,
+            linear_velocity=linear_velocity,
+            angular_velocity=angular_velocity,
+            motion_stopped=motion_stopped,
             revision=self._revision,
         )
 

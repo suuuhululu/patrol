@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from patrol_amr.command_store import CommandStore
+from patrol_amr.mission_command_store import CommandStore
 from patrol_amr.drive_token_callback import DriveTokenCallback
 from patrol_amr.mission_arbiter import MissionArbiter
 from patrol_amr.mission_command_callback import MissionCommandCallback

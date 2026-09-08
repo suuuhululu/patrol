@@ -1,13 +1,13 @@
 # [AMR] 최종 cmd_vel 경로와 Nav2·yaw 주행 후보 토픽
 
-- 상태: 합의 완료 · 코드 반영 중
+- 상태: 합의 (2026-09-08 관제 회신으로 5건 전부 확정) · AMR 반영 완료 · 관제 반영 대기
 - 최초 작성 시각: 2026-09-08 08:31 KST
 - 요청자: 조정묵 (AMR)
 - 요청 단위: AMR
 - 대상 단위 및 로봇: 관제(Nav2 launch·remap 소유) / robot1·robot6
-- 관련 TBD ID: TBD-IF-009(2026-09-08 결정). TBD-AMR-001(주행 중재)·TBD-AMR-006(로컬 정지·감속·장애물)은 이 요청으로 해결하지 않는다.
+- 관련 TBD ID: TBD-IF-009. 2026-09-08 관제 회신으로 **해결됐다**. TBD-AMR-001(주행 중재)·TBD-AMR-006(로컬 정지·감속·장애물)은 이 요청으로 해결하지 않으며 계속 OPEN이다.
 - 기준 문서·절: [interfaces.md 4절 토픽 트리](../interfaces.md#4-토픽-트리), [7절](../interfaces.md#7-keepout-parameter-api), [9절 Q-01](../interfaces.md#9-qos와-공통-시간거리-기준), [architecture.md](../architecture.md), [amr.md 2절·3.3·3.4절](../amr.md), [integration.md IT-16](../integration.md#4-통합시험-명세)
-- 결정 일자·근거: 2026-09-08 AMR(조정묵)이 로컬 Jazzy 설치본 조사 결과를 근거로 AMR 측 안을 확정했다. 미션·내비게이션 담당 회신으로 TBD-IF-009를 결정했으며 세부 내용은 [확정 회신](CR-AMR_09-08_10-06_AMR_cmd_vel_계약_5개_확정_회신.md)에 기록한다.
+- 결정 일자·근거: 2026-09-08 AMR(조정묵)이 로컬 Jazzy 설치본 조사 결과를 근거로 안을 확정하고, 같은 날 관제(박성현)가 5개 질의에 모두 제안대로 회신해 합의됐다.
 - 코드 변경 승인 근거·범위: 2026-09-08 사용자가 AMR 측 계약을 확정했다. AMR 구현 범위는 `src/patrol_amr/patrol_amr/motion_guard.py`·`local_safety_supervisor.py`·`launch/amr_safety_status.launch.py`와 그 시험이다. Nav2 launch·params는 관제 담당이므로 AMR이 바꾸지 않는다.
 
 ## 변경 이유
@@ -102,13 +102,20 @@ mission_supervisor yaw 정렬            → /robotN/cmd_vel_yaw       ★ 신�
 | System monitor | 해당 없음. 속도 토픽을 구독하지 않는다 | | |
 | 비전 | 해당 없음. [Detection 정렬 요청](CR-관제_09-07_20-26_AMR_비전_Detection_정렬_계약.md)에서 detecting node가 속도를 발행하지 않는 것으로 이미 합의했다 | | |
 
-AMR이 확정한 내용에 대해 관제 회신이 필요한 항목이다. 회신 전까지 AMR은 자기 코드만 구현하고 Nav2 설정은 건드리지 않는다.
+**2026-09-08 관제 회신 — 5건 전부 제안대로 확정됐다.**
 
-1. 토픽 이름 3개(`cmd_vel_safe`·`cmd_vel_yaw`·`cmd_vel`)와 삽입 위치에 동의하는가. `collision_monitor`를 체인에 남기고 그 `cmd_vel_out_topic`만 바꾸는 방식에 동의하는가.
-2. `enable_stamped_cmd_vel: true`를 Nav2 params에 적용해 줄 수 있는가. 적용이 어렵다면 후보 신선도 판정 수단을 다시 정해야 한다.
-3. Q-17 후보 신선도 0.5초를 [interfaces.md 9절](../interfaces.md#9-qos와-공통-시간거리-기준)에 신설하는 데 동의하는가.
-4. `/robotN` namespace를 Nav2 노드에 어떤 방식으로 적용하는가(launch `namespace` 인자 대 topic prefix remap). 적용 여부가 아니라 방식만 확인한다.
-5. `/robotN/cmd_vel_yaw`를 누가 발행하는가. `mission_supervisor`가 맞다면 AMR-18·19 `recovery_supervisor`와의 소유 경계도 함께 확인한다.
+| 질의 | 회신 |
+|---|---|
+| ① 토픽·삽입 위치 | `cmd_vel_nav → cmd_vel_smoothed → cmd_vel_safe → local_safety_supervisor → cmd_vel` |
+| ② stamped 속도 | `enable_stamped_cmd_vel: true`. 현재 TurtleBot4 설정에도 이미 적용돼 있다 |
+| ③ Q-17 | 후보 `header.stamp` 기준 최대 0.5초. 초과·미수신 시 정지 |
+| ④ namespace | `robot_id`에서 파생. 관제 launch는 `PushRosNamespace`와 `RewrittenYaml` 사용 |
+| ⑤ yaw 발행자 | `mission_supervisor`가 `/robotN/cmd_vel_yaw`를 단독 발행 |
+
+**회신 이후 확인이 더 필요한 항목 2개.** 계약 자체는 합의됐고 아래는 통합 시 실패할 수 있는 지점이다.
+
+1. **최종 `cmd_vel`의 타입.** AMR은 구동부가 미stamped `Twist`를 기대한다고 보고 그렇게 발행한다. 근거는 `irobot_create_control/config/control.yaml`의 `use_stamped_vel: false`인데 이는 시뮬레이션 설정이다. ②에서 "TurtleBot4 설정에도 이미 적용됨"이라고 한 것이 Nav2 노드 범위인지 구동부까지 포함하는지 확인이 필요하다. 어긋나면 DDS 계층에서 타입 불일치로 메시지가 **전혀 전달되지 않는다.**
+2. **namespace 중복.** ④의 `PushRosNamespace`와 `amr_safety_status.launch.py`의 자체 namespace가 겹치면 `/robot1/robot1/cmd_vel`이 된다. 게다가 `status_reporter`는 절대 이름을 써서 `/robot1/robot_status`로 정상이라 **절반만 어긋난다.** 2026-09-08 재현해 확인했고, AMR launch에 `push_namespace` 인자(기본 `true`)를 추가했다. 관제 launch가 자체 `PushRosNamespace`로 감싼다면 **`push_namespace:=false`를 전달해야 한다.**
 
 **이미 확정되어 질의에서 제외한 것** — Nav2를 `/robot1`·`/robot6` namespace로 실행하는지 여부. [architecture.md 2절](../architecture.md)이 robot1 → `/robot1`, robot6 → `/robot6`을 namespace 열로 명시했고, `ROS_DOMAIN_ID=6` 단일 도메인을 두 로봇이 공유하며, [interfaces.md 7절](../interfaces.md#7-keepout-parameter-api)의 Keepout API가 이미 `/robot1/global_costmap/global_costmap`을 대상으로 한다. namespace 없이 실행하면 `/cmd_vel`·`/odom`·`/scan`·`/map`이 두 로봇 사이에서 충돌하고 Keepout 경로도 성립하지 않는다. 새 결정이 아니라 기존 확정 사항에서 따라 나오는 결론이다.
 
@@ -126,7 +133,7 @@ AMR이 확정한 내용에 대해 관제 회신이 필요한 항목이다. 회�
 |---|---|---|---|
 | AMR / robot1 | 반영 완료, 실기 미확인 | `feat/amr-safety-status` 11~13단계. 사용자 ROS 토픽 시험 통과(2026-09-08) | 관제 회신 후 재확인, 로봇 실기, IT-16 |
 | AMR / robot6 | 반영 완료, 실기 미확인 | 위와 같음. launch `robot_id:=robot6`으로 `/robot6` namespace 확인 | 위와 같음 |
-| 관제 | 미반영 | | 위 5개 질의 회신, Nav2 params의 `cmd_vel_out_topic`·`enable_stamped_cmd_vel` 반영 |
+| 관제 | 계약 합의, 코드 반영 대기 | 2026-09-08 회신 | Nav2 params의 `cmd_vel_out_topic` 변경, launch 병합 시 `push_namespace:=false` 전달, 최종 `cmd_vel` 타입 확인 |
 | System monitor | 변경 불필요 | 속도 토픽 비구독 | |
 | 비전 | 변경 불필요 | detecting node 속도 미발행으로 합의됨 | |
 
@@ -144,4 +151,6 @@ AMR이 확정한 내용에 대해 관제 회신이 필요한 항목이다. 회�
 | 2026-09-08 08:31 | AMR | 제안 작성. 로컬 Jazzy 설치본의 Nav2 체인·TwistPublisher·Create 3 설정을 근거로 최소 변경안 제시 | 5·6단계에서 TBD-IF-009로 비워 둔 최종 출력이 IT-16과 launch 통합을 동시에 막고 있음 |
 | 2026-09-08 09:10 | AMR | 4건 확정 — collision_monitor 유지, 후보 TwistStamped·최종 Twist, Q-17 0.5초, `cmd_vel_yaw`는 토픽만 예약. namespace 질의는 architecture.md 확정 사항이라 철회 | 사용자(조정묵) 결정. 근거는 각 결정 절에 기록 |
 | 2026-09-08 | AMR | 확정 내용을 11~13단계로 구현·검증 완료. 관제 Nav2 설정은 건드리지 않았다 | 단위시험 114건 OK, 확장 스모크 `AMR_SMOKE_PASS`, 사용자 ROS 토픽 시험 통과 |
-| 2026-09-08 10:06 | 박성현·AMR 미션·내비게이션 | 5개 질의 확정 회신 | [확정 회신](CR-AMR_09-08_10-06_AMR_cmd_vel_계약_5개_확정_회신.md) |
+| 2026-09-08 | 관제 | 5개 질의에 모두 제안대로 회신. **합의 성립** | 위 회신 표 |
+| 2026-09-08 | AMR | 회신 반영: interfaces.md 7절에 확정 경로, 9절에 Q-17 등재, TBD-IF-009 결정 처리. launch에 `push_namespace` 인자 추가 | namespace 중복을 실측 재현한 뒤 대응 |
+| | 관제 | 회신 대기 | |
