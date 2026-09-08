@@ -198,7 +198,15 @@ flowchart TD
     T2 -->|예| ER[EVENT_AUTO_RELEASED 로그]
 ~~~
 
-검증: [단위시험](../tests/test_estop_guard.py)은 관측 전 안전 기본값, 자기 대상 active·reason·latched 반영, 다른 로봇 대상 미적용, 공통 sequence 하한, 역순·중복 폐기, uint64 경계와 호출자 오류를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_estop_guard.py -v`다. [IT-11](integration.md#4-통합시험-명세)의 로컬 반영 부분이며 관제 연동과 물리 버튼 실기 시험은 미실행이다.
+**15단계 추가 — 물리 E-stop 로컬 latch(2026-09-08).** [Q-10](../interfaces.md#9-qos와-공통-시간거리-기준)과 [interfaces.md 3.1절](../interfaces.md)이 "물리 E-stop은 수동 reset까지 latch"를 문장으로 확정해 두었다. 관제가 보낸 `latched`를 그대로 비추기만 하면 이 문장을 지킬 수 없다 — 관제가 나중에 `latched=false`를 보내거나 발행을 멈추면, 아무도 버튼을 만지지 않았는데 로봇이 다시 움직인다.
+
+- 수락된 `latched=true` 관측이 이 가드가 소유한 latch를 건다. **들어오는 메시지로는 내려가지 않는다.** `reset_local_latch()`만 내린다.
+- `stopped`는 `active` 또는 arbiter의 `latched` 또는 로컬 latch 중 하나라도 참이면 참이다. 셋을 분리해 두었으므로 reset은 로컬 latch만 내리고 활성 E-stop이나 arbiter의 주장을 덮어쓰지 않는다.
+- 다른 로봇 대상 메시지와 역순 sequence 메시지는 latch를 걸지 않는다. 기존 폐기 규칙을 그대로 통과한 관측만 반영한다.
+
+**남긴 부분 — reset을 호출할 경로.** TBD-IF-004의 잔여 항목에 수동 reset 요청 계약(토픽인지 서비스인지, 누가 보낼 수 있는지, 무엇이 승인하는지)이 남아 있다. 임의로 만들면 물리 E-stop을 푸는 수단을 추측으로 시스템에 넣는 셈이다. 그래서 `reset_local_latch()`는 ROS 호출자가 없는 메서드로 두었고, **그 결과 latch가 걸린 로봇은 노드를 재시작해야 풀린다.** 안전한 방향이며, TBD-IF-004를 닫아야 할 이유이지 추측할 이유가 아니다.
+
+검증: [단위시험](../tests/test_estop_guard.py) 18건은 관측 전 안전 기본값, 자기 대상 active·reason·latched 반영, 다른 로봇 대상 미적용, 공통 sequence 하한, 역순·중복 폐기, uint64 경계와 호출자 오류를 확인한다. 15단계분은 들어오는 메시지가 로컬 latch를 못 내리는 것, reset만이 내리는 것, reset이 활성 E-stop이나 arbiter의 `latched`를 덮지 않는 것, 다른 로봇·역순 메시지가 latch를 걸지 않는 것, 재latch를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_estop_guard.py -v`다. [IT-11](integration.md#4-통합시험-명세)의 로컬 반영 부분이며 관제 연동과 물리 버튼 실기 시험은 미실행이다.
 
 ### 3.3 motion_guard.py — 구현 대조 완료
 

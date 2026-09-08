@@ -22,6 +22,7 @@
 | 12 | `local_safety_supervisor.py` 후보 구독·최종 `cmd_vel` 발행 | 구현·단위시험 26건·**사용자 ROS 토픽 시험 통과(2026-09-08)** |
 | 13 | launch namespace·remap 인자, 스모크에 최종 속도 경로 추가 | 구현·자동시험 `AMR_SMOKE_PASS` 완료. 사용자 검토 대기 |
 | 14 | odometry 연결: `linear_velocity`·`angular_velocity`·`motion_stopped` | 구현·단위시험 32건·스모크 완료. **사용자 ROS 토픽 시험 대기** |
+| 15 | AMR-11 물리 E-stop 로컬 latch | 구현·단위시험 18건·스모크 완료. 사용자 검토 대기 |
 
 11~13단계로 TBD-IF-009 확정분의 AMR 측 구현이 끝났다. 14단계는 관제 회신을 기다리는 동안 진행한 것으로, interfaces.md 3절이 판정 숫자를 이미 확정해 둬 차단 요인이 없었다. 15단계부터는 전부 TBD 해소 또는 타 담당자 코드 병합이 선행되어야 한다.
 
@@ -37,7 +38,9 @@
 - 최종 검증: `colcon build` `2 packages finished`, 단위시험 `Ran 114 tests`/`OK`, 확장 스모크 `AMR_SMOKE_PASS`(`cmd_vel_publishers=['local_safety_supervisor']`).
 - **2026-09-08 관제 회신으로 TBD-IF-009가 해결됐다.** 5개 질의 모두 AMR 제안대로 확정. interfaces.md 7절에 확정 경로, 9절에 Q-17이 등재됐고 TBD 표에서 결정 처리됐다. 상세는 10.4절이다.
 - 회신 반영 중 통합 위험 두 개를 확인했다. namespace 중복은 launch `push_namespace` 인자로 대응했고, 최종 `cmd_vel` 타입은 관제 확인이 필요하다. 10.4절에 적었다.
-- 다음 작업은 15단계(실제 Nav2 후보 연동)이며 성현님 launch 병합이 선행되어야 한다. 16~18단계는 여전히 TBD·병합에 막혀 있다.
+- 2026-09-08 사용자 요청으로 **AMR-05·06·07·11 우선**으로 순서를 바꿨다. 재조사 결과 AMR-11의 로컬 latch는 계약이 이미 문장으로 확정돼 있어 15단계로 구현했다. 상세는 11절과 13절이다.
+- 최종 검증: 단위시험 `Ran 138 tests`/`OK`, 확장 스모크 `AMR_SMOKE_PASS`(경로 5종 + 발행자 단일성).
+- 실제 Nav2 후보 연동은 성현님 launch 병합이 선행된다. 그 전까지 AMR 자체 항목을 먼저 채운다.
 - 아래 이력 항목의 `0efa7fa` 언급은 당시 기록이며 현재 HEAD가 아니다.
 - 2026-09-07 20:32 KST 재검증에서 `patrol_interfaces` 빌드는 `1 package finished`, 전체 단위시험은 `Ran 89 tests`와 `OK`, `git diff --check`는 출력 없이 통과했다.
 - 6단계 사용자 ROS 토픽 시험 중 drive_token의 `DEADLINE` 불일치와 E-stop의 `DURABILITY` 불일치를 확인했다. drive_token 구독측 deadline 문제는 `13f0412`에서 수정했고, E-stop은 계약에 맞는 QoS 옵션을 시험 명령에 지정해야 한다.
@@ -924,11 +927,20 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 | 12 | `local_safety_supervisor.py`에 후보 구독·최종 `cmd_vel` 발행 배선 | 단위시험 + 사용자 ROS 토픽 시험 | **완료 (2026-09-08)** |
 | 13 | launch 인자 추가와 스모크 확장 | `ros2 launch` 통합 + 확장 스모크 | **완료 (2026-09-08)** |
 | 14 | odometry 연결: `linear_velocity`·`angular_velocity`·`motion_stopped` | 단위 + 사용자 ROS 토픽 시험 | **구현 완료 (2026-09-08), 사용자 시험 대기** |
-| 15 | 실제 Nav2 후보와 연동해 IT-16 부분 실행 | 통합시험 | 관제 회신 + 박성현 launch 병합 후 |
-| 16 | AMR-11 물리 E-stop latch·수동 reset | 단위 + 사용자 ROS 토픽 시험 | TBD-IF-004 잔여 해소 후 |
-| 17 | AMR-18·19 `recovery_supervisor.py` | 단위 + 사용자 ROS 토픽 시험 | TBD-AMR-005 해소 + `nav2_client.py` 병합 후 |
-| 18 | AMR-07 `PatrolReport` 발행 | 단위 + 사용자 ROS 토픽 시험 | TBD-IF-003 잔여 해소 + 박성현 체크포인트 병합 후 |
-| 19 | I-03·T-01·T-03·T-04 | 통합시험 | 위 전부 완료 후 |
+| 15 | AMR-11 물리 E-stop 로컬 latch | 단위 + 스모크 | **완료 (2026-09-08)** |
+| 16 | AMR-06 token 상태 연결 (`accepted_token_id`·`token_valid`) | 단위 + 사용자 ROS 토픽 시험 | 착수 가능 |
+| 17 | AMR-06 pose 연결 (`pose`·`pose_valid`·`last_valid_pose`) | 단위 + 사용자 ROS 토픽 시험 | 착수 가능 |
+| 18 | AMR-07 `PatrolReport` 발행 모듈 | 단위시험 | 모듈까지 착수 가능, 입력 연결은 병합 대기 |
+| 19 | 실제 Nav2 후보와 연동해 IT-16 부분 실행 | 통합시험 | 박성현 launch 병합 후 |
+| 20 | AMR-18·19 `recovery_supervisor.py` | 단위 + 사용자 ROS 토픽 시험 | TBD-AMR-005 해소 + `nav2_client.py` 병합 후 |
+| 21 | I-03·T-01·T-03·T-04 | 통합시험 | 위 전부 완료 후 |
+
+**2026-09-08 순서 변경.** 사용자가 AMR-05·06·07·11을 먼저 완성하기로 해서 재조사했다. 결과는 13절에 있고 요지는 다음과 같다.
+
+- **AMR-11**은 예상과 달리 계약이 열려 있었다. Q-10과 interfaces.md 3.1절이 "물리 E-stop은 수동 reset까지 latch"를 문장으로 확정해 두었고, 미정인 것은 *reset 요청 경로*뿐이다. 로컬 latch를 15단계로 구현했다.
+- **AMR-06**의 남은 조각 중 token과 pose는 TBD가 아니다. 16·17단계로 나눴다.
+- **AMR-07**은 발행 모듈까지는 만들 수 있다. `robot_status_state`를 7단계에 먼저 만들고 8단계에 연결한 것과 같은 방식이다. 입력(command·mission 결과)은 병합 대기다.
+- **AMR-05** `command_store.py`는 박성현 담당이며 조정묵 목록에서 제외된 항목이다. 어느 원격 브랜치에도 없어 이 저장소에서 진행할 수 없다.
 
 14단계는 관제 회신을 기다리는 동안 넣었다. [interfaces.md 3절](../interfaces.md)이 실제 정지 판정 숫자를 네 개 모두 확정해 두어 추측할 값이 없었고, 필요한 입력이 표준 `nav_msgs/Odometry`라 TBD 표에도 없다.
 
@@ -1238,9 +1250,29 @@ python3 tests/integration/publish_odometry.py --linear 0.05 --angular 0.1
 
 종료는 터미널 3 → 2 → 1 순서로 `Ctrl+C`다.
 
-### 15단계 이후
+### 15단계 — AMR-11 물리 E-stop 로컬 latch · 완료 2026-09-08
 
-16~18단계의 순서는 의존성이 적은 것부터다. AMR-11은 TBD 하나만 풀리면 되고 남의 코드가 필요 없다. AMR-18·19와 AMR-07은 TBD와 병합 두 가지가 모두 필요하다. 세 단계 모두 착수 전에 해당 TBD의 잔여 항목이 실제로 닫혔는지 [interfaces.md TBD 표](../interfaces.md#tbd)에서 확인하고, 미정 값을 지어내지 않는다.
+구현 상세는 [amr.md 3.2절](../amr.md#32-estop_guardpy--구현-대조-완료)에 있다.
+
+**왜 열려 있었나.** 이 문서는 AMR-11을 "TBD-IF-004 잔여 해소 후"로 적어 두었는데, 재조사해 보니 잔여 항목은 *reset 요청 경로*이지 latch 동작 자체가 아니었다. [Q-10](../interfaces.md#9-qos와-공통-시간거리-기준)과 interfaces.md 3.1절이 "물리 E-stop은 수동 reset까지 latch"를 문장으로 확정해 두었다.
+
+**무엇을 고쳤나.** 기존 `estop_guard`는 관제가 보낸 `latched`를 그대로 비추기만 했다. 그러면 관제가 나중에 `latched=false`를 보내거나 발행을 멈출 때 **아무도 버튼을 만지지 않았는데 로봇이 다시 움직인다.** 수락된 `latched=true` 관측이 이 가드가 소유한 latch를 걸고, 들어오는 메시지로는 내려가지 않게 했다.
+
+`stopped`는 `active`·arbiter의 `latched`·로컬 latch 셋 중 하나라도 참이면 참이다. 셋을 분리해 두어 `reset_local_latch()`가 로컬 latch만 내리고 활성 E-stop이나 arbiter의 주장을 덮어쓰지 않는다.
+
+**기존 단위시험 하나를 고쳤다.** `test_latched_true_keeps_stop_even_when_active_is_false`가 "관제가 `latched=false`를 보내면 해제된다"를 통과 조건으로 굳혀 두고 있었다. 계약과 반대 동작이라 계약대로 바꾸고 `LocalLatchTests` 8건을 새로 넣었다.
+
+**남긴 부분 — reset을 호출할 경로.** TBD-IF-004에 수동 reset 요청 계약(토픽인지 서비스인지, 누가 보낼 수 있는지, 무엇이 승인하는지)이 남아 있다. 임의로 만들면 물리 E-stop을 푸는 수단을 추측으로 넣는 셈이다. `reset_local_latch()`는 ROS 호출자가 없는 메서드로 두었고, **그 결과 latch가 걸린 로봇은 노드를 재시작해야 풀린다.** 안전한 방향이며 TBD-IF-004를 닫아야 할 이유다.
+
+시험 결과 (2026-09-08):
+
+- `tests/test_estop_guard.py` 18건, 전체 단위시험 `Ran 138 tests` `OK`.
+- 확장 스모크에 `local_latch=engaged_on_latched,held_after_arbiter_cleared` 추가. 후보가 흐르는 중 `latched=true` E-stop을 넣으면 즉시 정지하고, 관제가 `active=false, latched=false`로 되돌려도 정지가 유지되는 것을 실제 ROS 경로에서 확인했다.
+- 이 검사는 스모크의 **마지막 단계**다. latch가 걸리면 스크립트가 발행할 수 있는 어떤 것도 그것을 풀지 못하므로 뒤에 다른 검사를 둘 수 없다.
+
+### 19단계 이후
+
+20단계의 순서는 의존성이 적은 것부터다. AMR-11은 TBD 하나만 풀리면 되고 남의 코드가 필요 없다. AMR-18·19와 AMR-07은 TBD와 병합 두 가지가 모두 필요하다. 세 단계 모두 착수 전에 해당 TBD의 잔여 항목이 실제로 닫혔는지 [interfaces.md TBD 표](../interfaces.md#tbd)에서 확인하고, 미정 값을 지어내지 않는다.
 
 ## 12. 남은 작업의 노드·파일·기능 매핑 — 2026-09-08
 
@@ -1284,7 +1316,7 @@ RobotStatus 27개 필드 중 **현재 안전한 미연결 값으로 두고 있�
 | `safety_state` | parameter 고정값 | TBD-IF-003 잔여(enum 수치 미정) |
 | `reason_code`·`reason` | 미설정 | 보고 정책 확정 후 |
 
-추가로 **`PatrolReport` 발행(AMR-07)이 이 노드에 붙는다** — 18단계. 메시지 정의는 있으나 publisher가 없다. `/robotN/patrol_report`로 `result`(SUCCEEDED/FAILED/CANCELED)와 `reason_code` 32종을 명령·임무 ID에 연결해 발행해야 하며, 입력은 박성현 체크포인트·mission 결과다.
+추가로 **`PatrolReport` 발행(AMR-07)이 이 노드에 붙는다** — 18단계에 모듈을 만들고 입력은 병합 후 연결한다. 메시지 정의는 있으나 publisher가 없다. `/robotN/patrol_report`로 `result`(SUCCEEDED/FAILED/CANCELED)와 `reason_code` 32종을 명령·임무 ID에 연결해 발행해야 하며, 입력은 박성현 체크포인트·mission 결과다.
 
 #### `battery_monitor` (208줄) — 배터리 분류
 
@@ -1292,7 +1324,7 @@ RobotStatus 27개 필드 중 **현재 안전한 미연결 값으로 두고 있�
 
 #### `recovery_supervisor` — 파일 없음, 신규 (AMR-18·19)
 
-새 분장에서 조정묵이 새로 받은 항목이다. 기능은 **중단 시 Nav2 goal·spin 취소, 30초 타이머, 재개, 토큰 반납**이다. 17단계이며 다음 두 가지가 모두 필요하다.
+새 분장에서 조정묵이 새로 받은 항목이다. 기능은 **중단 시 Nav2 goal·spin 취소, 30초 타이머, 재개, 토큰 반납**이다. 20단계이며 다음 두 가지가 모두 필요하다.
 
 - `nav2_client.py`(박성현) 병합 — goal·spin을 취소할 대상 API가 저장소에 없다.
 - TBD-AMR-005 해소 — STOP과 CANCEL의 임무 보존·종료 차이, 재개 지점이 미정이다.
@@ -1308,9 +1340,9 @@ ROS에 의존하지 않으며 위 노드들이 import해서 쓴다.
 | `drive_token_guard.py` | 201 | control session·token ID·message sequence·Q-01 lease 판정 | 송신 timestamp 기반 message age (TBD-IF-002 잔여, 현재는 QoS가 담당한다고 해석) | 없음 |
 
 2026-09-08 14단계로 `robot_status_state.py`에 odometry 축과 `motion_stopped` 판정을 추가했다. 아래 표의 `robot_status_state.py` 잔여 항목에서 그만큼 빠진다.
-| `estop_guard.py` | 93 | 자기 `target_robot_id`의 active·reason·latched 반영, sequence 하한 | **물리 E-stop 로컬 latch와 수동 reset 경로** (TBD-IF-004 잔여) | 16 |
+| `estop_guard.py` | 93 | 자기 `target_robot_id`의 active·reason·latched 반영, sequence 하한, **로컬 latch(15단계)** | reset을 호출할 경로만 남음 (TBD-IF-004 잔여) | 없음 |
 | `motion_guard.py` | 97 | token·E-stop AND 게이트, STOP=(0,0) 반환, 상태 비저장, Q-17 후보 신선도(11단계) | 속도 상한·감속·장애물은 TBD-AMR-006로 계속 BLOCKED | 없음 |
-| `robot_status_state.py` | 272 | operational·mission·docking 독립 상태 축, 현재·마지막 유효 pose snapshot, **odometry 축·`motion_stopped`(14단계)** | 실입력 연결(mission·docking·pose). 자료구조는 이미 있고 채워 줄 쪽이 없다 | 18 |
+| `robot_status_state.py` | 272 | operational·mission·docking 독립 상태 축, 현재·마지막 유효 pose snapshot, **odometry 축·`motion_stopped`(14단계)** | pose 연결(17단계), mission·docking 실입력은 병합 대기 | 17 |
 
 ### 12.3 단계 → 노드·파일 대응
 
@@ -1320,11 +1352,13 @@ ROS에 의존하지 않으며 위 노드들이 import해서 쓴다.
 | 12 | `local_safety_supervisor.py` | 후보 구독·최종 `cmd_vel` 발행 배선 |
 | 13 | `launch/amr_safety_status.launch.py`, `tests/integration/amr_safety_status_smoke.py` | launch 인자 추가, 스모크에 최종 속도 경로 검증 |
 | 14 | `robot_status_state.py` → `status_reporter.py` | odometry 연결, `motion_stopped` 판정 |
-| 15 | (변경 없음) | 실제 Nav2 후보로 IT-16 부분 실행 |
-| 16 | `estop_guard.py` → `local_safety_supervisor.py` | 물리 latch·수동 reset |
-| 17 | `recovery_supervisor.py` (신규) | goal·spin 취소, 30초 타이머, 재개, 토큰 반납 |
-| 18 | `robot_status_state.py` → `status_reporter.py` | mission·pose 입력 연결, `PatrolReport` 발행 |
-| 19 | (변경 없음) | I-03·T-01·T-03·T-04 통합시험 |
+| 15 | `estop_guard.py` | 물리 E-stop 로컬 latch |
+| 16 | `local_safety_supervisor.py` → `status_reporter.py` | token 상태 내부 토픽 |
+| 17 | `robot_status_state.py` → `status_reporter.py` | `amcl_pose` 구독, pose 연결 |
+| 18 | `patrol_report.py` (신규) | `PatrolReport` 구성·발행 모듈 |
+| 19 | (변경 없음) | 실제 Nav2 후보로 IT-16 부분 실행 |
+| 20 | `recovery_supervisor.py` (신규) | goal·spin 취소, 30초 타이머, 재개, 토큰 반납 |
+| 21 | (변경 없음) | I-03·T-01·T-03·T-04 통합시험 |
 
 ### 12.4 조정묵 범위 밖이거나 BLOCKED
 
@@ -1376,3 +1410,36 @@ ros2 topic info /robot1/cmd_vel --verbose
 ```
 
 구독자 쪽 타입이 `geometry_msgs/msg/Twist`면 현재 구현이 맞고, `TwistStamped`면 `local_safety_supervisor`의 `to_twist()`와 publisher 타입을 바꾼다. 한 곳뿐이라 변경 비용은 작다.
+
+## 13. AMR-05·06·07·11 재조사 — 2026-09-08
+
+사용자가 이 네 항목을 먼저 완성하기로 해서 실제 차단 요인을 다시 확인했다. 이전 10.2절 분류는 "AMR-11은 TBD-IF-004 해소 후"였는데 **틀렸다.** 잔여 TBD는 reset 요청 경로이지 latch 동작이 아니었다.
+
+| 항목 | 이전 판단 | 재조사 결과 | 조치 |
+|---|---|---|---|
+| AMR-05 `command_store.py` | 박성현 구현 완료 보고, 브랜치에 없음 | 변화 없음. 조정묵 목록에서 제외된 항목이고 어느 원격 브랜치에도 없다 | **이 저장소에서 진행 불가** |
+| AMR-06 RobotStatus | pose/mission/docking/token/safety 미연결 | odometry는 14단계로 연결. token·pose는 TBD가 아니다 | 16·17단계 |
+| AMR-07 PatrolReport | 메시지만 있고 publisher 없음 | 발행 모듈까지는 만들 수 있다. 입력만 병합 대기 | 18단계(모듈) |
+| AMR-11 물리 latch | TBD-IF-004 해소 후 | **계약이 문장으로 확정돼 있었다.** Q-10·interfaces.md 3.1절 | **15단계 완료** |
+
+### 각 항목의 근거
+
+**AMR-05** — 조정묵 담당이 아니다. 2026-09-08 `origin/main`·`control`·`feature/sysmon`·`feature/vision` 재확인 결과 `src/patrol_amr/` 아래에 `command_store.py`가 없다. 병합 전에는 이 저장소에서 손댈 것이 없고, 남의 담당 파일을 새로 만들지 않는다.
+
+**AMR-06 남은 조각** — RobotStatus 27개 필드 중 상태는 이렇다.
+
+| 필드 | 상태 |
+|---|---|
+| `battery_state`·`battery_soc`·`battery_timestamp` | 8단계 연결 완료 |
+| `linear_velocity`·`angular_velocity`·`motion_stopped` | **14단계 연결 완료** |
+| `accepted_token_id`·`token_valid` | 16단계. `local_safety_supervisor`가 이미 아는 값이고 내부 토픽만 있으면 된다. `battery_status`·`motion_allowed`와 같은 패턴이라 공용 계약을 추가하지 않는다 |
+| `pose`·`pose_valid`·`last_valid_pose` | 17단계. `observe_pose` 로직은 7단계에 이미 있다. `amcl_pose`는 Nav2 AMCL의 표준 토픽이며 `odom`과 같은 논리로 TBD 표에 없다 |
+| `operational_state`·`mission_state`·`docking_state` | 박성현 mission 코드 병합 대기 |
+| `safety_state`·`current_waypoint_id`·`scan_state` | TBD-IF-003 잔여(enum 수치·타입) |
+| `reason_code`·`reason` | 보고 정책 확정 후 |
+
+17단계에서 주의할 점이 있다. `pose_valid`를 언제 `false`로 되돌릴지는 **신선도 기준이 필요한데 그 값이 미정이다.** Q-05의 1.5초는 *주행 재개* 조건이고 Q-03의 1.5초는 *관제의 STALE 판정*이라 둘 다 `pose_valid` 정의가 아니다. amr.md 3절이 임의 timeout 추가를 금지하므로, 받은 pose를 유효로 표시하고 `last_valid_pose_age`로 나이를 노출해 관제가 판단하게 두는 것이 계약에 맞다. 이 해석은 17단계 착수 전에 확인한다.
+
+**AMR-07** — `PatrolReport.msg`는 `result` 3종과 `reason_code` 32종이 확정돼 있어 메시지를 구성하는 순수 모듈은 지금 만들 수 있다. 다만 `command_id`·`mission_id`·`started_at`·`finished_at`을 채울 mission 결과가 없으므로 **발행 호출자는 병합 후에 붙인다.** `robot_status_state`를 7단계에 만들고 8단계에 연결한 것과 같은 방식이다. `report_id` 형식은 TBD-IF-001·003의 "구조화 ID" 일부 결정에 걸려 있어 착수 전에 확인한다.
+
+**AMR-11** — 15단계로 완료했다. 위 15단계 절에 상세가 있다.
