@@ -13,6 +13,22 @@ sys.path.insert(0, str(PATROL_AMR_PACKAGE_ROOT))
 from patrol_amr import status_reporter as MODULE  # noqa: E402
 
 
+class AcceptedTokenFieldTests(unittest.TestCase):
+    def test_nonempty_id_is_valid(self):
+        self.assertEqual(
+            MODULE.accepted_token_fields('tok-a'), ('tok-a', True)
+        )
+
+    def test_empty_id_is_invalid(self):
+        self.assertEqual(MODULE.accepted_token_fields(''), ('', False))
+
+    def test_non_string_is_rejected(self):
+        for value in (None, True, 1):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    MODULE.accepted_token_fields(value)
+
+
 class ConfigurationTests(unittest.TestCase):
     def test_valid_explicit_configuration(self):
         MODULE.validate_configuration(

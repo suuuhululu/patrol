@@ -206,7 +206,7 @@ flowchart TD
 
 **남긴 부분 — reset을 호출할 경로.** TBD-IF-004의 잔여 항목에 수동 reset 요청 계약(토픽인지 서비스인지, 누가 보낼 수 있는지, 무엇이 승인하는지)이 남아 있다. 임의로 만들면 물리 E-stop을 푸는 수단을 추측으로 시스템에 넣는 셈이다. 그래서 `reset_local_latch()`는 ROS 호출자가 없는 메서드로 두었고, **그 결과 latch가 걸린 로봇은 노드를 재시작해야 풀린다.** 안전한 방향이며, TBD-IF-004를 닫아야 할 이유이지 추측할 이유가 아니다.
 
-검증: [단위시험](../tests/test_estop_guard.py) 18건은 관측 전 안전 기본값, 자기 대상 active·reason·latched 반영, 다른 로봇 대상 미적용, 공통 sequence 하한, 역순·중복 폐기, uint64 경계와 호출자 오류를 확인한다. 15단계분은 들어오는 메시지가 로컬 latch를 못 내리는 것, reset만이 내리는 것, reset이 활성 E-stop이나 arbiter의 `latched`를 덮지 않는 것, 다른 로봇·역순 메시지가 latch를 걸지 않는 것, 재latch를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_estop_guard.py -v`다. [IT-11](integration.md#4-통합시험-명세)의 로컬 반영 부분이며 관제 연동과 물리 버튼 실기 시험은 미실행이다.
+검증: [단위시험](../tests/test_estop_guard.py) 19건은 관측 전 안전 기본값, 자기 대상 active·reason·latched 반영, 다른 로봇 대상 미적용, 공통 sequence 하한, 역순·중복 폐기, uint64 경계와 호출자 오류를 확인한다. 15단계분은 들어오는 메시지가 로컬 latch를 못 내리는 것, reset만이 내리는 것, reset이 활성 E-stop이나 arbiter의 `latched`를 덮지 않는 것, 다른 로봇·역순 메시지가 latch를 걸지 않는 것, 재latch를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_estop_guard.py -v`다. [IT-11](integration.md#4-통합시험-명세)의 로컬 반영 부분이며 관제 연동과 물리 버튼 실기 시험은 미실행이다.
 
 ### 3.3 motion_guard.py — 구현 대조 완료
 
@@ -287,6 +287,8 @@ flowchart TD
 
 `motion_allowed`는 6단계 그대로다. 권한 게이트(token·E-stop)만 반영하고 후보 유무에 흔들리지 않는다 — 후보가 없는 것은 주행 권한이 없다는 뜻이 아니다.
 
+**16단계 추가 — accepted token 상태 연결(2026-09-08).** `SafetyGate.token_status(now)`가 Q-01 lease까지 반영한 현재 token을 `(accepted_token_id, token_valid)`로 한 번에 계산한다. 노드는 이를 상대 내부 토픽 `accepted_token_id`(`std_msgs/String`, RELIABLE・TRANSIENT_LOCAL・KEEP_LAST(1))로 발행한다. 비어 있지 않은 값은 해당 ID가 현재 유효하다는 뜻이고, 미수신·만료·회수·다른 holder는 빈 문자열이다. ID와 bool을 독립 토픽으로 보내 시점이 섞이는 일을 피했으며 공용 메시지 계약은 추가하지 않았다. 최초 상태와 token 콜백 직후, 0.1초 재확인에서 값이 달라질 때만 발행하므로 새 메시지 없이 lease가 만료되어도 빈 값으로 돌아간다.
+
 **TBD-AMR-001·006으로 남긴 부분** — 5단계와 같은 이유다.
 
 - Nav2·yaw 후보 중재는 이 노드에 없다. 후보 토픽 하나만 구독한다.
@@ -305,6 +307,11 @@ flowchart TD
     RLOG --> PUB
     TIMER[0.1초 재확인 타이머] --> PUB
     OT --> PUB[_publish_if_changed]
+    OT --> TOK[SafetyGate.token_status now]
+    TIMER --> TOK
+    TOK --> TV{accepted token ID가 바뀜?}
+    TV -->|예| TP[accepted_token_id 내부 토픽 발행]
+    TV -->|아니오| TSKIP[발행 생략]
     PUB --> BR[SafetyGate.blocked_reasons now]
     BR --> D{drive_token GRANTED?}
     D -->|아니오| R1[DRIVE_TOKEN_NOT_GRANTED]
@@ -345,7 +352,7 @@ flowchart TD
     PASSV -->|아니오| SKIPV[발행 생략 / 후보 스트림이 담당]
 ~~~
 
-검증: [단위시험](../tests/test_local_safety_supervisor.py) 26건은 관측 전 기본 차단, 두 가드의 AND 결합(단독·동시 차단), drive_token lease가 새 메시지 없이 시계로 만료되는지, 만료 전 갱신 시 허용 유지, 다른 로봇 token·역순 estop의 폐기, `robot_id` 검증, 수락된 E-stop 해제 전이에만 `E_STOP_AUTO_RELEASED` 로그 이름을 선택하는지 확인한다. 12단계분은 후보 없음·통과·Q-17 만료·lease 만료·E-stop 차단·세 사유 동시, 두 시계의 독립성, 유한하지 않은 후보의 폐기와 이전 후보 보존, 그리고 `motion_allowed`가 후보 유무·신선도에 흔들리지 않는지를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_local_safety_supervisor.py -v`다. 실제 토픽 시험 순서는 [인수인계 12단계](development/amr-workspace-handoff.md)에 있다. [IT-16](integration.md#4-통합시험-명세) 최종 속도 경계는 실제 Nav2 후보와 연동하는 14단계에서 다룬다 — 12단계는 후보를 시험용으로 직접 발행해 게이트만 확인한다.
+검증: [단위시험](../tests/test_local_safety_supervisor.py) 31건은 관측 전 기본 차단, 두 가드의 AND 결합, drive_token lease 만료·갱신, 다른 로봇 token·역순 estop 폐기, 후보 신선도와 최종 출력, 그리고 16단계의 token 미수신·수락·만료·회수·다른 holder 상태를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_local_safety_supervisor.py -v`다. 실제 토픽 시험 순서는 [인수인계 16단계](development/amr-workspace-handoff.md)에 있다.
 
 ## 4. Nav2·위치·Keepout
 
@@ -491,8 +498,9 @@ flowchart TD
 - 입력 연결: 현재 구현된 상대 내부 토픽 `battery_status`를 구독해 `battery_state`를 갱신한다. 원본 `battery_state`도 읽어 유효한 SOC와 센서 측정 시각을 `battery_soc`·`battery_timestamp`로 보존한다. enum 변경은 최대 10 Hz 제한 안에서 즉시 발행 대상으로 표시한다.
 - 필수 설정: `robot_id`, `source_session_id`, `safety_state`를 모두 명시해야 시작한다. `safety_state`는 TBD-IF-003 때문에 기본 숫자를 만들 수 없어, 통합 주체가 합의된 uint8 값을 넣도록 강제했다. 현재 단계의 `safety_state:=0`은 전송 시험값일 뿐 의미 확정이 아니다.
 - **14단계 odometry 연결(2026-09-08):** 상대 토픽 `odom`(`nav_msgs/Odometry`)을 구독해 `linear_velocity`·`angular_velocity`·`motion_stopped`를 채운다. 판정은 7.1절의 `RobotStatusState`가 하고 이 노드는 ROS 변환만 한다. `odom`은 로봇 드라이버가 내는 표준 토픽이며 interfaces.md TBD 표에 없다 — 미정 항목이 아니다. launch의 `odom_topic` 인자로 드라이버 위치를 바꿀 수 있다(TBD-ARCH-001).
+- **16단계 token 연결(2026-09-08):** 상대 내부 토픽 `accepted_token_id`(`std_msgs/String`)를 구독한다. 값이 비어 있지 않으면 같은 값을 `accepted_token_id`에 쓰고 `token_valid=true`, 빈 값이면 `''`·`false`로 한 snapshot에서 함께 쓴다. Q-02의 즉시 발행 목록에는 token이 없으므로 다음 정기 2 Hz snapshot에 반영한다.
 - odometry 수신은 **즉시 발행 대상이 아니다.** Q-02가 즉시 발행을 요구하는 것은 mission·safety·battery enum과 `pose_valid`이고 속도는 그 목록에 없다. 속도는 매 표본마다 바뀌므로 변경 트리거로 다루면 이유 없이 10 Hz 제한을 넘긴다.
-- 남은 안전한 미연결 값: mission supervisor, 위치 유효성 판정, accepted token을 전달할 내부 계약이 아직 없다. 따라서 operational은 `OP_UNKNOWN`, mission은 `MISSION_NONE`, docking은 `DOCK_UNKNOWN`, pose_valid·token_valid는 false, ID는 빈 문자열로 둔다. SOC 미수신은 0으로 오해하지 않도록 NaN으로 낸다.
+- 남은 안전한 미연결 값: mission supervisor와 위치 유효성 판정 입력이 아직 없다. 따라서 operational은 `OP_UNKNOWN`, mission은 `MISSION_NONE`, docking은 `DOCK_UNKNOWN`, pose_valid는 false로 둔다. SOC 미수신은 0으로 오해하지 않도록 NaN으로 낸다.
 - pose 보존 로직은 7단계에 구현됐지만 입력 토픽·유효성 판정 계약이 없어 ROS callback에는 연결하지 않았다. `/amcl_pose` 같은 이름을 임의로 정하지 않았다. 실제 위치·token·mission 연결과 safety enum 자동 산출은 해당 계약 확정 후 추가한다.
 
 ~~~mermaid
@@ -501,6 +509,7 @@ flowchart TD
     CFG -->|아니오| FAIL[시작 실패]
     CFG -->|예| MODEL[RobotStatusState 안전 초기값 생성]
     BS[battery_status 콜백] --> BVAL{BatteryState enum 유효?}
+    TOK[accepted_token_id 콜백] --> KEEP_TOKEN[현재 유효 token ID 보존]
     BVAL -->|아니오| WARN[경고 후 폐기]
     BVAL -->|예·변경| PENDING[변경 발행 pending]
     RAW[battery_state 콜백] --> SOC{present / SOC 유효?}
@@ -510,11 +519,12 @@ flowchart TD
     DUE -->|아니오| WAIT[대기]
     DUE -->|예| SNAP[RobotStatusState.snapshot]
     SNAP --> MAP[새 RobotStatus 필드명으로 변환]
+    KEEP_TOKEN --> MAP
     MAP --> SEQ[status_sequence 증가]
     SEQ --> PUB[/{robot}/robot_status 발행]
 ~~~
 
-검증: [단위시험](../tests/test_status_reporter.py)은 필수 설정, 최초·정기 2 Hz·변경 최대 10 Hz 판정, 시간 역행 거절, status_sequence 증가·uint64 overflow 거절을 확인한다. 메시지 패키지는 `colcon build --packages-select patrol_interfaces`로 빌드했고 새 메시지 6종을 `ros2 interface show`로 조회했다. 제한된 실행 환경에서는 DDS socket이 차단됐지만 노드 생성과 새 필드 할당 경로까지 실행됐다. 실제 토픽 echo는 사용자 환경에서 확인해야 한다.
+검증: [단위시험](../tests/test_status_reporter.py) 12건은 필수 설정, 최초·정기 2 Hz·변경 최대 10 Hz 판정, 시간 역행 거절, status_sequence, 그리고 빈/비어 있지 않은 token ID의 두 RobotStatus 필드 매핑을 확인한다. 실제 토픽 echo는 사용자 환경에서 확인해야 한다.
 
 다음 기존 안전 로그를 보존한다.
 

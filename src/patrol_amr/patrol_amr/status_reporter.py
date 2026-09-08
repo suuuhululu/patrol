@@ -1,10 +1,9 @@
 """ROS 2 RobotStatus publisher using the stage-7 state model.
 
 Implemented inputs are limited to contracts that exist in this workspace:
-the internal ``battery_status`` enum and raw ``battery_state`` observation.
-Mission, docking, localization validity, odometry, and accepted-token state
-do not yet have agreed AMR-internal source topics in the repository, so this
-node reports their safe unknown/empty values instead of inventing topic names.
+the internal ``battery_status`` enum, raw ``battery_state`` observation,
+odometry, and the local safety supervisor's ``accepted_token_id``. Mission,
+docking, and localization validity remain at safe unknown/empty values.
 
 ``safety_state`` is a required parameter because TBD-IF-003 has not assigned
 its enum numbers. The node transports the explicitly supplied uint8 but does
@@ -35,6 +34,13 @@ def validate_configuration(robot_id, source_session_id, safety_state):
         raise ValueError('safety_state must be an int')
     if not 0 <= safety_state <= rss.UINT8_MAX:
         raise ValueError('safety_state must fit in uint8')
+
+
+def accepted_token_fields(value: str):
+    """Map the one internal token value to the two RobotStatus fields."""
+    if not isinstance(value, str):
+        raise ValueError('accepted_token_id must be a str')
+    return value, bool(value)
 
 
 class PublicationGate:
@@ -105,7 +111,7 @@ def create_node_class():
     from nav_msgs.msg import Odometry
     from patrol_interfaces.msg import RobotStatus
     from sensor_msgs.msg import BatteryState
-    from std_msgs.msg import UInt8
+    from std_msgs.msg import String, UInt8
 
     class StatusReporter(Node):
         """Publish /{robot}/robot_status from currently implemented inputs."""
@@ -130,6 +136,7 @@ def create_node_class():
             self._sequence = StatusSequence()
             self._battery_soc = float('nan')
             self._battery_timestamp = Time()
+            self._accepted_token_id = ''
 
             status_qos = QoSProfile(
                 history=HistoryPolicy.KEEP_LAST,
@@ -149,6 +156,12 @@ def create_node_class():
             )
             self.create_subscription(
                 UInt8, 'battery_status', self._on_battery_status, internal_qos
+            )
+            self.create_subscription(
+                String,
+                'accepted_token_id',
+                self._on_accepted_token_id,
+                internal_qos,
             )
             self.create_subscription(
                 BatteryState,
@@ -196,6 +209,11 @@ def create_node_class():
             if changed:
                 self._gate.note_change()
 
+        def _on_accepted_token_id(self, message) -> None:
+            # Q-02 does not list token changes among immediate-publication
+            # triggers, so the next regular 2 Hz snapshot carries this value.
+            self._accepted_token_id = message.data
+
         def _on_battery_observation(self, message) -> None:
             percentage = message.percentage
             if (
@@ -239,9 +257,10 @@ def create_node_class():
             message.angular_velocity = snapshot.angular_velocity
             message.motion_stopped = snapshot.motion_stopped
 
-            # No agreed token/mission source is connected yet.
-            message.accepted_token_id = ''
-            message.token_valid = False
+            (
+                message.accepted_token_id,
+                message.token_valid,
+            ) = accepted_token_fields(self._accepted_token_id)
             message.battery_soc = self._battery_soc
             message.battery_timestamp = self._battery_timestamp
 
@@ -267,4 +286,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-

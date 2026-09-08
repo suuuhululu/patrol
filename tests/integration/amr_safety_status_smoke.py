@@ -12,6 +12,7 @@ This intentionally verifies only the connections implemented by
 * Odometry -> status_reporter -> RobotStatus velocity/motion_stopped
                                                                   (14단계)
 * A latched EStop -> local_safety_supervisor stays stopped         (15단계)
+* Accepted/expired DriveToken -> RobotStatus token fields          (16단계)
 
 All topics live under the robot namespace the launch file now applies.
 
@@ -235,6 +236,7 @@ def _check_safety_path(node, launch_process, log_path):
     if len(node.motion_observations) != initial_count:
         raise AssertionError("unchanged false state must not be republished")
 
+    accepted_status_start = len(node.status_observations)
     _publish_token(node, 1, 8)
     _wait_for(
         node,
@@ -242,6 +244,19 @@ def _check_safety_path(node, launch_process, log_path):
         lambda: node.motion_observations[-1] is True,
         3.0,
         "valid token motion_allowed=true",
+        log_path,
+    )
+    _wait_for(
+        node,
+        launch_process,
+        lambda: any(
+            status.source_session_id == SOURCE_SESSION_ID
+            and status.accepted_token_id == 'tok-amr-smoke-robot1'
+            and status.token_valid
+            for status in node.status_observations[accepted_status_start:]
+        ),
+        2.0,
+        'accepted token in RobotStatus',
         log_path,
     )
 
@@ -265,6 +280,7 @@ def _check_safety_path(node, launch_process, log_path):
         log_path,
     )
 
+    expiry_status_start = len(node.status_observations)
     _publish_token(node, 2, 2)
     _wait_for(
         node,
@@ -272,6 +288,19 @@ def _check_safety_path(node, launch_process, log_path):
         lambda: node.motion_observations[-1] is False,
         3.5,
         "two-second token lease expiry",
+        log_path,
+    )
+    _wait_for(
+        node,
+        launch_process,
+        lambda: any(
+            status.source_session_id == SOURCE_SESSION_ID
+            and not status.token_valid
+            and status.accepted_token_id == ''
+            for status in node.status_observations[expiry_status_start:]
+        ),
+        2.0,
+        'expired token cleared from RobotStatus',
         log_path,
     )
 
@@ -563,6 +592,7 @@ def main():
             print("AMR_SMOKE_PASS")
             print(f"namespace={NS}")
             print("motion_allowed=false,true,false,true,false")
+            print("token_status=empty,accepted,empty_after_expiry")
             print("battery_state=0,2,0")
             print(
                 "cmd_vel=stop,candidate,stop_on_stale,stop_on_estop,"

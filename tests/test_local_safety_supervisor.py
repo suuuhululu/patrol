@@ -140,6 +140,38 @@ class DriveTokenLeaseTests(unittest.TestCase):
         self.assertTrue(g.motion_allowed(1.0))
 
 
+class TokenStatusTests(unittest.TestCase):
+    """16단계 RobotStatus용 accepted token view."""
+
+    def test_missing_token_is_empty_and_invalid(self):
+        self.assertEqual(gate().token_status(0.0), lss.TokenStatus('', False))
+
+    def test_accepted_token_exposes_id_and_validity(self):
+        g = gate()
+        grant_token(g, 0.0, token_id='tok-current')
+        self.assertEqual(
+            g.token_status(0.5), lss.TokenStatus('tok-current', True)
+        )
+
+    def test_expired_token_is_empty_and_invalid(self):
+        g = gate()
+        grant_token(g, 0.0, token_id='tok-expiring', lease=1.0)
+        self.assertEqual(g.token_status(1.0), lss.TokenStatus('', False))
+
+    def test_revoked_token_is_empty_and_invalid(self):
+        g = gate()
+        grant_token(g, 0.0)
+        grant_token(g, 0.1, token_id='', message_sequence=2)
+        self.assertEqual(g.token_status(0.1), lss.TokenStatus('', False))
+
+    def test_other_holder_is_empty_and_invalid(self):
+        g = gate('robot1')
+        g.observe_drive_token(
+            SESSION, 'tok-robot6', 'robot6', LEASE, 1, 0.0
+        )
+        self.assertEqual(g.token_status(0.0), lss.TokenStatus('', False))
+
+
 class DiscardedObservationTests(unittest.TestCase):
     def test_other_robots_newer_token_does_not_grant_this_robot(self):
         g = gate('robot1')
