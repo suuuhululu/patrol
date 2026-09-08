@@ -21,11 +21,11 @@ class SubscriptionSpec:
 SUBSCRIPTIONS = (
     SubscriptionSpec(
         "robot1_status", "/robot1/robot_status",
-        "parking_interfaces/msg/RobotStatus", "robot_status", True,
+        "patrol_interfaces/msg/RobotStatus", "robot_status", True,
     ),
     SubscriptionSpec(
         "robot6_status", "/robot6/robot_status",
-        "parking_interfaces/msg/RobotStatus", "robot_status", True,
+        "patrol_interfaces/msg/RobotStatus", "robot_status", True,
     ),
     SubscriptionSpec(
         "map", "/map", "nav_msgs/msg/OccupancyGrid", "map", True,
@@ -64,27 +64,27 @@ SUBSCRIPTIONS = (
     ),
     SubscriptionSpec(
         "robot1_detection", "/robot1/detection/event",
-        "parking_interfaces/msg/DetectionEvent", "detection_event", True,
+        "patrol_interfaces/msg/DetectionEvent", "detection_event", True,
     ),
     SubscriptionSpec(
         "robot6_detection", "/robot6/detection/event",
-        "parking_interfaces/msg/DetectionEvent", "detection_event", True,
+        "patrol_interfaces/msg/DetectionEvent", "detection_event", True,
     ),
     SubscriptionSpec(
         "robot1_evidence", "/robot1/detection/evidence",
-        "parking_interfaces/msg/EvidenceChunk", "evidence_chunk", True,
+        "patrol_interfaces/msg/EvidenceChunk", "evidence_chunk", True,
     ),
     SubscriptionSpec(
         "robot6_evidence", "/robot6/detection/evidence",
-        "parking_interfaces/msg/EvidenceChunk", "evidence_chunk", True,
+        "patrol_interfaces/msg/EvidenceChunk", "evidence_chunk", True,
     ),
     SubscriptionSpec(
         "gate_event", "/vision/cctv/gate_event",
-        "parking_interfaces/msg/CameraState", "camera_state", True,
+        "patrol_interfaces/msg/CameraState", "camera_state", True,
     ),
     SubscriptionSpec(
         "center_event", "/vision/cctv/center_event",
-        "parking_interfaces/msg/CameraState", "camera_state", True,
+        "patrol_interfaces/msg/CameraState", "camera_state", True,
     ),
     SubscriptionSpec(
         "patrol_allowed", "/vision/cctv/patrol_allowed",
@@ -92,31 +92,31 @@ SUBSCRIPTIONS = (
     ),
     SubscriptionSpec(
         "robot1_patrol_visit", "/robot1/patrol_visit",
-        "parking_interfaces/msg/PatrolVisit", "patrol_visit", True,
+        "patrol_interfaces/msg/PatrolVisit", "patrol_visit", True,
     ),
     SubscriptionSpec(
         "robot6_patrol_visit", "/robot6/patrol_visit",
-        "parking_interfaces/msg/PatrolVisit", "patrol_visit", True,
+        "patrol_interfaces/msg/PatrolVisit", "patrol_visit", True,
     ),
     SubscriptionSpec(
         "robot1_patrol_report", "/robot1/patrol_report",
-        "parking_interfaces/msg/PatrolReport", "patrol_report", True,
+        "patrol_interfaces/msg/PatrolReport", "patrol_report", True,
     ),
     SubscriptionSpec(
         "robot6_patrol_report", "/robot6/patrol_report",
-        "parking_interfaces/msg/PatrolReport", "patrol_report", True,
+        "patrol_interfaces/msg/PatrolReport", "patrol_report", True,
     ),
     SubscriptionSpec(
         "robot1_keepout", "/robot1/keepout/status",
-        "parking_interfaces/msg/KeepoutStatus", "keepout_status", True,
+        "patrol_interfaces/msg/KeepoutStatus", "keepout_status", True,
     ),
     SubscriptionSpec(
         "robot6_keepout", "/robot6/keepout/status",
-        "parking_interfaces/msg/KeepoutStatus", "keepout_status", True,
+        "patrol_interfaces/msg/KeepoutStatus", "keepout_status", True,
     ),
     SubscriptionSpec(
         "estop", "/control/estop",
-        "parking_interfaces/msg/EStopState", "estop", True,
+        "patrol_interfaces/msg/EStopState", "estop", True,
     ),
 )
 
@@ -195,7 +195,7 @@ def dependency_report():
     """실행 환경을 바꾸지 않고 ROS adapter 시작 가능 여부를 점검한다."""
     modules = {
         "rclpy": "rclpy",
-        "parking_interfaces": "parking_interfaces.msg",
+        "patrol_interfaces": "patrol_interfaces.msg",
         "nav_msgs": "nav_msgs.msg",
         "sensor_msgs": "sensor_msgs.msg",
         "std_msgs": "std_msgs.msg",

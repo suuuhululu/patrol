@@ -1,9 +1,9 @@
-"""ROS 2 RobotStatus publisher using the stage-7 state model.
+"""Publish live RobotStatus snapshots and durable PatrolReport results.
 
-Implemented inputs are limited to contracts that exist in this workspace:
-the internal ``battery_status`` enum, raw ``battery_state`` observation,
-odometry, and the local safety supervisor's ``accepted_token_id``. Mission,
-docking, and other mission-owned fields remain at safe unknown/empty values.
+The node combines live AMR observations (battery, odometry, AMCL pose, and the
+accepted drive token) with the mission snapshot persisted by
+``mission_supervisor``. Terminal mission results are drained from a persistent
+local outbox into the fixed public ``PatrolReport`` contract.
 
 ``safety_state`` is a required parameter because TBD-IF-003 has not assigned
 its enum numbers. The node transports the explicitly supplied uint8 but does
@@ -11,12 +11,30 @@ not attach an invented meaning to it.
 """
 
 import math
+import os
+from pathlib import Path
 import time
 
 from patrol_amr import robot_status_state as rss
+from patrol_amr.mission_status_store import (
+    MissionStatusStore, MissionStatusStoreError)
+from patrol_amr.patrol_report_adapter import (
+    PatrolReportDrain, PatrolReportPublishError)
+from patrol_amr.patrol_report_outbox import (
+    PatrolReportOutbox, PatrolReportOutboxError)
+from patrol_amr.status_mission_bridge import MissionStatusBridge
 
 
 UINT64_MAX = 0xFFFFFFFFFFFFFFFF
+
+
+def runtime_file(robot_id, configured_path, file_name):
+    """Resolve a robot-specific state file, honoring ROS_HOME in tests."""
+    if configured_path:
+        return Path(configured_path).expanduser()
+    ros_home = Path(
+        os.environ.get('ROS_HOME', str(Path.home() / '.ros'))).expanduser()
+    return ros_home / 'patrol_amr' / robot_id / file_name
 
 
 def stamp_to_seconds(stamp) -> float:
@@ -126,6 +144,10 @@ class StatusSequence:
         self._value += 1
         return self._value
 
+    def next_value(self) -> int:
+        """Compatibility alias for the AMR-07 implementation and its tests."""
+        return self.next()
+
 
 def create_node_class():
     """Import ROS lazily so timing/configuration tests need no ROS setup."""
@@ -142,12 +164,12 @@ def create_node_class():
     from builtin_interfaces.msg import Time
     from geometry_msgs.msg import PoseWithCovarianceStamped
     from nav_msgs.msg import Odometry
-    from patrol_interfaces.msg import CommandCheck, RobotStatus
+    from patrol_interfaces.msg import CommandCheck, PatrolReport, RobotStatus
     from sensor_msgs.msg import BatteryState
     from std_msgs.msg import String, UInt8
 
     class StatusReporter(Node):
-        """Publish /{robot}/robot_status from currently implemented inputs."""
+        """Publish robot status snapshots and terminal mission reports."""
 
         TICK_SECONDS = 0.02
 
@@ -156,11 +178,23 @@ def create_node_class():
             self.declare_parameter('robot_id', '')
             self.declare_parameter('source_session_id', '')
             self.declare_parameter('safety_state', -1)
+            self.declare_parameter('mission_status_path', '')
+            self.declare_parameter('report_outbox_path', '')
 
             robot_id = self.get_parameter('robot_id').value
             source_session_id = self.get_parameter('source_session_id').value
             safety_state = self.get_parameter('safety_state').value
             validate_configuration(robot_id, source_session_id, safety_state)
+            mission_status_path = runtime_file(
+                robot_id,
+                self.get_parameter('mission_status_path').value,
+                'mission_status.json',
+            )
+            report_outbox_path = runtime_file(
+                robot_id,
+                self.get_parameter('report_outbox_path').value,
+                'patrol_report_outbox.json',
+            )
 
             self._source_session_id = source_session_id
             self._state = rss.RobotStatusState(robot_id)
@@ -170,6 +204,10 @@ def create_node_class():
             self._battery_soc = float('nan')
             self._battery_timestamp = Time()
             self._accepted_token_id = ''
+            self._mission_bridge = MissionStatusBridge(
+                MissionStatusStore(mission_status_path))
+            self._mission_read_error = ''
+            self._report_error = ''
 
             status_qos = QoSProfile(
                 history=HistoryPolicy.KEEP_LAST,
@@ -186,6 +224,20 @@ def create_node_class():
             )
             self._publisher = self.create_publisher(
                 RobotStatus, f'/{robot_id}/robot_status', status_qos
+            )
+            report_qos = QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=20,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.VOLATILE,
+            )
+            self._report_publisher = self.create_publisher(
+                PatrolReport, f'/{robot_id}/patrol_report', report_qos)
+            self._report_drain = PatrolReportDrain(
+                PatrolReportOutbox(report_outbox_path),
+                self._report_publisher,
+                PatrolReport,
+                lambda: self.get_clock().now().to_msg(),
             )
             self.create_subscription(
                 UInt8, 'battery_status', self._on_battery_status, internal_qos
@@ -225,10 +277,35 @@ def create_node_class():
                 10,
             )
             self.create_timer(self.TICK_SECONDS, self._tick)
+            self.create_timer(0.1, self._poll_mission_and_reports)
             self.get_logger().info(
                 f'status reporter ready: robot_id={robot_id} '
                 f'source_session_id={source_session_id!r}'
             )
+
+        def _poll_mission_and_reports(self) -> None:
+            """Refresh mission fields and retry durable terminal reports."""
+            try:
+                if self._mission_bridge.refresh(self._state):
+                    self._gate.note_change()
+                self._mission_read_error = ''
+            except (MissionStatusStoreError, ValueError) as exc:
+                error = str(exc)
+                if error != self._mission_read_error:
+                    self.get_logger().error(error)
+                    self._mission_read_error = error
+
+            try:
+                count = self._report_drain.publish_pending()
+                if count:
+                    self.get_logger().info(
+                        f'published {count} pending PatrolReport message(s)')
+                self._report_error = ''
+            except (PatrolReportOutboxError, PatrolReportPublishError) as exc:
+                error = str(exc)
+                if error != self._report_error:
+                    self.get_logger().error(error)
+                    self._report_error = error
 
         def _on_odometry(self, message) -> None:
             """Feed measured velocity into the motion_stopped judgment.
@@ -363,6 +440,17 @@ def create_node_class():
             ) = accepted_token_fields(self._accepted_token_id)
             message.battery_soc = self._battery_soc
             message.battery_timestamp = self._battery_timestamp
+
+            mission = self._mission_bridge.snapshot
+            message.active_command_id = mission.command_id
+            message.active_mission_id = mission.mission_id
+            message.current_waypoint_id = (
+                '' if mission.waypoint_index < 0
+                else f'W{mission.waypoint_index + 1}'
+            )
+            message.scan_state = ''
+            message.reason_code = mission.reason_code
+            message.reason = mission.reason
 
             self._publisher.publish(message)
             self._gate.mark_published(monotonic_now)
