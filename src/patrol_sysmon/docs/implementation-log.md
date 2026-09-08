@@ -1225,3 +1225,20 @@ EStopState ───→ 최신 1행 + 활성·해제가 바뀐 시점만 이력
 - AMR 후속 작업(AMR 담당): `local_safety_supervisor.py`가 `message.latched`를 읽고 `estop_guard.observe()`가 `latched` 인자를 받는다. 새 `EStop`에는 이 필드가 없으므로 수신 콜백에서 AttributeError가 난다. `estop_guard`가 `target_robot_id == 'all'`을 자기 대상으로 처리하지 않는 점도 계약과 다르다. `mission_command_parser.py`는 `getattr(msg, 'parameters_json', '')`이라 빌드·실행은 되지만 내부 지문·저장 열은 정리 대상이다.
 - 변경 파일: `app/ros/registry.py`, `app/ros/payloads.py`, `app/ros/node.py`, `app/models/safety.py`, `app/models/robot.py`, `app/models/history.py`, `app/services/safety_service.py`, `app/services/robot_service.py`, `app/schema.sql`, `app/database.py`, `app/templates/index.html`, `app/static/js/dashboard.js`, `app/static/css/dashboard.css`, `tests/test_patrol_safety.py`, `tests/test_ros_adapter.py`, `testkit/ros_topic_test.py`.
 - 검증: `.venv` 119개 통과(ROS 7개 skip), ROS를 source한 전체 **119개 통과**. 별도 프로세스 DDS 시험(도메인 격리)에서 `/control/estop`이 `EStop`으로 매칭돼 대상별 최신 행과 변경 이력이 저장되는 것을 확인했다. 이 시험이 첫 구현의 migration 결함(재초기화 때마다 `estop_history`를 legacy로 넘김)을 잡아내 고쳤다.
+
+## 35. v1.0 기준선 병합 확인 (2026-09-08)
+
+- main의 v1.0 확정(interfaces.md, 관제 v1.0 기준선)을 브랜치에 병합했다. System monitor 코드 변경이 필요한 항목은 없다.
+  - E-stop 대표 원인 우선순위 `SYSTEM_FAULT → UNKNOWN → OPERATOR → KEEPOUT_FAILURE → COMMUNICATION → OBSTACLE → TOKEN`: 모니터는 수신 reason을 그대로 표시하므로 영향 없음. [요청서 회신](../../../docs/change_requests/CR-관제_09-08_18-24_System_monitor_v1.0_E-stop_우선순위.md)에 `변경 불필요`로 적었다.
+  - PatrolReport reason code 203~206 추가: `reason_code`를 정수로 저장·표시하므로 영향 없음.
+  - Keepout parameter가 base·center corridor 이중 구조로 확정: 모니터는 `KeepoutStatus` 토픽만 소비하므로 영향 없음. 정식 상태 토픽은 TBD-IF-008.
+  - main이 `RobotStatus.msg`에 `SAFETY_*` 상수를 넣어 34번의 것과 중복됐다. 주석 있는 블록 하나만 남겼다.
+- main이 `docs/설계기준-차이-정리.md`를 삭제했다(v1.0 정리). 재생성하지 않는다. 34번 항목의 해당 파일 언급은 이력으로 남긴다.
+
+## 36. 비전 통합 전 점검: CameraState event_id 계약 형식 수용 (2026-09-08)
+
+- 발견: `cctv_service.validate_camera_state`가 `event_id`를 UUID v4로만 받았다. 비전 팀 `gate_cam`·`center_cam`은 확정 계약(vision.md, CameraState.msg 헤더)대로 `cam-<camera_id>-<YYYYMMDDTHHMMSS>-<재시작번호>-<state>-<순번>` 형식을 발행하므로 실제 통합에서 CameraState가 전부 거부돼 CCTV 상태·입출차가 비는 문제였다.
+- 수정: 계약 형식을 정규식으로 받고, 시연 HTTP 도구용 UUID v4도 유지한다. 수신 쪽은 event_id를 파싱해 의미를 꺼내지 않고 식별자로만 쓴다. 입출차 로그의 `access_id`·`message_id`는 기존 패턴(`[A-Za-z0-9._:-]{1,128}`)이라 그대로 통과한다.
+- 시험: `tests/test_cctv.py` fixture와 형식 검사를 계약 형식으로 바꾸고, `testkit/ros_topic_test.py`가 같은 형식의 ID를 발행하게 했다. ROS source 전체 119개 통과, 격리 DDS 종단시험에서 CameraState 8건·permit 8건 저장 확인.
+- 비전 쪽과 맞춘 것: `/vision/cctv/{gate,center}_event` QoS RELIABLE·VOLATILE·KEEP_LAST(20), `/vision/cctv/patrol_allowed` RELIABLE·VOLATILE·deadline 500 ms·5 Hz 반복 발행 모두 우리 구독 QoS와 호환된다. `camera_id`(gate_cam·center_cam), state enum 0~4, 토픽별 허용 상태도 일치한다.
+- 통합 때 확인할 것(비전 팀 쪽): `/vision/cctv/gate/image/compressed`·`center/image/compressed`를 발행하는 노드가 비전 패키지에 없다. 현재 비전은 CameraState와 permit만 발행하므로 대시보드 CCTV 영상 두 칸은 "끊김"으로 남는다. 영상 발행을 추가할지, 모니터에서 CCTV 영상 칸을 빼거나 "미제공"으로 표시할지 합의가 필요하다. 그리고 두 PC의 `ROS_DOMAIN_ID`를 같은 값으로 맞춰야 한다(`tools/ros_env.sh`는 기본 80).
