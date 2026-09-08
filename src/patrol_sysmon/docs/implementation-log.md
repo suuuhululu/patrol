@@ -1234,3 +1234,11 @@ EStopState ───→ 최신 1행 + 활성·해제가 바뀐 시점만 이력
   - Keepout parameter가 base·center corridor 이중 구조로 확정: 모니터는 `KeepoutStatus` 토픽만 소비하므로 영향 없음. 정식 상태 토픽은 TBD-IF-008.
   - main이 `RobotStatus.msg`에 `SAFETY_*` 상수를 넣어 34번의 것과 중복됐다. 주석 있는 블록 하나만 남겼다.
 - main이 `docs/설계기준-차이-정리.md`를 삭제했다(v1.0 정리). 재생성하지 않는다. 34번 항목의 해당 파일 언급은 이력으로 남긴다.
+
+## 36. 비전 통합 전 점검: CameraState event_id 계약 형식 수용 (2026-09-08)
+
+- 발견: `cctv_service.validate_camera_state`가 `event_id`를 UUID v4로만 받았다. 비전 팀 `gate_cam`·`center_cam`은 확정 계약(vision.md, CameraState.msg 헤더)대로 `cam-<camera_id>-<YYYYMMDDTHHMMSS>-<재시작번호>-<state>-<순번>` 형식을 발행하므로 실제 통합에서 CameraState가 전부 거부돼 CCTV 상태·입출차가 비는 문제였다.
+- 수정: 계약 형식을 정규식으로 받고, 시연 HTTP 도구용 UUID v4도 유지한다. 수신 쪽은 event_id를 파싱해 의미를 꺼내지 않고 식별자로만 쓴다. 입출차 로그의 `access_id`·`message_id`는 기존 패턴(`[A-Za-z0-9._:-]{1,128}`)이라 그대로 통과한다.
+- 시험: `tests/test_cctv.py` fixture와 형식 검사를 계약 형식으로 바꾸고, `testkit/ros_topic_test.py`가 같은 형식의 ID를 발행하게 했다. ROS source 전체 119개 통과, 격리 DDS 종단시험에서 CameraState 8건·permit 8건 저장 확인.
+- 비전 쪽과 맞춘 것: `/vision/cctv/{gate,center}_event` QoS RELIABLE·VOLATILE·KEEP_LAST(20), `/vision/cctv/patrol_allowed` RELIABLE·VOLATILE·deadline 500 ms·5 Hz 반복 발행 모두 우리 구독 QoS와 호환된다. `camera_id`(gate_cam·center_cam), state enum 0~4, 토픽별 허용 상태도 일치한다.
+- 통합 때 확인할 것(비전 팀 쪽): `/vision/cctv/gate/image/compressed`·`center/image/compressed`를 발행하는 노드가 비전 패키지에 없다. 현재 비전은 CameraState와 permit만 발행하므로 대시보드 CCTV 영상 두 칸은 "끊김"으로 남는다. 영상 발행을 추가할지, 모니터에서 CCTV 영상 칸을 빼거나 "미제공"으로 표시할지 합의가 필요하다. 그리고 두 PC의 `ROS_DOMAIN_ID`를 같은 값으로 맞춰야 한다(`tools/ros_env.sh`는 기본 80).
