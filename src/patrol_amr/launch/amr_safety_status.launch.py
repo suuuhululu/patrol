@@ -16,6 +16,13 @@ one ROS_DOMAIN_ID, so without a namespace their cmd_vel/odom/scan would
 collide. It is derived from ``robot_id`` rather than taken as its own
 argument precisely so the two cannot disagree.
 
+``push_namespace`` (default true) exists because namespaces compose. A
+caller that already wraps this file in its own ``PushRosNamespace`` group
+would otherwise get ``/robot1/robot1/cmd_vel`` -- and only partly, since
+status_reporter publishes an absolute ``/<robot_id>/robot_status`` that
+does not double. That mix is quiet and half-wrong, so a caller that pushes
+its own namespace must pass ``push_namespace:=false``.
+
 The two topic arguments below exist because those endpoints are owned by
 code that is not in this repository yet. They default to the agreed
 contract name and can be pointed elsewhere without editing this file:
@@ -30,10 +37,63 @@ contract name and can be pointed elsewhere without editing this file:
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, GroupAction
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import Node, PushRosNamespace
 from launch_ros.parameter_descriptions import ParameterValue
+
+
+def _nodes(
+    robot_id,
+    source_session_id,
+    safety_state,
+    battery_state_topic,
+    candidate_topic,
+    odom_topic,
+):
+    """Build a fresh set of node actions.
+
+    Two GroupActions need the same three nodes under mutually exclusive
+    conditions, and a launch action object cannot be reused across both,
+    so this returns new ones each call.
+    """
+    return [
+        Node(
+            package='patrol_amr',
+            executable='battery_monitor',
+            name='battery_monitor',
+            output='screen',
+            remappings=[('battery_state', battery_state_topic)],
+        ),
+        Node(
+            package='patrol_amr',
+            executable='local_safety_supervisor',
+            name='local_safety_supervisor',
+            output='screen',
+            parameters=[{
+                'robot_id': ParameterValue(robot_id, value_type=str),
+            }],
+            remappings=[('cmd_vel_safe', candidate_topic)],
+        ),
+        Node(
+            package='patrol_amr',
+            executable='status_reporter',
+            name='status_reporter',
+            output='screen',
+            parameters=[{
+                'robot_id': ParameterValue(robot_id, value_type=str),
+                'source_session_id': ParameterValue(
+                    source_session_id, value_type=str
+                ),
+                'safety_state': ParameterValue(safety_state, value_type=int),
+            }],
+            remappings=[
+                ('battery_state', battery_state_topic),
+                ('odom', odom_topic),
+            ],
+        ),
+    ]
 
 
 def generate_launch_description():
@@ -44,9 +104,7 @@ def generate_launch_description():
     candidate_topic = LaunchConfiguration('candidate_topic')
     odom_topic = LaunchConfiguration('odom_topic')
 
-    # 노드 namespace 는 robot_id 그대로다. 별도 인자로 두면 둘이 어긋날 수
-    # 있고, architecture.md 가 매핑을 이미 고정해 두어 선택의 여지가 없다.
-    namespace = robot_id
+    push_namespace = LaunchConfiguration('push_namespace')
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -79,6 +137,15 @@ def generate_launch_description():
             ),
         ),
         DeclareLaunchArgument(
+            'push_namespace',
+            default_value='true',
+            description=(
+                'Push /<robot_id> here. Pass false when the caller already '
+                'wraps this file in its own PushRosNamespace, or the '
+                'namespace is applied twice.'
+            ),
+        ),
+        DeclareLaunchArgument(
             'odom_topic',
             default_value='odom',
             description=(
@@ -87,43 +154,18 @@ def generate_launch_description():
                 'motion_stopped judgment of interfaces.md 3절.'
             ),
         ),
-        Node(
-            package='patrol_amr',
-            executable='battery_monitor',
-            name='battery_monitor',
-            namespace=namespace,
-            output='screen',
-            remappings=[('battery_state', battery_state_topic)],
+        GroupAction(
+            [PushRosNamespace(robot_id), *_nodes(
+                robot_id, source_session_id, safety_state,
+                battery_state_topic, candidate_topic, odom_topic,
+            )],
+            condition=IfCondition(push_namespace),
         ),
-        Node(
-            package='patrol_amr',
-            executable='local_safety_supervisor',
-            name='local_safety_supervisor',
-            namespace=namespace,
-            output='screen',
-            parameters=[{
-                'robot_id': ParameterValue(robot_id, value_type=str),
-            }],
-            remappings=[('cmd_vel_safe', candidate_topic)],
-        ),
-        Node(
-            package='patrol_amr',
-            executable='status_reporter',
-            name='status_reporter',
-            namespace=namespace,
-            output='screen',
-            parameters=[{
-                'robot_id': ParameterValue(robot_id, value_type=str),
-                'source_session_id': ParameterValue(
-                    source_session_id, value_type=str
-                ),
-                'safety_state': ParameterValue(
-                    safety_state, value_type=int
-                ),
-            }],
-            remappings=[
-                ('battery_state', battery_state_topic),
-                ('odom', odom_topic),
-            ],
+        GroupAction(
+            _nodes(
+                robot_id, source_session_id, safety_state,
+                battery_state_topic, candidate_topic, odom_topic,
+            ),
+            condition=UnlessCondition(push_namespace),
         ),
     ])

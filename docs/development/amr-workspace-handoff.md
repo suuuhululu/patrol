@@ -35,7 +35,9 @@
 - 2026-09-08 08:29 KST 재검증: `colcon build --packages-select patrol_interfaces patrol_amr` `2 packages finished`, 단위시험 `Ran 89 tests`/`OK`, 10단계 스모크 `STAGE10_PASS`. `motion_allowed=false,true,false,true,false`, `battery_state=0,2,0`, `status_sequence=1..19`. 10단계는 사용자 확인까지 통과 처리했다.
 - TBD-IF-009를 확정하고 11~13단계로 구현·검증을 끝냈다. 계약과 근거는 [요청서](../change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md), 결정 요약은 10.3절, 단계 계획은 11절에 있다. 12단계 사용자 ROS 토픽 시험까지 통과했다.
 - 최종 검증: `colcon build` `2 packages finished`, 단위시험 `Ran 114 tests`/`OK`, 확장 스모크 `AMR_SMOKE_PASS`(`cmd_vel_publishers=['local_safety_supervisor']`).
-- **다음 작업은 코드가 아니다.** 14~17단계가 전부 관제 회신·TBD 해소·타 담당자 코드 병합에 막혀 있다. 10.2절의 차단 요인 구분과 11절의 단계표를 먼저 본다.
+- **2026-09-08 관제 회신으로 TBD-IF-009가 해결됐다.** 5개 질의 모두 AMR 제안대로 확정. interfaces.md 7절에 확정 경로, 9절에 Q-17이 등재됐고 TBD 표에서 결정 처리됐다. 상세는 10.4절이다.
+- 회신 반영 중 통합 위험 두 개를 확인했다. namespace 중복은 launch `push_namespace` 인자로 대응했고, 최종 `cmd_vel` 타입은 관제 확인이 필요하다. 10.4절에 적었다.
+- 다음 작업은 15단계(실제 Nav2 후보 연동)이며 성현님 launch 병합이 선행되어야 한다. 16~18단계는 여전히 TBD·병합에 막혀 있다.
 - 아래 이력 항목의 `0efa7fa` 언급은 당시 기록이며 현재 HEAD가 아니다.
 - 2026-09-07 20:32 KST 재검증에서 `patrol_interfaces` 빌드는 `1 package finished`, 전체 단위시험은 `Ran 89 tests`와 `OK`, `git diff --check`는 출력 없이 통과했다.
 - 6단계 사용자 ROS 토픽 시험 중 drive_token의 `DEADLINE` 불일치와 E-stop의 `DURABILITY` 불일치를 확인했다. drive_token 구독측 deadline 문제는 `13f0412`에서 수정했고, E-stop은 계약에 맞는 QoS 옵션을 시험 명령에 지정해야 한다.
@@ -1333,3 +1335,44 @@ ROS에 의존하지 않으며 위 노드들이 import해서 쓴다.
 | AMR-08~10 좌표·Keepout·안전구역 | 현재 브랜치에 실행 코드 없음. AMR-09는 담당자 충돌 확인 필요 |
 | AMR-15 robot6 LiDAR 위치 검증 | 미구현/TBD |
 | AMR-16 `nav2_client.py`, AMR-05 `command_store.py` | 박성현 구현 보고. 어느 원격 브랜치에도 없음 |
+
+### 10.4 TBD-IF-009 관제 회신과 통합 위험 — 2026-09-08
+
+관제(박성현)가 5개 질의에 모두 AMR 제안대로 회신해 **TBD-IF-009가 해결됐다.**
+
+| 질의 | 회신 |
+|---|---|
+| ① 토픽·삽입 위치 | `cmd_vel_nav → cmd_vel_smoothed → cmd_vel_safe → local_safety_supervisor → cmd_vel` |
+| ② stamped 속도 | `enable_stamped_cmd_vel: true`. 현재 TurtleBot4 설정에도 이미 적용됨 |
+| ③ Q-17 | 후보 `header.stamp` 기준 최대 0.5초. 초과·미수신 시 정지 |
+| ④ namespace | `robot_id`에서 파생. 관제 launch는 `PushRosNamespace`·`RewrittenYaml` 사용 |
+| ⑤ yaw 발행자 | `mission_supervisor`가 `/robotN/cmd_vel_yaw` 단독 발행 |
+
+반영: [interfaces.md](../interfaces.md) 4절 토픽 트리에 세 토픽, 7절에 확정 경로, 9절에 **Q-17** 등재, TBD 표에서 결정 처리. [요청서](../change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md) 상태는 `합의`다. 11~14단계 구현은 이 계약과 이미 일치하므로 코드 변경이 없었다.
+
+#### 통합 위험 1 — namespace 중복 (대응 완료)
+
+④의 `PushRosNamespace`와 `amr_safety_status.launch.py`의 자체 namespace가 겹치면 이름이 두 번 붙는다. 2026-09-08 실측 재현 결과다.
+
+```text
+/robot1/robot1/cmd_vel          ← 두 번
+/robot1/robot1/cmd_vel_safe     ← 두 번
+/robot1/robot1/motion_allowed   ← 두 번
+/robot1/robot_status            ← 한 번 (status_reporter 가 절대 이름을 쓴다)
+```
+
+**절반만 어긋나므로 조용히 통과했다가 통합 시점에 드러난다.** launch에 `push_namespace` 인자(기본 `true`)를 추가했다. 관제 launch가 자체 `PushRosNamespace`로 감싸면 **`push_namespace:=false`를 전달해야 한다.** 전달했을 때 모든 토픽이 `/robot1/` 하나로 정리되는 것을 확인했다.
+
+#### 통합 위험 2 — 최종 `cmd_vel` 타입 (관제 확인 필요)
+
+AMR은 최종 출력을 미stamped `geometry_msgs/Twist`로 발행한다. 근거는 `irobot_create_control/config/control.yaml`의 `use_stamped_vel: false`인데 **이는 시뮬레이션 설정 파일**이다.
+
+②의 "TurtleBot4 설정에도 이미 적용됨"이 Nav2 노드 범위인지 구동부까지 포함하는지 확인이 필요하다. 구동부가 `TwistStamped`를 기대한다면 타입 불일치로 **DDS 계층에서 메시지가 전혀 전달되지 않는다.** 6단계 `DEADLINE`·`DURABILITY` 때와 같은 실패 형태이며, 노드는 정상 동작하는데 로봇만 움직이지 않는다.
+
+확인 방법은 실기에서 한 줄이다.
+
+```bash
+ros2 topic info /robot1/cmd_vel --verbose
+```
+
+구독자 쪽 타입이 `geometry_msgs/msg/Twist`면 현재 구현이 맞고, `TwistStamped`면 `local_safety_supervisor`의 `to_twist()`와 publisher 타입을 바꾼다. 한 곳뿐이라 변경 비용은 작다.
