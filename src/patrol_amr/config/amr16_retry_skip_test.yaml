@@ -1,0 +1,29 @@
+# Supervised real-robot AMR-16 retry/skip test parameters for robot1.
+#
+# W1 is intentionally outside final_project_map. Nav2 must fail it without
+# driving there, retry it three times, then advance to the normal W2 target.
+# Stop the mission as soon as MISSION_PATROLLING W2 appears. This fixture is
+# never selected by hardware_patrol.launch.py unless explicitly requested.
+/**:
+  mission_supervisor:
+    ros__parameters:
+      robot_id: robot1
+      waypoints_xyyaw: [
+        100.000, 100.000,   0.0,
+         -0.206,  -1.038,  90.8,
+         -1.147,   0.500, 175.4,
+         -2.029,  -0.916, 266.3,
+         -2.751,  -2.422, 182.4,
+         -4.389,  -1.122,  94.3,
+         -2.909,   0.575, 358.3]
+      waypoint_dwell_s: 0.0
+      resume_policy: disabled
+      command_store_path: ''
+      mission_status_path: ''
+      report_outbox_path: ''
+      source_session_id: ''
+      safety_path_ready: false
+      hardware_test_mode: false
+      motion_enable_token: ''
+      dock_timeout_s: 60.0
+      dock_sensor_stable_s: 2.0

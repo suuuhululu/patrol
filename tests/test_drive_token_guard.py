@@ -5,8 +5,8 @@ from pathlib import Path
 import unittest
 
 
-SOURCE = (Path(__file__).resolve().parents[1] / 'src/patrol_amr/'
-          'patrol_amr/drive_token_guard.py')
+SOURCE = (Path(__file__).resolve().parents[1] / 'src/patrol_amr_safety/'
+          'patrol_amr_safety/drive_token_guard.py')
 SPEC = importlib.util.spec_from_file_location('drive_token_guard', SOURCE)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)

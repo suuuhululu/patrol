@@ -1,7 +1,7 @@
 import unittest
 
 from patrol_amr.mission_state import MissionStateSnapshot
-from patrol_amr.robot_status_state import MissionState, RobotStatusState
+from patrol_amr_safety.robot_status_state import MissionState, RobotStatusState
 from patrol_amr.status_mission_bridge import MissionStatusBridge
 
 

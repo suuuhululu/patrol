@@ -93,7 +93,8 @@
 - AMR-06의 active command/mission ID, waypoint, scan, reason code/detail을 상태 모델에 원자 저장하고 RobotStatus wire 필드까지 매핑했다. 실제 mission adapter 입력이 없어 AMR-06은 아직 100%가 아니다.
 - 23단계 AMR-20의 확정 부분으로 `heartbeat_guard.py`에 session·sequence와 1초 초과 timeout을 추가했다. wire 메시지 타입과 최종 안전 ROS 배선이 없어 AMR-20은 아직 100%가 아니다.
 - 현재 로컬 작업에는 `mission_supervisor`, 실제 Nav2·도킹 adapter, `command_store.py`, robot1·robot6 hardware launch가 있다. 병합 충돌은 양쪽 자산·의존성을 모두 보존해 정리했다.
-- 현재는 21단계다. AMR-16 production 연결 자동 검증 뒤 실제 로봇 시험을 수행한다. AMR-08·09·10은 map/TF 실측·관제 transaction·안전구역 입력이 별도로 남는다.
+- 현재는 21단계다. AMR-16 production 연결은 구현됐고, [실제 robot1 시험](amr16-robot-test.md)의 재시도·skip·안전 취소·최종 goal PASS 전까지 70%로 유지한다. AMR-08·09·10은 map/TF 실측·관제 transaction·안전구역 입력이 별도로 남는다.
+- AMR-16 production 연결 자동검증은 전체 단위시험 `Ran 352 tests` / `OK`, `patrol_interfaces`·`patrol_amr` symlink 빌드 성공이다. 이는 실기 PASS를 대신하지 않는다.
 - 20단계 AMR-05·06의 남은 조각이던 **mission ROS adapter** 를 `command_gateway.py` 로 구현했다. `mission_ingress.py` 가 docstring 에서 예고한 "future ROS mission node" 다. entry point 4번째 노드이며 `mission_command` 를 구독해 `command_check` 를 발행하고, SQLite 저장소는 `~/.local/state/patrol_amr/<robot>/` 에 두어 재빌드가 실행 이력을 지우지 않는다.
 - 내부 신호 3개는 뜻을 하나씩만 갖는다. `command_dispatch`(1회 실행), `active_command`(현재 명령 정체), `report_replay_request`(보존 report 재전송). **durability 를 일부러 다르게 뒀다** — dispatch·replay 는 VOLATILE 이어야 늦게 붙은 구독자에게 과거 신호가 재전달되어 명령이 두 번 실행되는 일이 없고, active_command 는 상태이므로 TRANSIENT_LOCAL 이어야 늦게 뜬 status_reporter 가 빈 ID 를 내보내지 않는다. 첫 구현에서 이 불일치로 값이 전달되지 않는 것을 실측하고 고쳤다.
 - PatrolReport 발행은 이 노드에 넣지 않았다. AMR-07 은 다른 담당의 행이고, 한 report 토픽에 발행자가 둘이면 cmd_vel 단일 발행자 규칙이 막으려는 것과 같은 실패가 된다. 완료 명령 재수신 시에는 `report_replay_request` 로 command_id 만 넘긴다.

@@ -42,8 +42,16 @@ class PatrolScenario:
                 return NavigationResult.CANCELED
             self._state_callback('MISSION_PATROLLING', index)
             result = self._navigation.go_to(self._waypoints[index], cancel_event)
-            if result is not NavigationResult.SUCCEEDED:
+            if result is NavigationResult.CANCELED:
                 return result
+            if result is not NavigationResult.SUCCEEDED:
+                if index == len(self._waypoints) - 1:
+                    return result
+                # AMR-16: the common Nav2 runner has already exhausted the
+                # initial attempt plus three retries.  Advance the durable
+                # checkpoint so RESUME_PATROL cannot repeat the skipped point.
+                self._store.save_checkpoint(patrol_id, index + 1)
+                continue
             self._store.save_checkpoint(patrol_id, index + 1)
             if self._dwell(cancel_event) is NavigationResult.CANCELED:
                 return NavigationResult.CANCELED

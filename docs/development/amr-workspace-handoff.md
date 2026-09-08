@@ -1507,22 +1507,20 @@ ros2 topic info /robot1/cmd_vel --verbose
 
 **AMR-11** — 15단계로 완료했다. 위 15단계 절에 상세가 있다.
 
-## 14. 업무표 21단계 공통 Nav2 Action 모듈 — 2026-09-08
+## 14. 업무표 21단계 실제 mission Nav2 경로 연결 — 2026-09-08
 
-사용자 업무표의 AMR-16 중 독립 구현 가능한 공통 `NavigateToPose` 경로를 [nav2_client.py](../../src/patrol_amr/patrol_amr/nav2_client.py)에 추가했다. robot1·robot6은 같은 모듈을 사용하고 실제 action 이름은 소유 노드의 namespace 아래에서 해석된다.
+별도 순수 모듈에서 끝내지 않고 병합된 production 경로 `mission_supervisor → MissionWorker → MissionController → PatrolScenario → NavigationAdapter → Nav2GoalRunner → TurtleBot4Navigator`에 AMR-16 정책을 직접 연결했다. 앞서 임시로 추가했던 비연결 `nav2_client.py`·`waypoint_route.py`는 중복 정책이 남지 않도록 제거했다.
 
-- map goal을 `PoseStamped`로 변환해 발행하고 Nav2 feedback을 호출자에게 전달한다.
-- 최초 실행 뒤 실패 시 최대 3회 재시도한다. 총 4회 실패 뒤 중간 waypoint는 `SKIPPED`, 최종 goal은 `FAILED`다.
-- 안전 중단의 cancel은 재시도하지 않고 `CANCELED`로 종료한다.
-- 계약에 없는 server/result timeout이나 재시도 지연은 임의로 넣지 않았다.
-- `mission_supervisor`가 없어 waypoint 진행·최종 PatrolReport까지는 아직 연결하지 않았다. 따라서 이는 AMR-16의 공통 Action 모듈 완료이며 업무 행 100% 완료는 아니다.
+- `navigation_types.MAX_GOAL_RETRIES=3`을 공통 수치로 두고 최초 시도까지 총 최대 4회 실행한다.
+- 일반 Nav2 실패·goal 거절·알 수 없는 결과만 재시도한다.
+- STOP/CANCEL·DriveToken 상실·`motion_allowed=false`는 즉시 cancel하고 재시도하지 않는다.
+- 중간 W1~W6가 네 번 실패하면 checkpoint를 다음 index로 영속 저장하고 다음 WP로 진행한다.
+- 마지막 W7가 네 번 실패하면 순찰 경로를 실패로 종료한다.
+- 실제 navigator feedback을 읽어 마지막 값을 보존한다.
+- 각 실패 시도와 재시도·최종 소진을 ROS 로그에 남겨 실기 증거를 수집한다.
 
-코드 흐름도와 세부 동작은 [amr.md 4.5절](../amr.md#45-nav2_clientpy--구현-대조-완료-공통-action-모듈)에 둔다. 전체 자동시험은 `Ran 269 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 `2 packages finished`로 통과했다.
+코드 흐름은 [amr.md 4.5절](../amr.md#45-실제-mission-nav2-재시도waypoint-skip-경로--구현-대조-완료-실기-대기)과 [mission_navigation.md](../../src/patrol_amr/docs/mission_navigation.md)에 기록한다. 자동시험 후 [AMR-16 실제 로봇 시험](amr16-robot-test.md)에서 robot1의 START_PATROL·재시도·skip·cancel·최종 `cmd_vel`을 사용자가 확인해야 이 기능을 완료로 판정한다.
 
-## 15. 업무표 21단계 공통 waypoint route 모듈 — 2026-09-08
-
-[waypoint_route.py](../../src/patrol_amr/patrol_amr/waypoint_route.py)가 측정된 WP1~WP7을 14절의 `Nav2Client`에 순서대로 전달한다. 현재 WP 성공 또는 중간 WP skip은 다음 WP를 시작하고, final 실패와 취소는 route를 끝낸다.
-
-중간 skip이 있는 route 완료는 `COMPLETED_WITH_SKIPS`, 전부 성공은 `COMPLETED`로 구분했다. 이는 내부 route 종료 상태이며 PatrolReport `SUCCEEDED`를 미리 결정하지 않는다. skip 후 임무 성공 여부는 TBD-AMR-005가 정해진 뒤 mission supervisor가 판단한다.
-
-잘못된·중복 goal, 동시 route, callback goal ID 불일치, Nav2 dispatch 실패는 거절하거나 실패 방향으로 닫는다. feedback은 상위 호출자에게 그대로 전달한다. 코드 흐름은 [amr.md 4.6절](../amr.md#46-waypoint_routepy--구현-대조-완료-공통-route-모듈)에 기록했다. 전체 자동시험은 `Ran 289 tests`/`OK`, 두 패키지 빌드는 성공했다.
+자동검증은 `Ran 352 tests` / `OK`이고 `patrol_interfaces`·`patrol_amr`
+symlink 빌드가 성공했다. 실기 결과표는 아직 `미실행`이며 AMR-16은 70%를
+유지한다.

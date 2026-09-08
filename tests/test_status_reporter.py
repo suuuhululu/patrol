@@ -7,11 +7,11 @@ import unittest
 
 
 PATROL_AMR_PACKAGE_ROOT = (
-    Path(__file__).resolve().parents[1] / 'src/patrol_amr'
+    Path(__file__).resolve().parents[1] / 'src/patrol_amr_safety'
 )
 sys.path.insert(0, str(PATROL_AMR_PACKAGE_ROOT))
 
-from patrol_amr import status_reporter as MODULE  # noqa: E402
+from patrol_amr_safety import status_reporter as MODULE  # noqa: E402
 
 
 def pose_payload(value=0.0):

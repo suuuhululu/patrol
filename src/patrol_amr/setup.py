@@ -43,12 +43,8 @@ setup(
     license="Apache-2.0",
     entry_points={
         "console_scripts": [
-            "battery_monitor = patrol_amr.battery_monitor:main",
-            "command_gateway = patrol_amr.command_gateway:main",
-            "local_safety_supervisor = "
-            "patrol_amr.local_safety_supervisor:main",
-            "status_reporter = patrol_amr.status_reporter:main",
             "mission_supervisor = patrol_amr.mission_supervisor:main",
+        
         ],
     },
 )

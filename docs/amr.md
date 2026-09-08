@@ -63,8 +63,6 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 | motion_guard.py | [src/patrol_amr/patrol_amr/motion_guard.py](../src/patrol_amr/patrol_amr/motion_guard.py) · `MotionGuard.evaluate` | [3.3절](#33-motion_guardpy--구현-대조-완료) 구현 대조 완료 (축소 범위) |
 | local_safety_supervisor.py | [src/patrol_amr/patrol_amr/local_safety_supervisor.py](../src/patrol_amr/patrol_amr/local_safety_supervisor.py) · `SafetyGate`·`LocalSafetySupervisor` | [3.4절](#34-local_safety_supervisorpy--구현-대조-완료-축소-범위) 구현 대조 완료 (축소 범위) |
 | heartbeat_guard.py | [src/patrol_amr/patrol_amr/heartbeat_guard.py](../src/patrol_amr/patrol_amr/heartbeat_guard.py) · `HeartbeatGuard.observe`·`state` | [3.5절](#35-heartbeat_guardpy--구현-대조-완료-순수-모듈) 구현 대조 완료 (ROS 연결 대기) |
-| nav2_client.py | [src/patrol_amr/patrol_amr/nav2_client.py](../src/patrol_amr/patrol_amr/nav2_client.py) · `Nav2Client.execute`·`cancel_active`·`failure_decision` | [4.5절](#45-nav2_clientpy--구현-대조-완료-공통-action-모듈) 구현 대조 완료 (mission 연결·실기 대기) |
-| waypoint_route.py | [src/patrol_amr/patrol_amr/waypoint_route.py](../src/patrol_amr/patrol_amr/waypoint_route.py) · `navigation_goals`·`WaypointRouteExecutor.start`·`cancel` | [4.6절](#46-waypoint_routepy--구현-대조-완료-공통-route-모듈) 구현 대조 완료 (mission 정책·실기 대기) |
 | battery_monitor.py | [src/patrol_amr/patrol_amr/battery_monitor.py](../src/patrol_amr/patrol_amr/battery_monitor.py) · `classify_observation`·`BatteryStateModel.update` | [5.1절](#51-battery_monitorpy--구현-대조-완료) 구현 대조 완료 |
 | robot_status_state.py | [src/patrol_amr/patrol_amr/robot_status_state.py](../src/patrol_amr/patrol_amr/robot_status_state.py) · `RobotStatusState.update_states`·`observe_pose`·`observe_odometry`·`snapshot` | [7.1절](#71-robot_status_statepy--구현-대조-완료) 구현 대조 완료 |
 | Nav2 pose 실행 | `src/patrol_amr/patrol_amr/navigation_adapter.py:NavigationAdapter`, `nav2_goal_runner.py:Nav2GoalRunner` | [Nav2와 도킹](../src/patrol_amr/docs/mission_navigation.md#nav2와-도킹) 구현 대조 완료 · IT-16 |
@@ -72,7 +70,7 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 | 미션 내부 상태 | `src/patrol_amr/patrol_amr/mission_state.py:MissionStateTracker`, `mission_status_store.py:MissionStatusStore` | [내부 상태와 영속성](../src/patrol_amr/docs/mission_navigation.md#내부-상태와-영속성) 구현 대조 완료 |
 | status_reporter.py | [src/patrol_amr/patrol_amr/status_reporter.py](../src/patrol_amr/patrol_amr/status_reporter.py) · `PublicationGate`·`StatusReporter` | [7.2절](#72-status_reporterpy--구현-대조-완료) RobotStatus·PatrolReport 결합 구현 대조 완료 |
 | patrol_report.py | [src/patrol_amr/patrol_amr/patrol_report.py](../src/patrol_amr/patrol_amr/patrol_report.py) · `PatrolReportFactory` | [7.3절](#73-patrol_reportpy--구현-대조-완료) 순수 계약 모듈 구현 대조 완료 |
-| 공통 Nav2 연결·위치·결과 발행 | 위 `nav2_client.py`·`navigation_adapter.py`·`robot_status_state.py`·`status_reporter.py` 행으로 분리 | 두 구현 경로의 I-01 결합과 실기 검증 대기 |
+| 공통 Nav2 연결·위치·결과 발행 | 위 `navigation_adapter.py`·`nav2_goal_runner.py`·`scenarios/patrol.py`·`robot_status_state.py`·`status_reporter.py` 행으로 분리 | 실제 mission 경로 연결 완료, robot1·robot6 실기 검증 대기 |
 
 각 그림에는 시작 조건, 함수·콜백 호출 순서, 조건별 분기, 외부 Action·토픽 송수신, 성공·실패·취소·안전 중단, 종료·복구 대기 경로를 표시한다. timeout·재시도 수치와 enum을 복제하지 않고 Q-ID·TBD-ID를 참조한다. 구현 대조 시 코드 버전과 관련 통합시험 ID를 기록한다.
 
@@ -591,73 +589,46 @@ flowchart TD
 
 로컬 검증: 전체 단위시험 `Ran 255 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr` `2 packages finished`, 설치된 launch의 `--show-args`에서 `robot1`·`robot6` 선택과 map/parameter 기본 경로를 확인했다. 실제 lifecycle ACTIVE, global/local parameter read-back, RViz costmap 및 WP3 경로 차단은 장비가 연결된 사용자 실기시험으로 남는다.
 
-### 4.5 nav2_client.py — 구현 대조 완료 (공통 Action 모듈)
+### 4.5 실제 mission Nav2 재시도·waypoint skip 경로 — 구현 대조 완료, 실기 대기
 
-2026-09-08: [nav2_client.py](../src/patrol_amr/patrol_amr/nav2_client.py)에 robot1·robot6이 공유하는 표준 `NavigateToPose` Action client와 AMR-16 재시도 정책을 구현했다. 로봇 차이는 코드를 복제하지 않고 이 모듈을 소유하는 노드의 namespace로 구분한다.
+2026-09-08: 병합된 production 경로 `mission_supervisor → MissionWorker → MissionController → PatrolScenario → NavigationAdapter → Nav2GoalRunner → TurtleBot4Navigator`에 AMR-16 정책을 직접 연결했다. 별도 시험용 이동 경로나 비연결 Action client를 두지 않는다.
 
-- `NavigationGoal`은 비어 있지 않은 goal ID, `map` frame, 유한한 x·y, 0도 이상 360도 미만 yaw만 받는다. `pose_stamped()`가 yaw를 quaternion으로 바꾸고 목표 발행 시점의 ROS timestamp를 넣는다.
-- `Nav2Client.execute()`는 동시에 하나의 goal만 허용하고 표준 `navigate_to_pose` Action에 목표와 feedback callback을 연결한다.
-- 최초 시도 실패 뒤 최대 3번 더 시도해 총 4번 실행한다. 네 번째도 실패하면 중간 waypoint는 `SKIPPED`, 최종 goal은 `FAILED`로 구분한다.
-- 성공은 `SUCCEEDED`, 안전 중단 등으로 취소를 요청한 goal은 `CANCELED`로 한 번만 종료하며 재시도하지 않는다. goal 수락 전 취소 요청도 수락 직후 Nav2에 전달한다.
-- feedback에는 goal ID, 현재 시도 횟수, 남은 거리, 주행·예상 잔여 시간, recovery 횟수를 담는다.
-- 계약에 없는 Action server 대기시간·goal 결과 timeout·재시도 간격은 만들지 않았다. server 대기시간은 호출자가 반드시 전달하고 mission timeout은 해당 계약이 정해진 뒤 상위 mission 모듈에서 관리한다.
+- [navigation_types.py](../src/patrol_amr/patrol_amr/navigation_types.py)의 `MAX_GOAL_RETRIES=3`이 공통 재시도 수다. [nav2_goal_runner.py](../src/patrol_amr/patrol_amr/nav2_goal_runner.py)는 최초 1회와 추가 3회, 총 최대 4번 `NavigateToPose`를 실행한다.
+- 일반 Nav2 `FAILED`·`REJECTED`·알 수 없는 결과만 재시도한다. STOP/CANCEL, DriveToken 상실, `motion_allowed=false` 등 안전 취소는 `CANCELED`로 즉시 반환해 재시도하지 않는다.
+- 실행 중 `TurtleBot4Navigator.getFeedback()`을 읽어 마지막 feedback을 보존한다.
+- 실제 로봇에서 증거를 확인할 수 있도록 각 실패 시도·재시도와 네 번째
+  실패 소진을 navigator ROS 로그에 남긴다.
+- [scenarios/patrol.py](../src/patrol_amr/patrol_amr/scenarios/patrol.py)는 총 4회 실패한 중간 W1~W6의 checkpoint를 다음 index로 저장하고 다음 waypoint를 실행한다. 마지막 W7 실패는 skip하지 않고 route를 실패로 종료한다.
+- 중간 skip 뒤 최종 PatrolReport에 어떤 상세를 남길지는 AMR-17의 TBD-AMR-005 잔여다. 현재 경로 실행은 계속하지만 report에 skip 사실이 포함됐다고 주장하지 않는다.
 
 ~~~mermaid
 flowchart TD
-    EXEC[execute: map goal + 완료/feedback callback] --> READY{NavigateToPose server ready?}
-    READY -->|아니오| REJECT[호출 거절 / goal 미시작]
-    READY -->|예| SEND[PoseStamped 생성 / 시도 횟수 +1 / goal 발행]
-    SEND --> ACCEPT{goal 수락?}
-    ACCEPT -->|아니오| FAILED[실패 정책 판정]
-    ACCEPT -->|예| FEEDBACK[거리·시간·recovery feedback 전달]
-    FEEDBACK --> RESULT{Action 결과}
-    RESULT -->|SUCCEEDED| SUCCESS[SUCCEEDED / 종료]
-    RESULT -->|CANCELED 또는 취소 요청| CANCELED[CANCELED / 재시도 없음 / 종료]
-    RESULT -->|그 밖의 실패| FAILED
-    CANCEL[cancel_active: 안전 중단] --> HANDLE{goal handle 수신됨?}
-    HANDLE -->|예| CANCELNAV[Nav2 cancel 요청] --> CANCELED
-    HANDLE -->|아니오| WAIT[수락 응답 직후 cancel 요청] --> CANCELED
-    FAILED --> RETRY{현재 실패까지 총 4회 미만?}
+    CMD[START_PATROL MissionCommand] --> WORKER[MissionWorker]
+    WORKER --> PATROL[PatrolScenario W1~W7]
+    PATROL --> SEND[Nav2GoalRunner / NavigateToPose 시도 +1]
+    SEND --> FEEDBACK[getFeedback 보존]
+    FEEDBACK --> RESULT{Nav2 결과}
+    RESULT -->|SUCCEEDED| NEXT{마지막 W7?}
+    RESULT -->|CANCELED 또는 안전 권한 상실| CANCEL[CANCELED / 재시도·다음 WP 없음]
+    RESULT -->|FAILED·REJECTED·UNKNOWN| RETRY{총 4회 미만?}
     RETRY -->|예| SEND
-    RETRY -->|아니오| FINAL{최종 goal?}
-    FINAL -->|아니오| SKIP[SKIPPED / 다음 waypoint 판단은 상위 모듈]
-    FINAL -->|예| ROUTEFAIL[FAILED / route 종료 판단은 상위 모듈]
+    RETRY -->|아니오| FINAL{현재 W7?}
+    FINAL -->|아니오| SKIP[checkpoint를 다음 index로 저장] --> PATROL
+    FINAL -->|예| FAIL[route FAILED]
+    NEXT -->|아니오| CHECKPOINT[다음 index 저장] --> PATROL
+    NEXT -->|예| DOCK[순찰 후 docking 경로]
 ~~~
 
-단위시험은 좌표·yaw 변환, goal 검증, 성공, feedback, goal 거절, 최초 1회와 재시도 3회, 중간 waypoint skip, 최종 goal 실패, 취소 시 재시도 금지, server 준비·동시 goal 차단을 확인한다. 전체 자동시험은 `Ran 269 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 `2 packages finished`다. 실제 mission supervisor가 이 callback으로 waypoint를 넘기거나 PatrolReport를 만드는 연결과 robot1·robot6 Nav2 실기는 남아 있으므로 AMR-16을 아직 100%로 표시하지 않는다.
+자동시험은 실제 production 클래스의 일반 실패 3회 뒤 네 번째 성공, 네 번 실패, goal 거절 네 번, 안전 권한 상실 1회 취소, 중간 waypoint skip과 마지막 waypoint 실패를 확인한다. 실제 로봇의 Nav2·TF·지도·센서·최종 `cmd_vel`은 자동시험으로 대체하지 않으며 robot1·robot6 실기 통과 전 AMR-16을 100%로 표시하지 않는다.
 
-### 4.6 waypoint_route.py — 구현 대조 완료 (공통 route 모듈)
+2026-09-08 자동검증: 전체 단위시험 `Ran 352 tests` / `OK`,
+`patrol_interfaces`와 `patrol_amr` symlink 빌드 성공. 기존 일반 빌드 산출물과
+symlink 설치가 충돌해 해당 `build`·`install/patrol_amr` 디렉터리는 `/tmp`에
+복구 가능하게 보관한 뒤 다시 빌드했다. 소스나 Git 이력은 변경하지 않았다.
 
-2026-09-08: [waypoint_route.py](../src/patrol_amr/patrol_amr/waypoint_route.py)에 측정된 WP 목록을 4.5절 `Nav2Client`로 순서대로 실행하는 공통 route 계층을 추가했다.
-
-- `navigation_goals()`는 검증된 `WaypointCatalog`의 WP1~WP7 순서·좌표·yaw를 보존하고 마지막 WP7만 final goal로 표시한다.
-- `WaypointRouteExecutor.start()`는 route 전체 입력을 먼저 검증하고 동시에 하나의 route만 실행한다. 각 goal의 final 표시는 호출자 값에 의존하지 않고 route의 실제 마지막 위치로 다시 정한다.
-- 현재 waypoint가 `SUCCEEDED`면 다음 waypoint를 발행한다. `Nav2Client`가 총 4회 실패 뒤 중간 waypoint를 `SKIPPED`로 돌려줘도 기록을 보존하고 다음 waypoint로 진행한다.
-- 마지막 waypoint 성공 시 중간 skip이 없으면 `COMPLETED`, 하나라도 있으면 `COMPLETED_WITH_SKIPS`다. 이 값은 주행 순서가 끝났다는 내부 결과이며 PatrolReport `SUCCEEDED`를 뜻하지 않는다. skip이 있는 임무의 최종 성공·실패 정책은 TBD-AMR-005에 남긴다.
-- final goal `FAILED`, goal ID가 다른 callback, 다음 goal dispatch 실패는 route `FAILED`로 닫는다. `CANCELED`는 다음 waypoint를 발행하지 않는다.
-- Nav2 feedback callback은 변경 없이 상위 호출자에게 전달한다. 현재 goal과 누적 goal 결과도 조회할 수 있어 향후 RobotStatus waypoint 입력으로 사용할 수 있다.
-
-~~~mermaid
-flowchart TD
-    CAT[검증된 WaypointCatalog] --> GOALS[navigation_goals: 순서·좌표 보존 / 마지막만 final]
-    START[start: goal 목록 + 완료/feedback callback] --> VALID{비어 있지 않음 / ID 고유 / goal 타입 유효?}
-    VALID -->|아니오| REJECT[route 시작 거절]
-    VALID -->|예| DISPATCH[현재 goal을 Nav2Client.execute]
-    GOALS --> START
-    DISPATCH --> RESULT{NavigationCompletion}
-    RESULT -->|SUCCEEDED + 중간| NEXT[index +1 / 다음 goal]
-    RESULT -->|SKIPPED + 중간| RECORD[skip 기록] --> NEXT
-    NEXT --> DISPATCH
-    RESULT -->|SUCCEEDED + 마지막| SKIPS{앞선 skip 있음?}
-    SKIPS -->|아니오| COMPLETE[COMPLETED]
-    SKIPS -->|예| PARTIAL[COMPLETED_WITH_SKIPS / mission 성공 여부 미정]
-    RESULT -->|FAILED| FAIL[route FAILED]
-    RESULT -->|CANCELED| CANCEL[route CANCELED / 다음 goal 없음]
-    BAD[goal ID 불일치 또는 dispatch 예외] --> FAIL
-    STOP[cancel] --> NAVCANCEL[Nav2Client.cancel_active] --> CANCEL
-~~~
-
-이 모듈은 START_PATROL 명령 수신, scan, 상태 enum, PatrolReport 결과를 만들지 않는다. 그 연결은 TBD-AMR-005가 필요한 AMR-17 범위다. 전체 자동시험은 `Ran 289 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 `2 packages finished`다. 이번 단계는 순수 route 모듈이므로 사용자 직접시험은 없고, 실제 Nav2와 연결한 AMR-16 종단시험 때 robot1·robot6에서 확인한다.
+robot1 실기 절차와 실패 유도 전용 설정은
+[AMR-16 실제 로봇 시험](development/amr16-robot-test.md)에 분리했다. 전용
+설정의 W1만 지도 밖 좌표이며 기본 `patrol_params.yaml`은 변경하지 않는다.
 
 ## 5. 배터리와 도킹
 

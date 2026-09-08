@@ -1,7 +1,7 @@
 """Deterministic SafetyGate tests; no robot or ROS graph required.
 
 local_safety_supervisor.py imports its sibling guard modules as members
-of the patrol_amr package (9단계). We add the package root to sys.path so
+of the patrol_amr_safety package. We add the package root to sys.path so
 those imports resolve straight from the source tree, without needing a
 colcon build first.
 """
@@ -12,11 +12,11 @@ import unittest
 
 
 PATROL_AMR_PACKAGE_ROOT = (
-    Path(__file__).resolve().parents[1] / 'src/patrol_amr'
+    Path(__file__).resolve().parents[1] / 'src/patrol_amr_safety'
 )
 sys.path.insert(0, str(PATROL_AMR_PACKAGE_ROOT))
 
-from patrol_amr import (  # noqa: E402 (sys.path 설정 후 import)
+from patrol_amr_safety import (  # noqa: E402 (sys.path 설정 후 import)
     drive_token_guard as dtg,
     estop_guard as eg,
     local_safety_supervisor as lss,

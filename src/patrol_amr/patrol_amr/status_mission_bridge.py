@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from patrol_amr import robot_status_state as rss
+from patrol_amr_safety import robot_status_state as rss
 from patrol_amr.mission_state import MissionStateSnapshot
 
 

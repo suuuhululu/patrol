@@ -97,7 +97,7 @@ def spin(node, seconds):
 def start_gateway(database_path, log_file):
     return subprocess.Popen(
         [
-            "ros2", "run", "patrol_amr", "command_gateway", "--ros-args",
+            "ros2", "run", "patrol_amr_safety", "command_gateway", "--ros-args",
             "-r", f"__ns:={NS}",
             "-p", f"robot_id:={ROBOT_ID}",
             "-p", f"source_session_id:={SOURCE_SESSION_ID}",

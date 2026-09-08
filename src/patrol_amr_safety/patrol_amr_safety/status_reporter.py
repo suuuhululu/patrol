@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import time
 
-from patrol_amr import robot_status_state as rss
+from patrol_amr_safety import robot_status_state as rss
 from patrol_amr.mission_status_store import (
     MissionStatusStore, MissionStatusStoreError)
 from patrol_amr.patrol_report_adapter import (

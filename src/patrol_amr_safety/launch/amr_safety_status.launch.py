@@ -63,14 +63,14 @@ def _nodes(
     """
     return [
         Node(
-            package='patrol_amr',
+            package='patrol_amr_safety',
             executable='battery_monitor',
             name='battery_monitor',
             output='screen',
             remappings=[('battery_state', battery_state_topic)],
         ),
         Node(
-            package='patrol_amr',
+            package='patrol_amr_safety',
             executable='local_safety_supervisor',
             name='local_safety_supervisor',
             output='screen',
@@ -80,7 +80,7 @@ def _nodes(
             remappings=[('cmd_vel_safe', candidate_topic)],
         ),
         Node(
-            package='patrol_amr',
+            package='patrol_amr_safety',
             executable='status_reporter',
             name='status_reporter',
             output='screen',

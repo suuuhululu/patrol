@@ -60,3 +60,48 @@ git checkout <그 직전 커밋> -- tests/     # 되살리기
 시험이 계속 돌았기 때문에 아무도 알아채지 못했다. `git ls-files tests/` 가 0 이었고, clone 한 사람에게는 시험이 하나도 없는 상태였다.
 
 복구 시 `git checkout db4898c -- tests/` 는 그 시점에 존재한 14개만 되살리므로, 이후 추가된 35개 시험 파일은 건드리지 않는다. 그 사이 새로 넣은 검사(예: Q-02 발행 주기)는 복구본에 다시 얹어야 한다.
+
+## 4. 패키지 분리 (2026-09-08)
+
+위 규칙만으로는 부족했다. 진짜 문제는 `.gitignore` 한 줄이 아니라 **한 디렉터리의 파일 48개를 두 사람이 동시에 고치는 것**이었고, 손실이 난 순간은 성현님 코드를 이 트리로 끌어온 커밋(`3c79ef7`)이었다.
+
+git worktree 로 나누는 방법은 쓰지 않았다. ROS 워크스페이스에서는 `install/` 까지 갈려서 두 번 빌드하고 overlay 두 개를 source 해야 하며, 노드를 같이 띄울 수 없다.
+
+대신 **ROS 패키지를 소유자 경계로 나눴다.** 한 워크스페이스에서 같이 빌드·실행되면서 파일은 겹치지 않는다.
+
+| 패키지 | 소유 | 내용 |
+|---|---|---|
+| `patrol_amr` | 박성현 | mission·nav2·docking·report·scenarios (41개) |
+| `patrol_amr_safety` | 조정묵 | battery_monitor, drive_token_guard, estop_guard, motion_guard, local_safety_supervisor, robot_status_state, status_reporter, command_gateway |
+
+경계는 인수인계 1절의 "AMR Python 파일 7개, ROS 노드 3개" 범위 그대로다(+ 19단계 `command_gateway`).
+
+### 왜 이 경계가 성립하나
+
+옮기기 전에 교차 import 를 확인했다.
+
+- 조정묵 모듈 → 박성현 모듈: **0건**
+- 박성현 모듈 → 조정묵 모듈: **2건** (`mission_drive_token.py` → `drive_token_guard`, `status_mission_bridge.py` → `robot_status_state`)
+
+두 줄만 `patrol_amr_safety` 로 바꾸면 됐다. 나머지 46개는 손대지 않았다. 경계가 이미 코드에 있었고 디렉터리만 그것을 반영하지 않고 있었다.
+
+### 함께 옮긴 것
+
+- 시험 8개의 `sys.path`·모듈 경로
+- entry point 4개 → `patrol_amr_safety/setup.py`. `patrol_amr` 에는 `mission_supervisor` 만 남는다
+- `launch/amr_safety_status.launch.py` 의 `package=` 3곳
+- 스모크 2개의 `ros2 run` 대상
+
+### 옮긴 뒤 반드시 할 것
+
+구 install 을 지우지 않으면 `ros2 run patrol_amr status_reporter` 가 **옮기기 전 사본**을 실행한다. 빌드는 성공하고 노드도 뜨기 때문에 조용하다.
+
+```bash
+rm -rf build/patrol_amr install/patrol_amr
+colcon build --packages-select patrol_amr patrol_amr_safety
+ros2 pkg executables patrol_amr        # mission_supervisor 하나만 나와야 한다
+```
+
+### 성현님 쪽에 필요한 것
+
+`main` 브랜치에도 같은 분리가 가도록 병합할 때, 위 2건의 import 를 함께 반영해야 한다. 그 전에는 `main` 에서 `from patrol_amr import drive_token_guard` 가 계속 동작하므로 충돌이 나지 않고 조용히 갈린다.

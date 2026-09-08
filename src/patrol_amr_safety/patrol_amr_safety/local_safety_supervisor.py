@@ -39,9 +39,9 @@ import math
 import time
 from typing import NamedTuple
 
-from patrol_amr import drive_token_guard as dtg
-from patrol_amr import estop_guard as eg
-from patrol_amr import motion_guard as mg
+from patrol_amr_safety import drive_token_guard as dtg
+from patrol_amr_safety import estop_guard as eg
+from patrol_amr_safety import motion_guard as mg
 
 
 class TokenStatus(NamedTuple):

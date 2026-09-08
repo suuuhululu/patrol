@@ -88,6 +88,20 @@ class ResultNavigator(FakeNavigator):
         return next(self.results)
 
 
+class LoggedResultNavigator(ResultNavigator):
+    """Result navigator exposing the ROS logger surface used in hardware."""
+
+    def __init__(self, results):
+        super().__init__(results)
+        self.warnings = []
+
+    def get_logger(self):
+        return self
+
+    def warning(self, message):
+        self.warnings.append(message)
+
+
 class Nav2GoalRunnerTest(unittest.TestCase):
     """Prevent regressions in BasicNavigator return-value handling."""
 
@@ -167,9 +181,18 @@ class Nav2GoalRunnerTest(unittest.TestCase):
             'nav2_simple_commander': package,
             'nav2_simple_commander.robot_navigator': module,
         }
-        navigator = ResultNavigator([2, 2, 2, 2])
+        navigator = LoggedResultNavigator([2, 2, 2, 2])
         with patch.dict(sys.modules, modules):
             result = Nav2GoalRunner(navigator).go_to(
                 Waypoint('W1', 1.0, 2.0, 90.0), threading.Event())
         self.assertIs(result, NavigationResult.FAILED)
         self.assertEqual(4, navigator.send_calls)
+        self.assertEqual(
+            navigator.warnings,
+            [
+                'W1 attempt 1/4 failed: FAILED; retrying',
+                'W1 attempt 2/4 failed: FAILED; retrying',
+                'W1 attempt 3/4 failed: FAILED; retrying',
+                'W1 failed after 4 attempts: FAILED',
+            ],
+        )

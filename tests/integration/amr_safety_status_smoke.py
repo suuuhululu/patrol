@@ -22,7 +22,7 @@ makes this a gate test, not IT-16: it shows the gate passes and blocks
 correctly, not that a real planner drives the robot. It is also not a
 hardware, heartbeat, mission, docking, Detection, or two-robot test. Run
 it only after building and sourcing ``patrol_interfaces`` and
-``patrol_amr``.
+``patrol_amr_safety``.
 """
 
 import math
@@ -702,7 +702,7 @@ def main():
             [
                 "ros2",
                 "launch",
-                "patrol_amr",
+                "patrol_amr_safety",
                 "amr_safety_status.launch.py",
                 f"robot_id:={ROBOT_ID}",
                 f"source_session_id:={SOURCE_SESSION_ID}",

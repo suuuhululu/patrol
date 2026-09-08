@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>patrol_amr_safety</name>
+  <version>0.0.1</version>
+  <description>
+    AMR local safety, status and command-identity nodes.
+
+    Split out of patrol_amr on 2026-09-08. The two packages had been one
+    directory that two people edited at the same time, so each side's work
+    kept overwriting the other's. Separating along the ownership boundary
+    that already existed removes the overlap: no file belongs to both.
+    Both packages still build into one workspace and their nodes still
+    talk over topics, exactly as before.
+  </description>
+
+  <maintainer email="kj270477@gmail.com">조정묵</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>builtin_interfaces</exec_depend>
+  <exec_depend>patrol_interfaces</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

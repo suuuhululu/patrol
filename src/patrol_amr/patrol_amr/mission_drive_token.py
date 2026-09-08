@@ -3,7 +3,7 @@
 ``local_safety_supervisor`` owns the final velocity gate.  The mission node
 tracks the same token contract only so it can reject a new mission and cancel
 an active Nav2 goal when authority disappears.  The validated ordering and
-lease rules stay in :mod:`patrol_amr.drive_token_guard`; this adapter adds the
+lease rules stay in :mod:`patrol_amr_safety.drive_token_guard`; this adapter adds the
 lock and snapshot shape needed by the mission worker thread.
 """
 
@@ -14,7 +14,7 @@ from enum import Enum
 import threading
 import time
 
-from patrol_amr import drive_token_guard as safety_token
+from patrol_amr_safety import drive_token_guard as safety_token
 
 
 class DriveTokenDecision(Enum):

@@ -9,15 +9,14 @@ import sys
 import unittest
 
 
-PATROL_AMR_PACKAGE_ROOT = (
-    Path(__file__).resolve().parents[1] / 'src/patrol_amr'
-)
-sys.path.insert(0, str(PATROL_AMR_PACKAGE_ROOT))
+# 이 시험은 두 패키지를 걸친다. command_gateway 는 안전 패키지로 옮겼지만
+# check_state 매핑 타입은 patrol_amr 의 command_check 에 남아 있다.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+for package_root in ('src/patrol_amr_safety', 'src/patrol_amr'):
+    sys.path.insert(0, str(REPOSITORY_ROOT / package_root))
 
-from patrol_amr import (  # noqa: E402 (sys.path 설정 후 import)
-    command_check as cc,
-    command_gateway as cg,
-)
+from patrol_amr import command_check as cc  # noqa: E402
+from patrol_amr_safety import command_gateway as cg  # noqa: E402
 
 
 VALID = dict(
