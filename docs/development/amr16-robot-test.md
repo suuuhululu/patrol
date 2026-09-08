@@ -95,15 +95,7 @@ ros2 action list -t | grep -E '/robot1/(navigate_to_pose|dock|undock)'
 Localization을 새로 시작했다면 RViz 또는 합의된 초기 pose 발행 절차로
 robot1의 실제 초기 위치를 먼저 설정하고 `/robot1/amcl_pose`를 확인한다.
 
-관제가 없는 단독 시험에서만 터미널 2에서 E-stop 비활성 상태를 한 번 보낸다.
-
-```bash
-ros2 topic pub --once \
-  --qos-reliability reliable \
-  --qos-durability transient_local \
-  /control/estop patrol_interfaces/msg/EStop \
-  "{target_robot_id: 'robot1', active: false, reason: 0, latched: false, sequence: 1}"
-```
+관제가 없는 단독 시험에서 구형 `latched` 필드의 E-stop 메시지를 직접 발행하지 않는다. v1.0의 증가 sequence Heartbeat·DriveToken·EStop을 제공하는 승인된 관제 또는 시험 publisher와 독립적인 비상 정지 수단이 준비되기 전 실제 주행 단계는 `BLOCKED`다.
 
 터미널 3에서 증가 sequence DriveToken을 계속 갱신한다.
 

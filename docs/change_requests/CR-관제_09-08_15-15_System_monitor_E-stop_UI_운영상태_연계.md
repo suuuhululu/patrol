@@ -48,7 +48,7 @@
 ## 표시 의미
 
 - E-stop reason은 UNKNOWN=0, OPERATOR=1, COMMUNICATION=2, TOKEN=3, OBSTACLE=4, KEEPOUT_FAILURE=5, SYSTEM_FAULT=6이다.
-- `/control/estop`은 최고 우선순위 대표 원인 하나만 전달한다. 정확한 우선순위는 AMR 팀과 합의 전까지 TBD-IF-004다.
+- `/control/estop`은 `SYSTEM_FAULT → UNKNOWN → OPERATOR → KEEPOUT_FAILURE → COMMUNICATION → OBSTACLE → TOKEN` 순서에서 가장 먼저 활성인 대표 원인 하나만 전달한다. 이는 v1.0 확정 계약이다.
 - 전체 활성 원인 집합은 `uint8[] active_reasons` 의미의 관제 판단·디버깅 계약으로 별도 제공한다. System monitor가 토픽을 조합해 자체 원인 집합을 계산하지 않는다.
 - RobotStatus `safety_state`는 UNKNOWN=0, NORMAL=1, STOPPING=2, STOPPED=3, ESTOPPED=4, ERROR=5다. 구체 원인은 reason_code를 표시하며 ESTOPPED만으로 실제 정지를 단정하지 않는다.
 - `CONTROL_SHUTDOWN`, `COMMAND_CHECK_TIMEOUT`, `ACCEPTED_MISSING`은 E-stop reason이 아니라 관제 운영 이벤트다.

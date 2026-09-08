@@ -2,9 +2,11 @@
 
 > 기준: [2026-09-07 PM 설계 결정](decisions/2026-09-07-design-baseline.md). 관제는 별도 노드, 시스템 모니터는 UI 전용, 공용 패키지는 `patrol_interfaces`이며 상세 계약은 System design의 확정 내용을 우선한다.
 
-상태: 기존 계약과 권장 스키마를 구분한 설계 초안 · 담당: AMR·관제·시스템 모니터·비전 공동
+상태: v1.0 공용 계약 확정 · 차기 버전 TBD 분리 · 담당: AMR·관제·시스템 모니터·비전 공동
 
 이 문서는 통신 이름, 메시지 필드·enum, ID, QoS와 공통 시간 기준의 원본이다. 완전한 .msg 구현 정의가 없는 타입은 TBD로 표시한다. 아래 값은 공유 설계 기준이며 실제 동작 검증 결과가 아니다.
+
+관제 구현의 확정 입력 버전은 [v1.0 기준선](decisions/2026-09-08-control-interface-baseline.md)이다. 해당 기준선에 열거한 필드·enum·명령 전이·Heartbeat·E-stop·RobotStatus·Keepout parameter 의미는 2026-09-08 합의 상태로 고정한다. 기준선 밖의 TBD는 차기 버전으로 이관하며 v1.0 완료 조건이 아니다. 확정 범위를 바꾸려면 새 수정 요청서와 기준선 갱신이 필요하다.
 
 ## 1. 이름과 송수신
 
@@ -12,17 +14,17 @@
 
 | 인터페이스 | 타입·방식 | 송신 → 수신 | 상태 |
 |---|---|---|---|
-| /{robot}/mission_command | patrol_interfaces/msg/MissionCommand | 관제 → AMR | 명령별 mission·target 계약 결정, `.msg` 반영 요청 중 |
-| /{robot}/command_check | patrol_interfaces/msg/CommandCheck | AMR → 관제 | check_state 수치·전이 계약 결정, `.msg` 반영 요청 중 |
+| /{robot}/mission_command | patrol_interfaces/msg/MissionCommand | 관제 → AMR | 명령별 mission·target과 `.msg`·AMR 수신부 반영, 관제 송신부 미구현 |
+| /{robot}/command_check | patrol_interfaces/msg/CommandCheck | AMR → 관제 | check_state 수치·전이와 `.msg`·AMR 발행부 반영, 관제 수신부 미구현 |
 | /control/drive_token | patrol_interfaces/msg/DriveToken | 관제 → AMR 로컬 안전 | 세션·ID·message_sequence·회수 타입 반영 |
-| /{robot}/robot_status | patrol_interfaces/msg/RobotStatus | AMR → 관제·시스템 모니터 | safety_state enum 결정, `.msg` 반영 요청 중 |
+| /{robot}/robot_status | patrol_interfaces/msg/RobotStatus | AMR → 관제·시스템 모니터 | safety_state 의미·AMR 발행부 반영, `.msg` 중복 상수 정리와 관제 수신부 미구현 |
 | /{robot}/patrol_report | patrol_interfaces/msg/PatrolReport | AMR → 관제·시스템 모니터 | 영속 큐·동일 report_id 발행 구현, 수신 저장 ACK는 TBD-IF-003 |
 | /vision/cctv/gate_event | CameraState | gate_cam → cam_master | 패키지명·enum 수치 TBD |
 | /vision/cctv/center_event | CameraState | center_cam → cam_master | 패키지명·enum 수치 TBD |
 | /vision/cctv/patrol_allowed | std_msgs/msg/Bool | cam_master → 관제·시스템 모니터 | 정책 기준 있음 |
-| /control/heartbeat | patrol_interfaces/msg/ControlHeartbeat | 관제 → AMR 로컬 안전 | 타입·필드·주기·timeout·QoS 결정, `.msg` 반영 요청 중 |
-| /control/estop | patrol_interfaces/msg/EStop | Safety Arbiter → AMR·시스템 모니터 | UI 정지 기준 reason·전체 대상 값 결정, 우선순위는 TBD-IF-004 |
-| 로봇별 Keepout 설정 | Nav2 parameter API | 관제 → AMR global/local costmap | 계획 경로, 실환경 확인 필요 |
+| /control/heartbeat | patrol_interfaces/msg/ControlHeartbeat | 관제 → AMR 로컬 안전 | 타입·필드·주기·timeout·QoS와 `.msg`·AMR 수신부 반영, 관제 발행부 미구현 |
+| /control/estop | patrol_interfaces/msg/EStop | Safety Arbiter → AMR·시스템 모니터 | `.msg`와 AMR·시스템 모니터 소비부 반영, 대표 원인 우선순위 확정, 관제 발행부 미구현 |
+| 로봇별 Keepout 설정 | Nav2 parameter API | 관제 → AMR global/local costmap | base 상시 ON·center corridor 제어 parameter 확정, 관제 transaction·실환경 검증 미실시 |
 | DetectionCandidate | TBD | AMR 감지 처리 → AMR 확정 처리 | 로컬 경계, TBD-IF-006 |
 | DetectionEvent·증적 | TBD | AMR → 시스템 모니터(수집·저장), 관제(제어용 이벤트) | TBD-IF-006·007 |
 
@@ -59,11 +61,12 @@
 │       ├── center_event                CameraState: center_cam → cam_master
 │       └── patrol_allowed              std_msgs/msg/Bool: cam_master → 관제·System monitor
 ├── Keepout parameter API               [관제 → AMR; 토픽이 아닌 노드/parameter 조합]
-│   ├── /robot1/global_costmap/global_costmap → keepout_filter.enabled
-│   ├── /robot1/local_costmap/local_costmap   → keepout_filter.enabled
-│   ├── /robot6/global_costmap/global_costmap → keepout_filter.enabled
-│   └── /robot6/local_costmap/local_costmap   → keepout_filter.enabled
-│                                       계획 경로·실환경 확인 [TBD-IF-008 / 7절]
+│   ├── /robot1/global_costmap/global_costmap → center_corridor_keepout_filter.enabled
+│   ├── /robot1/local_costmap/local_costmap   → center_corridor_keepout_filter.enabled
+│   ├── /robot6/global_costmap/global_costmap → center_corridor_keepout_filter.enabled
+│   └── /robot6/local_costmap/local_costmap   → center_corridor_keepout_filter.enabled
+│                                       base_keepout_filter.enabled=true는 상시 유지·관제 변경 금지
+│                                       상태 토픽·실환경 확인 [TBD-IF-008 / 7절]
 ├── AMR 내부 연결                       [robot1·robot6에 각각 적용]
 │   ├── mission_supervisor → Nav2       내부 Action; 정확한 이름·타입은 미기재
 │   ├── 감지 처리 → 확정 처리           DetectionCandidate [TBD-IF-006]
@@ -234,7 +237,11 @@ uint64 sequence
 | ESTOP_REASON_KEEPOUT_FAILURE | 5 | Keepout 적용·확인·rollback 실패로 안전 상태를 보장할 수 없음 |
 | ESTOP_REASON_SYSTEM_FAULT | 6 | 센서·구동·안전 감독 등 시스템 고장 |
 
-관제는 대상별 활성 원인 집합을 내부에 유지하고 `/control/estop`에는 우선순위가 가장 높은 대표 원인 하나만 발행한다. 전체 활성 원인 집합은 `uint8[] active_reasons` 의미의 디버깅·표시용 관제 판단 계약으로 별도 제공하며 EStop 메시지 필드에 넣지 않는다. 해당 전달 타입·토픽은 TBD-IF-011, 원인 우선순위와 각 원인의 활성·해제 조건은 AMR 검토 전까지 TBD-IF-004다.
+관제는 대상별 활성 원인 집합을 내부에 유지하고 `/control/estop`에는 다음 순서에서 가장 먼저 활성인 대표 원인 하나만 발행한다.
+
+`SYSTEM_FAULT → UNKNOWN → OPERATOR → KEEPOUT_FAILURE → COMMUNICATION → OBSTACLE → TOKEN`
+
+전체 활성 원인 집합은 `uint8[] active_reasons` 의미의 디버깅·표시용 관제 판단 계약으로 별도 제공하며 EStop 메시지 필드에 넣지 않는다. 해당 전달 타입·토픽은 TBD-IF-011, 각 원인의 상세 활성·해제 조건은 TBD-IF-004로 차기 버전에 이관한다.
 
 UI 정지 요청은 OPERATOR 원인을 즉시 활성화한다. UI 해제 요청은 OPERATOR 원인을 해제 대기 상태로 바꾸며, 모든 활성 원인이 3초 연속 사라진 경우에만 Safety Arbiter가 `active=false`를 발행할 수 있다. 조건이 다시 발생하면 3초 계수를 초기화한다. 해제 후에도 AMR은 정지 상태를 유지하며 새 Drive Token과 별도 MissionCommand를 모두 받은 뒤 이동한다. E-stop 해제 부저는 사용하지 않는다.
 
@@ -414,18 +421,20 @@ patrol_allowed는 Bool이며 초기 true, ENTERING/EXITING에서 false, PARKED/E
 
 ## 7. Keepout과 속도 제어 경계
 
-계획된 노드/파라미터 조합:
+2026-09-08 확정된 이중 Keepout parameter 조합은 다음과 같다.
 
-| 대상 노드 | parameter |
-|---|---|
-| /robot1/global_costmap/global_costmap | keepout_filter.enabled |
-| /robot1/local_costmap/local_costmap | keepout_filter.enabled |
-| /robot6/global_costmap/global_costmap | keepout_filter.enabled |
-| /robot6/local_costmap/local_costmap | keepout_filter.enabled |
+| 대상 노드 | 기본 빨간 영역 | 노란 중앙통로 |
+|---|---|---|
+| /robot1/global_costmap/global_costmap | `base_keepout_filter.enabled=true` | `center_corridor_keepout_filter.enabled` |
+| /robot1/local_costmap/local_costmap | `base_keepout_filter.enabled=true` | `center_corridor_keepout_filter.enabled` |
+| /robot6/global_costmap/global_costmap | `base_keepout_filter.enabled=true` | `center_corridor_keepout_filter.enabled` |
+| /robot6/local_costmap/local_costmap | `base_keepout_filter.enabled=true` | `center_corridor_keepout_filter.enabled` |
 
-이는 parameter 이름과 소유 노드의 조합이며 한 개의 토픽 경로가 아니다. 관제가 대상 로봇의 global/local costmap 설정을 논리적으로 하나의 transaction으로 조정한다. 서로 다른 노드 API 호출을 원자적 작업이라고 가정하지 않는다. snapshot, 적용·read-back·lifecycle 확인, 실패 시 rollback은 [control_server.md](control_server.md)에 정의한다.
+위 값은 parameter 이름과 소유 노드의 조합이며 한 개의 토픽 경로가 아니다. `base_keepout_filter.enabled`는 AMR 시작 시 항상 true이고 관제가 변경하지 않는다. `center_corridor_keepout_filter.enabled`의 초기값은 false이며 관제는 `/vision/cctv/patrol_allowed=false`일 때 true, `patrol_allowed=true`일 때 false를 요청한다.
 
-AMR에는 KeepoutFilter, mask server, costmap_filter_info_server가 필요하다. 실제 노드명·지원 parameter·상태 보고 계약은 TBD-IF-008이다. 구성 예시는 amr.md에 있으며 실행 환경에 적용한 것이 아니다.
+관제는 robot1·robot6의 global/local 중앙통로 parameter를 논리적으로 하나의 transaction으로 조정한다. 서로 다른 노드 API 호출을 원자적 작업이라고 가정하지 않는다. 전체 대상 snapshot, 적용, 두 값 read-back과 lifecycle 확인, 실패 시 전체 snapshot rollback을 수행한다. Q-07의 timeout·재시도를 적용하며 일부 성공을 commit하지 않는다. rollback 실패 시 Keepout 상태를 UNKNOWN으로 판단하고 Safety Arbiter 정지를 요청한다.
+
+AMR은 두 mask server·두 costmap filter info server와 global/local costmap의 두 KeepoutFilter를 제공한다. parameter 계약의 근거는 [AMR 이중 Keepout 요청서](change_requests/CR-AMR_09-08_13-02_이중_Keepout_parameter_계약.md)다. 정식 Keepout 상태 토픽과 실환경 lifecycle·read-back·주행 검증은 TBD-IF-008에 남긴다.
 
 local_safety_supervisor는 로봇별 최종 속도 출력의 유일한 발행자다. 전역 /cmd_vel을 두 로봇이 공유하도록 구성하지 않는다.
 
@@ -520,18 +529,18 @@ DB 테이블·컬럼 매핑·인덱스·보존·백업 등 내부 저장 설계�
 
 ## TBD
 
-결정 시 이 표에 일자·근거·요청서 링크를 추가한다. `일부 결정`은 나열한 잔여 항목을 구현 전에 추가 합의해야 한다는 뜻이다.
+아래 미정 항목은 모두 v1.0 완료 조건에서 제외하고 차기 버전으로 이관한다. 결정 시 이 표에 일자·근거·요청서 링크를 추가한다. `일부 결정`은 나열한 잔여 항목을 차기 버전 구현 전에 추가 합의해야 한다는 뜻이다.
 
 | ID | 결정할 내용·현재 상태 | 영향 단위 |
 |---|---|---|
 | TBD-IF-001 | **결정(2026-09-08):** CommandCheck 0~3 수치, 정상·복구 예외·역방향 전이, 일치하는 EXECUTING 후 재전송 중단, 명령별 mission/target, `parameters_json` 제거, 203~206 reason code, `target_pose` 필드 유지·기본값 강제, robot별 default plan ID. [기존 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) · [관제 요청서](change_requests/CR-관제_09-08_15-15_AMR_명령_Heartbeat_E-stop_상태_계약.md) · [AMR 확정 회신](change_requests/CR-AMR_09-08_17-00_명령_Heartbeat_E-stop_상태_계약_확정_회신.md) | AMR·관제 |
 | TBD-IF-002 | **일부 결정(2026-09-07):** control session, token ID, message sequence, holder 회수·교대·정지 기준. 잔여: 송신 timestamp 기반 message age 검증. [요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) | AMR·관제 |
 | TBD-IF-003 | **일부 결정(2026-09-08):** RobotStatus·PatrolReport 의미 필드와 ID 연결, safety_state 0~5와 의미, 유효 ID의 최종 report 수락, AMR 로컬 영속 outbox·동일 report ID 발행 구현. 잔여: waypoint·visit·scan 상세 타입, 안전구역 계산 결과·도착 보고, 수신 애플리케이션 저장 ACK와 ACK 이후 큐 삭제 조건. [관제 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) · [AMR 계약 요청서](change_requests/CR-관제_09-08_15-15_AMR_명령_Heartbeat_E-stop_상태_계약.md) · [AMR ACK 검토 요청서](change_requests/CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md) | AMR·관제·시스템 모니터 |
-| TBD-IF-004 | **일부 결정(2026-09-08):** `ControlHeartbeat` 타입·필드·5 Hz·1초 timeout·QoS, E-stop reason 0~6, 전체 대상 `all`, 대표 원인 발행, 원인 제거 3초 해제, 하드웨어 E-stop·manual reset 제외. 잔여: E-stop reason 우선순위·원인별 활성/해제 조건·TRANSIENT_LOCAL depth, UI 요청 API와 전체 원인 집합 표시 계약. [AMR 요청서](change_requests/CR-관제_09-08_15-15_AMR_명령_Heartbeat_E-stop_상태_계약.md) · [System monitor 요청서](change_requests/CR-관제_09-08_15-15_System_monitor_E-stop_UI_운영상태_연계.md) | AMR·관제·시스템 모니터 |
+| TBD-IF-004 | **v1.0 일부 결정(2026-09-08):** `ControlHeartbeat` 타입·필드·5 Hz·1초 timeout·QoS, E-stop reason 0~6, 전체 대상 `all`, 대표 원인 발행과 우선순위 `SYSTEM_FAULT → UNKNOWN → OPERATOR → KEEPOUT_FAILURE → COMMUNICATION → OBSTACLE → TOKEN`, 원인 제거 3초 해제, 하드웨어 E-stop·manual reset 제외. **차기 버전 이관:** 원인별 상세 활성/해제 조건·TRANSIENT_LOCAL depth, UI 요청 API와 전체 원인 집합 표시 계약. [AMR 요청서](change_requests/CR-관제_09-08_15-15_AMR_명령_Heartbeat_E-stop_상태_계약.md) · [System monitor 요청서](change_requests/CR-관제_09-08_15-15_System_monitor_E-stop_UI_운영상태_연계.md) | AMR·관제·시스템 모니터 |
 | TBD-IF-005 | **일부 결정(2026-09-07):** CCTV event ID와 source session·sequence 필드. 잔여: CameraState 패키지, state 정수값, camera_id 값 | 비전·관제 |
 | TBD-IF-006 | **일부 결정(2026-09-07):** Detection event ID 형식. 잔여: Candidate/Event 필드·enum·토픽·QoS·발행자·중복 보존 | AMR·관제·시스템 모니터 |
 | TBD-IF-007 | **일부 결정(2026-09-07):** evidence ID 형식. 잔여: 메타데이터·전송 방법·결과 ACK·재전송·실패 계약 | AMR·관제·시스템 모니터 |
-| TBD-IF-008 | OPEN: Keepout 상태 토픽·필드와 실parameter, BatteryEvent·ActionFeedback 필요 여부. AMR 제시안 대기 | AMR·관제·시스템 모니터 |
+| TBD-IF-008 | **일부 결정(2026-09-08):** base Keepout 상시 ON·관제 변경 금지, center corridor global/local parameter 이름·초기값·permit 대응과 transaction 대상. 잔여: 정식 Keepout 상태 토픽·필드, 실환경 lifecycle/read-back 검증, BatteryEvent·ActionFeedback 필요 여부. [AMR 요청서](change_requests/CR-AMR_09-08_13-02_이중_Keepout_parameter_계약.md) | AMR·관제·시스템 모니터 |
 | TBD-IF-009 | **결정(2026-09-08):** 최종 `/robotN/cmd_vel`, 후보 `/robotN/cmd_vel_safe`·`/robotN/cmd_vel_yaw`, `enable_stamped_cmd_vel: true`, Q-17 후보 신선도 0.5초, namespace는 `robot_id` 파생, `cmd_vel_yaw`는 `mission_supervisor` 단독 발행. 후보 중재는 TBD-AMR-001로 남는다. [요청서](change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md) · [확정 회신](change_requests/CR-AMR_09-08_10-06_AMR_cmd_vel_계약_5개_확정_회신.md) | AMR·관제 |
 | TBD-IF-010 | OPEN: permit 발행·경고 timeout, RobotStatus 변경 발행 rate 제한의 세부 의미 | AMR·관제·시스템 모니터·비전 |
 | TBD-IF-011 | **일부 결정(2026-09-08):** 관제 운영 event ID 형식과 `CONTROL_SHUTDOWN`·`COMMAND_CHECK_TIMEOUT`·`ACCEPTED_MISSING` 분류, 정상 종료·재기동 순서. 잔여: 표시용 토픽과 공용 로그 필드·타입·시간·QoS·발행 정책·초기 상태·재연결·중복 전달. [System monitor 요청서](change_requests/CR-관제_09-08_15-15_System_monitor_E-stop_UI_운영상태_연계.md) | AMR·관제·시스템 모니터·비전 |

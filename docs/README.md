@@ -34,10 +34,11 @@ docs/
 | [monitoring_and_data.md](monitoring_and_data.md) | 시스템 모니터 팀: 모니터링·이력·증적·읽기 전용 대시보드 |
 | [integration.md](integration.md) | 기동·연결·정상 및 장애 흐름·통합시험 |
 | [change_requests/README.md](change_requests/README.md) | 개발 단위 간 수정 요청 양식·처리 상태 |
+| [관제 인터페이스 v1.0](decisions/2026-09-08-control-interface-baseline.md) | 현재 단계 확정 계약과 차기 버전 이관 TBD |
 
 ## 설계 기준
 
-[2026-09-07 PM 설계 결정](decisions/2026-09-07-design-baseline.md)에 따라 관제는 별도 노드, 시스템 모니터는 UI 전용으로 사용한다. 공용 메시지 패키지는 `patrol_interfaces`다. 최신 PM 결정과 System design의 확정 내용을 우선하며, 과거 문서의 TBD가 확정 사항을 대체하지 않는다. 진행표와 통합 일정은 PM이 별도로 수동 관리한다.
+[2026-09-07 PM 설계 결정](decisions/2026-09-07-design-baseline.md)에 따라 관제는 별도 노드, 시스템 모니터는 UI 전용으로 사용한다. 공용 메시지 패키지는 `patrol_interfaces`다. 관제의 명령·Heartbeat·DriveToken·E-stop·RobotStatus·이중 Keepout 구현 입력은 [v1.0 (`CTRL-IF-2026-09-08`)](decisions/2026-09-08-control-interface-baseline.md)으로 고정한다. 남은 TBD는 v1.0 완료 조건에서 제외하고 차기 버전으로 이관한다. 최신 PM 결정과 System design의 확정 내용을 우선하며, 과거 문서의 TBD가 확정 사항을 대체하지 않는다. 진행표와 통합 일정은 PM이 별도로 수동 관리한다.
 
 ## 읽기 순서와 작성 원칙
 
@@ -71,7 +72,7 @@ docs/
 
 ## 초안의 한계
 
-Detection 계약, 완전한 RobotStatus·PatrolReport 스키마, heartbeat/E-stop 세부 계약, 증적 전송·DB 설계 등이 남아 있다. 소프트웨어 버전·주소의 실제 적용 상태 및 장비 통신은 배포 시 검증한다. 설계 문서의 예시를 실제 적용된 설정이나 구현 완료의 근거로 사용하지 않는다.
+Detection·증적 전송 계약, PatrolReport 저장 ACK와 큐 삭제, E-stop 원인별 상세 clear 조건, System monitor 요청 API와 관제 운영 상태 토픽, Keepout 상태·탈출 경로 검증 등은 차기 버전 TBD다. E-stop 대표 reason 우선순위와 RobotStatus safety enum, MissionCommand·CommandCheck·Heartbeat·EStop의 기준선 범위는 v1.0에 확정했지만 코드 반영과 장비 통신 검증은 별도다. 소프트웨어 버전·주소의 실제 적용 상태 및 장비 통신은 배포 시 검증한다. 설계 문서의 예시를 실제 적용된 설정이나 구현 완료의 근거로 사용하지 않는다.
 
 ## ROS 2 워크스페이스
 

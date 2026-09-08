@@ -1,5 +1,7 @@
 # AMR 개발 워크스페이스 인수인계
 
+> **과거 구현 이력 — 현행 계약 판단·실행 금지:** 이 문서에는 폐기된 `latched`·물리 E-stop·수동 reset 및 구형 메시지 예제가 남아 있다. 해당 내용과 명령은 재사용하지 않는다. 현행 계약과 실행 입력은 [관제 인터페이스 v1.0](../decisions/2026-09-08-control-interface-baseline.md), [interfaces.md](../interfaces.md), [patrol_amr README](../../src/patrol_amr/README.md)만 따른다. 충돌 시 이 문서는 근거가 아니다.
+
 작성일: 2026-09-07 · 최종 갱신: 2026-09-08 11:48 KST · 로컬 작업 브랜치: `codex/amr-row-completion`
 
 ## 1. 작업 범위와 현재 상태
