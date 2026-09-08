@@ -1,10 +1,14 @@
 # AMR 개발 워크스페이스 인수인계
 
-작성일: 2026-09-07 · 최종 갱신: 2026-09-08 11:00 KST · 작업 브랜치: `feat/amr-safety-status`
+작성일: 2026-09-07 · 최종 갱신: 2026-09-08 11:11 KST · 작업 브랜치: `feat/amr-safety-status`
 
 ## 1. 작업 범위와 현재 상태
 
-조정묵 담당 범위는 공용 메시지 기반과 AMR Python 파일 7개, ROS 노드 3개다. 과거 업무 분장 자료의 `parking_interfaces`와 `final_turtlebot_pkg`는 현재 저장소 경로가 아니다. 현재 이름은 `patrol_interfaces`와 `patrol_amr`이며, 옛 이름의 패키지를 새로 만들지 않는다.
+업무표 전체 완료 기준과 19~30단계는 [AMR 업무표 100% 완료 계획](amr-100-percent-plan.md)을 따른다. 이후에는 중간 모듈 완료를 업무 행 100%로 표시하지 않는다.
+
+사용자 지시로 현재 구현은 로컬 `codex/amr-row-completion` 브랜치에서만 진행한다. 사용자가 다시 요청하기 전에는 commit·push·fetch·merge를 하지 않고 `main`을 변경하지 않는다.
+
+조정묵 담당 범위는 공용 메시지 기반과 기존 AMR Python 파일 7개, ROS 노드 3개였다. 2026-09-08 사용자가 업무표 전 행 100%를 목표로 로컬 구현을 승인해 순수 모듈 `patrol_report.py`, `command_store.py`, `heartbeat_guard.py`가 추가되어 현재 Python 파일은 10개다. ROS 노드는 여전히 3개다. 과거 업무 분장 자료의 `parking_interfaces`와 `final_turtlebot_pkg`는 현재 저장소 경로가 아니다. 현재 이름은 `patrol_interfaces`와 `patrol_amr`이며, 옛 이름의 패키지를 새로 만들지 않는다.
 
 | 단계 | 대상 | 상태 |
 |---|---|---|
@@ -25,16 +29,17 @@
 | 15 | AMR-11 물리 E-stop 로컬 latch | 구현·단위시험 19건·스모크 완료. 사용자 검토 대기 |
 | 16 | AMR-06 token 상태 연결 | 구현·단위시험·빌드·사용자 ROS 토픽 시험 완료 |
 | 17 | AMR-06 pose 연결 | 구현·단위시험·빌드 완료. 사용자 ROS 토픽 시험 대기 |
+| 18 | AMR-07 `PatrolReport` 구성·중복 방지 모듈 | 구현·단위시험·빌드 완료. ROS publisher·영속 큐·mission 입력 연결은 병합/계약 대기 |
 
-11~13단계로 TBD-IF-009 확정분의 AMR 측 구현이 끝났다. 14단계는 관제 회신을 기다리는 동안 진행한 것으로, interfaces.md 3절이 판정 숫자를 이미 확정해 둬 차단 요인이 없었다. 15단계부터는 전부 TBD 해소 또는 타 담당자 코드 병합이 선행되어야 한다.
+11~13단계로 TBD-IF-009 확정분의 AMR 측 구현이 끝났다. 14단계는 관제 회신을 기다리는 동안 진행한 것으로, interfaces.md 3절이 판정 숫자를 이미 확정해 둬 차단 요인이 없었다. 15~18단계는 재조사로 확인한 독립 구현 가능 범위를 완료했다. 19단계부터는 타 담당자 코드 병합 또는 TBD 해소가 선행되어야 한다.
 
-최종 ROS 노드는 `battery_monitor`, `local_safety_supervisor`, `status_reporter` 세 개다. guard와 state 파일은 해당 노드가 사용하는 일반 Python 모듈이다. 한 단계씩 구현하고 사용자 시험 통과 확인 전에는 다음 단계로 넘어가지 않는다.
+최종 ROS 노드는 `battery_monitor`, `local_safety_supervisor`, `status_reporter` 세 개다. guard·state·report 파일은 해당 노드 또는 향후 mission 코드가 사용하는 일반 Python 모듈이다. 사용자 시험이 있는 단계는 통과 확인 뒤 다음 단계로 넘어가며, 순수 모듈 단계는 자동 단위시험 뒤 이어서 진행한다.
 
-11단계 이후 계획은 [11절](#11-11단계-이후-실행-계획--2026-09-08)에 있다. 11~13단계는 관제 회신 없이 지금 착수할 수 있고, 14단계부터는 TBD 해소 또는 타 담당자 코드 병합이 선행되어야 한다.
+11단계 이후 계획은 [11절](#11-11단계-이후-실행-계획--2026-09-08)에 있다. 11~18단계의 독립 구현 가능 범위는 끝났고, 19단계부터는 TBD 해소 또는 타 담당자 코드 병합이 선행되어야 한다.
 
 ### 최신 재개 체크포인트 — 2026-09-08
 
-- 현재 로컬 HEAD는 `9eb151f`(`test(amr): add stage 10 local integration smoke`)이고 브랜치는 `feat/amr-safety-status`다. `origin/feat/amr-safety-status`와 앞뒤 차이가 없다(`0 0`). 1~10단계가 모두 push되어 있으므로 다른 컴퓨터에서 clone/pull로 현재 상태를 재현할 수 있다.
+- 현재 브랜치는 `feat/amr-safety-status`다. 1~17단계는 원격에 push되어 PR #10에 포함됐고, 18단계는 이 체크포인트의 최신 구현이다. 정확한 로컬·원격 차이는 재개할 때 `git status --short --branch`와 `git log -1 --oneline`으로 확인한다.
 - 2026-09-08 08:29 KST 재검증: `colcon build --packages-select patrol_interfaces patrol_amr` `2 packages finished`, 단위시험 `Ran 89 tests`/`OK`, 10단계 스모크 `STAGE10_PASS`. `motion_allowed=false,true,false,true,false`, `battery_state=0,2,0`, `status_sequence=1..19`. 10단계는 사용자 확인까지 통과 처리했다.
 - TBD-IF-009를 확정하고 11~13단계로 구현·검증을 끝냈다. 계약과 근거는 [요청서](../change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md), 결정 요약은 10.3절, 단계 계획은 11절에 있다. 12단계 사용자 ROS 토픽 시험까지 통과했다.
 - 최종 검증: `colcon build` `2 packages finished`, 단위시험 `Ran 114 tests`/`OK`, 확장 스모크 `AMR_SMOKE_PASS`(`cmd_vel_publishers=['local_safety_supervisor']`).
@@ -44,6 +49,10 @@
 - 최종 검증: 단위시험 `Ran 138 tests`/`OK`, 확장 스모크 `AMR_SMOKE_PASS`(경로 5종 + 발행자 단일성).
 - 2026-09-08 16단계 완료: `local_safety_supervisor`의 Q-01 판정을 내부 `accepted_token_id` 토픽으로 전달하고 `status_reporter`가 RobotStatus의 `accepted_token_id`·`token_valid`를 함께 채운다. 단위시험 `Ran 146 tests`/`OK`, 두 패키지 빌드 성공, 사용자 ROS 토픽 시험 통과.
 - 2026-09-08 17단계 구현: `status_reporter`가 상대 `amcl_pose`를 구독해 현재·last-valid pose와 `pose_valid`를 채운다. 로컬 pose timeout은 추가하지 않았다. 단위시험 `Ran 150 tests`/`OK`, 두 패키지 빌드 성공. 사용자 ROS 토픽 시험 대기.
+- 2026-09-08 18단계 완료: `patrol_report.py`가 확정된 result/reason 상수, `rpt-<robot_session>-<report_sequence>` ID, 시간·필드 검증, command별 동일 report ID 재사용과 충돌 거절을 구현한다. 단위시험 16건, 전체 `Ran 166 tests`/`OK`, 두 패키지 빌드 성공. mission/checkpoint 입력, ROS publisher와 영속 outbox는 병합·계약 대기다.
+- 2026-09-08 업무표 100% 계획 착수: `command_store.py`에 SQLite 영속 command ID, 동일/충돌 재수신 판정, 실행 상태와 완료 report 보존, Q-14의 24시간+오래된 최신 1,000개 유지를 구현했다. 단위시험 14건 통과. public CommandCheck 숫자와 mission ROS adapter가 없어 AMR-05는 아직 전체 완료가 아니다.
+- 2026-09-08 AMR-20 확정 부분 구현: `heartbeat_guard.py`에 control session·증가 sequence와 Q-16의 1초 초과 timeout을 구현했다. 단위시험 10건, 전체 `Ran 190 tests`/`OK`, 두 패키지 빌드 성공. wire 메시지 타입과 `local_safety_supervisor` ROS 연결이 없어 AMR-20은 아직 전체 완료가 아니다.
+- 2026-09-08 AMR-07 확정 부분 확장: `PatrolReportRecord`를 실제 wire 필드로 변환하고 caller-owned publisher로 1회 발행하는 helper와 RELIABLE·VOLATILE·KEEP_LAST(20) QoS helper를 추가했다. 전용 22건, 전체 `Ran 196 tests`/`OK`, 실제 QoS 객체 확인과 두 패키지 빌드 성공. mission 입력과 영속 재전송 trigger가 없어 AMR-07은 아직 전체 완료가 아니다.
 - 실제 Nav2 후보 연동은 성현님 launch 병합이 선행된다. 그 전까지 AMR 자체 항목을 먼저 채운다.
 - 아래 이력 항목의 `0efa7fa` 언급은 당시 기록이며 현재 HEAD가 아니다.
 - 2026-09-07 20:32 KST 재검증에서 `patrol_interfaces` 빌드는 `1 package finished`, 전체 단위시험은 `Ran 89 tests`와 `OK`, `git diff --check`는 출력 없이 통과했다.
@@ -934,10 +943,12 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 | 15 | AMR-11 물리 E-stop 로컬 latch | 단위 + 스모크 | **완료 (2026-09-08)** |
 | 16 | AMR-06 token 상태 연결 (`accepted_token_id`·`token_valid`) | 단위 + 사용자 ROS 토픽 시험 | **완료 (2026-09-08)** |
 | 17 | AMR-06 pose 연결 (`pose`·`pose_valid`·`last_valid_pose`) | 단위 + 사용자 ROS 토픽 시험 | **구현 완료 (2026-09-08), 사용자 시험 대기** |
-| 18 | AMR-07 `PatrolReport` 발행 모듈 | 단위시험 | 모듈까지 착수 가능, 입력 연결은 병합 대기 |
-| 19 | 실제 Nav2 후보와 연동해 IT-16 부분 실행 | 통합시험 | 박성현 launch 병합 후 |
-| 20 | AMR-18·19 `recovery_supervisor.py` | 단위 + 사용자 ROS 토픽 시험 | TBD-AMR-005 해소 + `nav2_client.py` 병합 후 |
-| 21 | I-03·T-01·T-03·T-04 | 통합시험 | 위 전부 완료 후 |
+| 18 | AMR-07 `PatrolReport` 구성·중복 방지 모듈 | 단위시험 | **완료 (2026-09-08)**. publisher·영속 큐·입력 연결은 병합/계약 대기 |
+| 19 | 업무표 공통 선행조건 정리 | 코드 확보·TBD 결정·영향 파일 대조 | 진행 대상 |
+| 20~27 | AMR-03~20 기능 행 종단 구현 | 단계별 단위·로컬 자동시험 | [100% 완료 계획](amr-100-percent-plan.md) 순서 |
+| 28 | T-01~T-05 정식 시험 | ROS·실기·장애 시나리오 | 기능 구현 후 |
+| 29 | I-01~I-03 통합 | 모듈·패키지·robot1/robot6 로컬 통합 | 정식 시험과 병행 |
+| 30 | 전체 100% 감사 | 26행 완료·미실행·OPEN blocker 0건 | 최종 |
 
 **2026-09-08 순서 변경.** 사용자가 AMR-05·06·07·11을 먼저 완성하기로 해서 재조사했다. 결과는 13절에 있고 요지는 다음과 같다.
 
@@ -1292,9 +1303,19 @@ launch에 `pose_topic` 인자를 추가했으며 기본값은 `amcl_pose`다. �
 
 자동 검증은 `status_reporter` 16건, `robot_status_state` 32건, 전체 `Ran 150 tests`/`OK`, `colcon build` 두 패키지 성공이다. DDS 스모크에서 `map` pose 수신, current/last-valid 반영, 1.7초 무수신 후에도 `pose_valid=true` 유지를 통과했다. 전체 스모크는 그 뒤 기존 battery LOW 타이밍 검사에서 중단돼 전체 PASS로 선언하지 않는다. 사용자 ROS 토픽 시험은 대기 중이다.
 
+### 18단계 — AMR-07 PatrolReport 모듈 · 완료 2026-09-08
+
+[patrol_report.py](../../src/patrol_amr/patrol_amr/patrol_report.py)를 ROS 의존성이 없는 모듈로 추가했다. `PatrolReport.msg`의 result 3종과 reason code 29종을 그대로 사용하고, `interfaces.md` 1.2절의 `rpt-<robot_session>-<report_sequence>` 형식으로 ID를 만든다. sequence는 최소 네 자리이며 영속 저장 담당자가 복원할 수 있도록 초기 `next_sequence`를 받는다.
+
+`PatrolReportFactory.create()`는 command·mission ID, 결과, reason, 시작·종료 시각, 마지막 waypoint, 관련 event ID를 모두 검증한 뒤 불변 record를 만든다. FAILED/CANCELED는 `NONE`이 아닌 reason code와 진단 문자열을 강제한다. 동일 command에 동일 payload가 다시 들어오면 기존 record와 ID를 그대로 반환하고, payload가 다르면 충돌로 거절해 최초 최종 결과를 보존한다. 검증 실패·충돌은 sequence를 소비하지 않는다.
+
+이번 단계에는 ROS publisher와 로컬 영속 큐를 넣지 않았다. mission/checkpoint 결과 공급 코드가 아직 없고, 미전송 report의 저장 위치·ACK·삭제 정책도 확정되지 않았다. 메모리 안에서의 중복 방지는 프로세스 재시작 뒤 재전송을 충족하지 않는다. 입력 병합 후 `/robotN/patrol_report`의 RELIABLE·VOLATILE·KEEP_LAST(20) publisher와 영속 outbox를 연결해야 AMR-07 전체 완료다.
+
+자동 검증은 `tests/test_patrol_report.py` 22건, 전체 `Ran 196 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr` 두 패키지 성공이다. ROS QoS 객체도 `20 RELIABLE VOLATILE KEEP_LAST`로 확인했다. mission 입력 subscriber가 없으므로 아직 사용자 종단 토픽 시험은 없다. 코드 flowchart와 상세 근거는 [amr.md 7.3절](../amr.md#73-patrol_reportpy--구현-대조-완료)에 있다.
+
 ### 19단계 이후
 
-20단계의 순서는 의존성이 적은 것부터다. AMR-11은 TBD 하나만 풀리면 되고 남의 코드가 필요 없다. AMR-18·19와 AMR-07은 TBD와 병합 두 가지가 모두 필요하다. 세 단계 모두 착수 전에 해당 TBD의 잔여 항목이 실제로 닫혔는지 [interfaces.md TBD 표](../interfaces.md#tbd)에서 확인하고, 미정 값을 지어내지 않는다.
+사용자 업무표의 각 행을 100%로 닫는 실행 순서는 [AMR 업무표 100% 완료 계획](amr-100-percent-plan.md)으로 교체했다. 19단계는 공통 선행조건, 20~27단계는 기능 구현과 단위·로컬 자동시험, 28단계는 T-01~T-05, 29단계는 I-01~I-03, 30단계는 전체 26행 감사다. 관련 TBD가 열린 기능은 임의 값을 넣지 않고 19단계에서 결정·요청서·영향 파일을 먼저 확정한다.
 
 ## 12. 남은 작업의 노드·파일·기능 매핑 — 2026-09-08
 
@@ -1377,7 +1398,7 @@ ROS에 의존하지 않으며 위 노드들이 import해서 쓴다.
 | 15 | `estop_guard.py` | 물리 E-stop 로컬 latch |
 | 16 | `local_safety_supervisor.py` → `status_reporter.py` | token 상태 내부 토픽 (**완료**) |
 | 17 | `robot_status_state.py` → `status_reporter.py` | `amcl_pose` 구독, pose 연결 (**구현 완료, 사용자 시험 대기**) |
-| 18 | `patrol_report.py` (신규) | `PatrolReport` 구성·발행 모듈 |
+| 18 | `patrol_report.py` (신규) | `PatrolReport` 구성·중복 방지 모듈 (**완료**). publisher·영속 outbox는 병합/계약 대기 |
 | 19 | (변경 없음) | 실제 Nav2 후보로 IT-16 부분 실행 |
 | 20 | `recovery_supervisor.py` (신규) | goal·spin 취소, 30초 타이머, 재개, 토큰 반납 |
 | 21 | (변경 없음) | I-03·T-01·T-03·T-04 통합시험 |
@@ -1441,7 +1462,7 @@ ros2 topic info /robot1/cmd_vel --verbose
 |---|---|---|---|
 | AMR-05 `command_store.py` | 박성현 구현 완료 보고, 브랜치에 없음 | 변화 없음. 조정묵 목록에서 제외된 항목이고 어느 원격 브랜치에도 없다 | **이 저장소에서 진행 불가** |
 | AMR-06 RobotStatus | pose/mission/docking/token/safety 미연결 | odometry는 14단계, token은 16단계, pose는 17단계로 연결 | 병합/TBD |
-| AMR-07 PatrolReport | 메시지만 있고 publisher 없음 | 발행 모듈까지는 만들 수 있다. 입력만 병합 대기 | 18단계(모듈) |
+| AMR-07 PatrolReport | 메시지와 구성·중복 방지 모듈 있음, publisher 없음 | 확정 계약의 순수 모듈 완료. 입력·publisher·영속 outbox는 병합/계약 대기 | 18단계(모듈 완료) |
 | AMR-11 물리 latch | TBD-IF-004 해소 후 | **계약이 문장으로 확정돼 있었다.** Q-10·interfaces.md 3.1절 | **15단계 완료** |
 
 ### 네 항목의 전체 완료 조건
@@ -1452,7 +1473,7 @@ ros2 topic info /robot1/cmd_vel --verbose
 |---|---|---|---|
 | AMR-05 | `command_store`가 command별 target·`parameters_json`을 검증하는 범위라면 TBD-IF-001 잔여 확정 | 박성현 `command_store.py` 병합 | 현재 MissionCommand 계약 대조, 저장·중복·재시작 시험 |
 | AMR-06 | TBD-IF-003의 safety enum, waypoint·visit·scan 상세 타입과 reason 보고 정책 | mission 코드가 operational·mission·docking, active command/mission ID를 공급 | RobotStatus 27필드 표 전체 대조 + ROS 통합시험 |
-| AMR-07 | PatrolReport `report_id` 생성 규칙 확인, TBD-IF-003의 waypoint·visit·scan 잔여 | mission/checkpoint 결과와 command·mission ID·시작/종료 시각 입력 | 성공·실패·취소 report, 재전송·중복 시험 |
+| AMR-07 | report ID 형식은 interfaces.md 1.2절로 확인 완료. 영속 outbox의 저장·ACK·삭제 정책과 TBD-IF-003의 waypoint·visit·scan 잔여 | mission/checkpoint 결과와 command·mission ID·시작/종료 시각 입력 | 성공·실패·취소 ROS report, 재연결·재시작 재전송·수신 중복 시험 |
 | AMR-11 | TBD-IF-004의 수동 reset 요청 경로·권한·ACK, reason enum·전체 대상 값·QoS depth | 실제 물리 E-stop 입력과 reset 호출자 연결 | 물리 버튼·관제·로컬 latch·수동 reset 실기시험 |
 
 따라서 미정 부분은 임의 구현하지 않고 먼저 결정해야 한다. 단, AMR-05는 우선 코드 병합·검토가 필요하며 그 구현이 TBD-IF-001 잔여 값을 실제로 요구하는지 확인한 뒤 결정 범위를 확정한다.
@@ -1475,6 +1496,6 @@ ros2 topic info /robot1/cmd_vel --verbose
 
 17단계에서 주의할 점이 있다. `pose_valid`를 언제 `false`로 되돌릴지는 **신선도 기준이 필요한데 그 값이 미정이다.** Q-05의 1.5초는 *주행 재개* 조건이고 Q-03의 1.5초는 *관제의 STALE 판정*이라 둘 다 `pose_valid` 정의가 아니다. amr.md 3절이 임의 timeout 추가를 금지하므로, 받은 pose를 유효로 표시하고 `last_valid_pose_age`로 나이를 노출해 관제가 판단하게 두는 것이 계약에 맞다. 이 해석은 17단계 착수 전에 확인한다.
 
-**AMR-07** — `PatrolReport.msg`는 `result` 3종과 `reason_code` 32종이 확정돼 있어 메시지를 구성하는 순수 모듈은 지금 만들 수 있다. 다만 `command_id`·`mission_id`·`started_at`·`finished_at`을 채울 mission 결과가 없으므로 **발행 호출자는 병합 후에 붙인다.** `robot_status_state`를 7단계에 만들고 8단계에 연결한 것과 같은 방식이다. `report_id` 형식은 TBD-IF-001·003의 "구조화 ID" 일부 결정에 걸려 있어 착수 전에 확인한다.
+**AMR-07** — `PatrolReport.msg`의 `result` 3종과 `reason_code` 29종, `interfaces.md` 1.2절의 report ID 형식을 확인해 18단계 순수 모듈을 완료했다. `command_id`·`mission_id`·`started_at`·`finished_at`을 채울 mission 결과가 없으므로 **ROS 발행 호출자는 병합 후에 붙인다.** 미전송 report의 저장·ACK·삭제 정책도 확정한 뒤 영속 outbox를 연결해야 재시작 뒤 같은 report ID 재전송까지 충족한다.
 
 **AMR-11** — 15단계로 완료했다. 위 15단계 절에 상세가 있다.
