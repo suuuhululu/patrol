@@ -31,9 +31,16 @@ class MissionCommandCallback:
             self._logger.info(
                 f'mission command accepted: {request.command.name} '
                 f'{request.command_id}')
-        elif result is SubmissionResult.BUSY:
+        elif result is SubmissionResult.DUPLICATE:
+            self._logger.info(
+                f'duplicate mission command ignored: {request.command_id}')
+        elif result is SubmissionResult.COMMAND_ID_CONFLICT:
             self._logger.error(
-                f'mission command rejected while busy: {request.command_id}')
+                f'mission command ID conflict: {request.command_id}')
+        elif result is SubmissionResult.INVALID_STATE:
+            self._logger.error(
+                f'mission command rejected in current state: '
+                f'{request.command_id}')
         elif result is SubmissionResult.SAFETY_NOT_READY:
             reason = (
                 self._arbiter.motion_disabled_reason

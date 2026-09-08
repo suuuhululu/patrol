@@ -125,12 +125,19 @@ class MissionReporter:
     ) -> MissionCompletion | None:
         if not request.command_id:
             raise ValueError('command_id is required')
+        if (
+            outcome in {'REJECTED', 'SUPERSEDED'}
+            or request.command is MissionType.STOP
+            or (
+                request.command is MissionType.MOVE_TO_SAFE_ZONE
+                and outcome == 'SUCCEEDED'
+            )
+        ):
+            return None
         if not request.mission_id:
             raise ValueError('mission_id is required')
         if request.robot_id not in {'robot1', 'robot6'}:
             raise ValueError(f'unsupported robot_id: {request.robot_id}')
-        if outcome == 'REJECTED':
-            return None
         try:
             normalized_outcome = MissionOutcome[outcome]
         except KeyError as exc:

@@ -9,12 +9,16 @@ from patrol_amr.mission_types import (
 
 class MissionReporterTest(unittest.TestCase):
     @staticmethod
-    def request(command_id='cmd-1', robot_id='robot1'):
+    def request(
+        command_id='cmd-1',
+        robot_id='robot1',
+        command=MissionType.START_PATROL,
+    ):
         return MissionRequest(
             command_id=command_id,
             mission_id='msn-ctrl-20260907T160000-robot1-0001',
             robot_id=robot_id,
-            command=MissionType.START_PATROL,
+            command=command,
             target_id='patrol-a',
         )
 
@@ -66,6 +70,35 @@ class MissionReporterTest(unittest.TestCase):
 
         self.assertIs(result, ReportResult.NOT_REPORTABLE)
         self.assertEqual(published, [])
+
+    def test_stop_and_safe_zone_success_are_not_terminal_reports(self):
+        published = []
+        reporter = MissionReporter(published.append)
+
+        stop = reporter.report(
+            self.request('cmd-stop', command=MissionType.STOP), 'PAUSED')
+        safe_zone = reporter.report(
+            self.request(
+                'cmd-safe', command=MissionType.MOVE_TO_SAFE_ZONE),
+            'SUCCEEDED',
+        )
+
+        self.assertIs(stop, ReportResult.NOT_REPORTABLE)
+        self.assertIs(safe_zone, ReportResult.NOT_REPORTABLE)
+        self.assertEqual(published, [])
+
+    def test_idle_stop_is_nonreportable_without_a_mission_id(self):
+        reporter = MissionReporter(lambda completion: None)
+        stop = MissionRequest(
+            command_id='cmd-stop-idle',
+            mission_id='',
+            robot_id='robot1',
+            command=MissionType.STOP,
+        )
+
+        result = reporter.report(stop, 'PAUSED')
+
+        self.assertIs(result, ReportResult.NOT_REPORTABLE)
 
     def test_failed_sink_can_be_retried(self):
         published = []

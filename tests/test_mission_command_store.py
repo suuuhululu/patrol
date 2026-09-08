@@ -34,6 +34,20 @@ class CommandStoreTest(unittest.TestCase):
         store.clear_checkpoint('patrol-a')
         self.assertIsNone(CommandStore(path).load_checkpoint('patrol-a'))
 
+    def test_superseded_is_a_durable_nonterminal_command_outcome(self):
+        path = self.root / 'robot1.json'
+        store = CommandStore(path)
+        store.claim('cmd-preempted', 'hash-a')
+        store.finish(
+            'cmd-preempted',
+            'SUPERSEDED',
+            'SUPERSEDED_BY_HIGHER_PRIORITY',
+        )
+        self.assertEqual(
+            CommandStore(path).outcome('cmd-preempted'),
+            'SUPERSEDED',
+        )
+
     def test_damaged_store_fails_closed(self):
         path = self.root / 'damaged.json'
         path.write_text('{not-json')

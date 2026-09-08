@@ -76,7 +76,8 @@ class CommandStore:
 
     def finish(self, command_id: str, outcome: str, reason: str = '') -> None:
         if outcome not in {
-            'SUCCEEDED', 'FAILED', 'CANCELED', 'REJECTED', 'PAUSED'
+            'SUCCEEDED', 'FAILED', 'CANCELED', 'REJECTED', 'PAUSED',
+            'SUPERSEDED',
         }:
             raise ValueError(f'unsupported outcome: {outcome}')
         with self._lock:

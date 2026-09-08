@@ -6,16 +6,17 @@ from queue import Empty
 import threading
 import time
 
+from patrol_amr.mission_arbiter import MissionArbiter
 from patrol_amr.mission_command_store import (
     ClaimResult, CommandStore, StoreError)
-from patrol_amr.mission_arbiter import MissionArbiter
 from patrol_amr.mission_config import MissionConfig
 from patrol_amr.mission_controller import MissionController
 from patrol_amr.mission_reporter import MissionReporter, ReportPublishError
 from patrol_amr.mission_state import MissionStateTracker
 from patrol_amr.mission_types import MissionRequest, MissionType
 from patrol_amr.navigation_adapter import NavigationAdapter
-from patrol_amr.patrol_report_reason import INTERNAL_ERROR
+from patrol_amr.patrol_report_reason import (
+    INTERNAL_ERROR, SAFETY_POLICY_CANCELED)
 
 
 class MissionWorker:
@@ -70,7 +71,8 @@ class MissionWorker:
                 continue
             if request is None:
                 return
-            self._arbiter.begin(request)
+            if not self._arbiter.begin(request):
+                continue
             try:
                 self._execute(request)
             finally:
@@ -142,6 +144,17 @@ class MissionWorker:
                     request, self._arbiter.cancel_event)
                 outcome, reason, reason_code = (
                     result.outcome, result.reason, result.reason_code)
+                if (
+                    outcome == 'CANCELED'
+                    and self._arbiter.external_stop_triggered
+                ):
+                    reason = 'LOCAL_SAFETY_REVOKED'
+                    reason_code = SAFETY_POLICY_CANCELED
+                    self._store.clear_checkpoint(request.mission_id)
+                elif self._arbiter.was_superseded(request):
+                    outcome = 'SUPERSEDED'
+                    reason = 'SUPERSEDED_BY_HIGHER_PRIORITY'
+                    reason_code = 0
         except Exception as exc:
             self._arbiter.disable_motion('COMMAND_EXECUTION_FAILED')
             outcome = 'FAILED'
@@ -151,8 +164,9 @@ class MissionWorker:
                 f'command execution failed; motion disabled: {exc!r}')
 
         finished_at_ns = self._now_ns()
+        nonterminal = self._is_nonterminal_result(request, outcome)
         report_error = None
-        if outcome != 'PAUSED':
+        if not nonterminal:
             report_error = self._report_completion(
                 request,
                 outcome,
@@ -174,6 +188,30 @@ class MissionWorker:
         state_store_error = None
         if outcome == 'PAUSED':
             self._state.pause()
+            try:
+                self._persist_state()
+            except Exception as exc:
+                state_store_error = exc
+                self._arbiter.disable_motion('STATUS_DURABILITY_FAILED')
+                self._logger.fatal(
+                    'mission status durability failed; motion disabled: '
+                    f'{exc}')
+        elif (
+            request.command is MissionType.MOVE_TO_SAFE_ZONE
+            and outcome == 'SUCCEEDED'
+        ):
+            # The controller already persisted MISSION_WAITING_SAFE_ZONE.
+            # Reaching a safe zone does not finish the mission and must not
+            # clear its command/mission identity or create a PatrolReport.
+            try:
+                self._persist_state()
+            except Exception as exc:
+                state_store_error = exc
+                self._arbiter.disable_motion('STATUS_DURABILITY_FAILED')
+                self._logger.fatal(
+                    'mission status durability failed; motion disabled: '
+                    f'{exc}')
+        elif outcome == 'SUPERSEDED':
             try:
                 self._persist_state()
             except Exception as exc:
@@ -204,6 +242,17 @@ class MissionWorker:
         log(f'command {request.command_id}: {outcome} {reason}')
         if command_store_error is not None or state_store_error is not None:
             return
+
+    @staticmethod
+    def _is_nonterminal_result(request: MissionRequest, outcome: str) -> bool:
+        """Return whether this command stores state without ending mission."""
+        return (
+            outcome in {'PAUSED', 'SUPERSEDED'}
+            or (
+                request.command is MissionType.MOVE_TO_SAFE_ZONE
+                and outcome == 'SUCCEEDED'
+            )
+        )
 
     def _on_state_change(self, mission: str, waypoint_index: int) -> None:
         self._state.transition(mission, waypoint_index)
