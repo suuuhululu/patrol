@@ -29,7 +29,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DetectionEvent.msg"
   "msg/EvidenceChunk.msg"
   "msg/KeepoutStatus.msg"
-  "msg/DetectionCandidate.msg"
   "msg/AlignmentStatus.msg"
   DEPENDENCIES std_msgs
   DEPENDENCIES std_msgs geometry_msgs builtin_interfaces

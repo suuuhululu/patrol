@@ -16,7 +16,7 @@
 | /{robot}/command_check | patrol_interfaces/msg/CommandCheck | AMR → 관제 | 타입 반영, check_state 수치 TBD |
 | /control/drive_token | patrol_interfaces/msg/DriveToken | 관제 → AMR 로컬 안전 | 세션·ID·message_sequence·회수 타입 반영 |
 | /{robot}/robot_status | patrol_interfaces/msg/RobotStatus | AMR → 관제·시스템 모니터 | 의미 필드·이름 타입 반영, safety enum 세부 TBD |
-| /{robot}/patrol_report | patrol_interfaces/msg/PatrolReport | AMR → 관제·시스템 모니터 | 필드·ID 연결 타입 반영, 재전송 실장 미완료 |
+| /{robot}/patrol_report | patrol_interfaces/msg/PatrolReport | AMR → 관제·시스템 모니터 | 영속 큐·동일 report_id 발행 구현, 수신 저장 ACK는 TBD-IF-003 |
 | /vision/cctv/gate_event | CameraState | gate_cam → cam_master | 패키지명·enum 수치 TBD |
 | /vision/cctv/center_event | CameraState | center_cam → cam_master | 패키지명·enum 수치 TBD |
 | /vision/cctv/patrol_allowed | std_msgs/msg/Bool | cam_master → 관제·시스템 모니터 | 정책 기준 있음 |
@@ -317,6 +317,8 @@ SUCCEEDED는 목표 정상 달성, FAILED는 자체 장애·주행 실패·위�
 
 command 하나가 최종 상태에 이를 때 PatrolReport 하나를 생성한다. report ID는 1.2절 형식으로 AMR이 생성하고, command ID와 mission ID는 수신한 MissionCommand의 값을 그대로 사용한다. 여러 report가 같은 mission ID를 공유할 수 있다. AMR은 미전송 report를 로컬 영속 큐에 저장하고 재연결 후 같은 report ID로 재전송한다. 수신자는 report ID로 중복을 제거한다.
 
+2026-09-08 AMR-07 구현은 robot별 로컬 outbox에 종료 결과를 저장하고 matched subscriber가 생기면 같은 report ID로 `/{robot}/patrol_report`를 발행한다. DDS publish 호출 성공만으로 수신 애플리케이션 저장 완료를 보장할 수 없으므로 ACK 단위와 ACK 이후 삭제 조건은 [AMR 검토 요청서](change_requests/CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md)의 TBD-IF-003에 남긴다.
+
 통신 두절 때 관제는 보고서를 대필하지 않는다. 결과가 없는 임무를 UNREPORTED로 유지하고 UNREPORTED를 PatrolReport 결과 enum에 추가하지 않는다. 늦은 report가 도착하면 현재 UNREPORTED를 해제하되 발생·해제 이력은 보존한다.
 
 권장 reason code 표는 다음과 같다. FIRE_DETECTED=702를 설계 기준으로 유지한다.
@@ -396,7 +398,7 @@ mission_supervisor(yaw 정렬)      → /robotN/cmd_vel_yaw
   → local_safety_supervisor      → /robotN/cmd_vel  → 구동부
 ```
 
-후보 두 토픽은 `geometry_msgs/TwistStamped`이며 Nav2 노드에 `enable_stamped_cmd_vel: true`를 적용한다. 후보의 `header.stamp` 신선도 기준은 Q-17이다. namespace는 `robot_id`에서 파생하고 관제 launch는 `PushRosNamespace`·`RewrittenYaml`을 사용한다. `cmd_vel_yaw`는 `mission_supervisor`가 단독 발행한다. 두 후보 사이의 주행 중재는 [TBD-AMR-001](amr.md#tbd)로 남는다.
+후보 두 토픽은 `geometry_msgs/TwistStamped`이며 Nav2 노드에 `enable_stamped_cmd_vel: true`를 적용한다. 후보의 `header.stamp` 신선도 기준은 Q-17이다. namespace는 `robot_id`에서 파생하고 관제 launch는 `PushRosNamespace`·`RewrittenYaml`을 사용한다. `cmd_vel_yaw`는 `mission_supervisor`가 단독 발행한다. 두 후보 사이의 주행 중재는 [TBD-AMR-001](amr.md#tbd)로 남는다. 적용 근거는 [요청서](change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md)와 [확정 회신](change_requests/CR-AMR_09-08_10-06_AMR_cmd_vel_계약_5개_확정_회신.md)을 따른다.
 
 ## 8. Battery enum과 임계값
 
@@ -479,13 +481,13 @@ DB 테이블·컬럼 매핑·인덱스·보존·백업 등 내부 저장 설계�
 |---|---|---|
 | TBD-IF-001 | **일부 결정(2026-09-07):** 구조화 ID, CommandCheck 의미 상태, 충돌·재전송·보존·START/RESUME·STOP/CANCEL. 잔여: check_state 정수 매핑, command별 target 필수값과 parameters_json 스키마. [요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) | AMR·관제 |
 | TBD-IF-002 | **일부 결정(2026-09-07):** control session, token ID, message sequence, holder 회수·교대·정지 기준. 잔여: 송신 timestamp 기반 message age 검증. [요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) | AMR·관제 |
-| TBD-IF-003 | **일부 결정(2026-09-07):** RobotStatus·PatrolReport 의미 필드, ID 연결, report 재전송. 잔여: safety enum 수치, waypoint·visit·scan 상세 타입. [요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) | AMR·관제·시스템 모니터 |
+| TBD-IF-003 | **일부 결정(2026-09-08):** RobotStatus·PatrolReport 의미 필드와 ID 연결, AMR 로컬 영속 outbox·동일 report ID 발행 구현. 잔여: safety enum 수치, waypoint·visit·scan 상세 타입, 수신 애플리케이션 저장 ACK와 ACK 이후 큐 삭제 조건. [관제 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) · [AMR ACK 검토 요청서](change_requests/CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md) | AMR·관제·시스템 모니터 |
 | TBD-IF-004 | **일부 결정(2026-09-07):** heartbeat 5 Hz·1초 timeout, E-stop 의미 필드·해제 조건. 잔여: 메시지 타입명, E-stop 원인 enum·전체 대상 값·depth·수동 reset 요청 경로. [요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) | AMR·관제·시스템 모니터 |
 | TBD-IF-005 | **일부 결정(2026-09-07):** CCTV event ID와 source session·sequence 필드. 잔여: CameraState 패키지, state 정수값, camera_id 값 | 비전·관제 |
 | TBD-IF-006 | **일부 결정(2026-09-07):** Detection event ID 형식. 잔여: Candidate/Event 필드·enum·토픽·QoS·발행자·중복 보존 | AMR·관제·시스템 모니터 |
 | TBD-IF-007 | **일부 결정(2026-09-07):** evidence ID 형식. 잔여: 메타데이터·전송 방법·결과 ACK·재전송·실패 계약 | AMR·관제·시스템 모니터 |
 | TBD-IF-008 | OPEN: Keepout 상태 토픽·필드와 실parameter, BatteryEvent·ActionFeedback 필요 여부. AMR 제시안 대기 | AMR·관제·시스템 모니터 |
-| TBD-IF-009 | **결정(2026-09-08):** 최종 `/robotN/cmd_vel`, 후보 `/robotN/cmd_vel_safe`·`/robotN/cmd_vel_yaw`, `enable_stamped_cmd_vel: true`, Q-17 후보 신선도 0.5초, namespace는 `robot_id` 파생, `cmd_vel_yaw`는 `mission_supervisor` 단독 발행. 후보 중재는 TBD-AMR-001로 남는다. [요청서](change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md) | AMR·관제 |
+| TBD-IF-009 | **결정(2026-09-08):** 최종 `/robotN/cmd_vel`, 후보 `/robotN/cmd_vel_safe`·`/robotN/cmd_vel_yaw`, `enable_stamped_cmd_vel: true`, Q-17 후보 신선도 0.5초, namespace는 `robot_id` 파생, `cmd_vel_yaw`는 `mission_supervisor` 단독 발행. 후보 중재는 TBD-AMR-001로 남는다. [요청서](change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md) · [확정 회신](change_requests/CR-AMR_09-08_10-06_AMR_cmd_vel_계약_5개_확정_회신.md) | AMR·관제 |
 | TBD-IF-010 | OPEN: permit 발행·경고 timeout, RobotStatus 변경 발행 rate 제한의 세부 의미 | AMR·관제·시스템 모니터·비전 |
 | TBD-IF-011 | **일부 결정(2026-09-07):** 관제 운영 event ID 형식. 잔여: 표시용 토픽과 공용 로그 필드·타입·시간·QoS·발행 정책·초기 상태·재연결·중복 전달 | AMR·관제·시스템 모니터·비전 |
 

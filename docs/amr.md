@@ -49,15 +49,15 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 
 | 대상 코드·모듈 | 코드 경로·진입 함수 | Flowchart·대조 상태 |
 |---|---|---|
-| 정상 순찰 | 구현 시 기록 | 미작성 |
-| 안전구역 대피 | 구현 시 기록 | 미작성 |
-| 순찰 재개 | 구현 시 기록 | 미작성 |
-| 도킹 | 구현 시 기록 | 미작성 |
-| 감지·증적 | 구현 시 기록 | 미작성 |
-| 중단·복구 대응 | 구현 시 기록 | 미작성 |
-| mission_supervisor | 구현 시 기록 | 미작성 |
+| 정상 순찰 | `src/patrol_amr/patrol_amr/scenarios/start_patrol.py:start_patrol`, `scenarios/patrol.py:PatrolScenario.run` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#시나리오) · IT-02·07 |
+| 안전구역 대피 | `src/patrol_amr/patrol_amr/scenarios/safe_zone.py:move_to_safe_zone` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#시나리오) · 실제 후보 공급 TBD-CTRL-002 · IT-07·09 |
+| 순찰 재개 | `src/patrol_amr/patrol_amr/scenarios/resume_patrol.py:resume_patrol` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#시나리오) · 기본 비활성, TBD-AMR-005 |
+| 도킹 | `src/patrol_amr/patrol_amr/scenarios/docking.py:dock`, `docking_runner.py:DockingRunner` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#nav2와-도킹) · 센서 의미 TBD-AMR-004 · IT-13 |
+| 감지·증적 | `src/patrol_amr/patrol_amr/fire_event_registry.py:FireEventRegistry`, `audio_note_sequence_adapter.py:AudioNoteSequenceAdapter` | [이벤트 기초 모듈 구현 대조](../src/patrol_amr/docs/mission_navigation.md#이벤트-기능-기초) · 상세 계약 TBD-AMR-001·TBD-IF-006·007 |
+| 중단·복구 대응 | `src/patrol_amr/patrol_amr/scenarios/interruption.py:interrupt_navigation`, `mission_arbiter.py:MissionArbiter` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#명령-콜백과-실행-수명) · STOP/CANCEL 차이 TBD-AMR-005 |
+| mission_supervisor | `src/patrol_amr/patrol_amr/mission_supervisor.py:MissionSupervisor`, `mission_command_callback.py:MissionCommandCallback`, `mission_worker.py:MissionWorker`, `mission_controller.py:MissionController` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#명령-콜백과-실행-수명) · CommandCheck 세부 TBD-IF-001 |
 | command_store.py | [src/patrol_amr/patrol_amr/command_store.py](../src/patrol_amr/patrol_amr/command_store.py) · `CommandStore.register`·`mark_executing`·`complete`·`prune` | [2.1절](#21-command_storepy--구현-대조-완료-순수-모듈) 구현 대조 완료 (ROS 연결 대기) |
-| local_safety_supervisor | 구현 시 기록 | 미작성 |
+| mission_command_store.py | [src/patrol_amr/patrol_amr/mission_command_store.py](../src/patrol_amr/patrol_amr/mission_command_store.py) · `CommandStore.claim`·`finish`·`save_checkpoint` | [미션 내부 상태와 영속성](../src/patrol_amr/docs/mission_navigation.md#내부-상태와-영속성) 구현 대조 완료 |
 | drive_token_guard.py | [src/patrol_amr/patrol_amr/drive_token_guard.py](../src/patrol_amr/patrol_amr/drive_token_guard.py) · `DriveTokenGuard.observe`·`authority` | [3.1절](#31-drive_token_guardpy--구현-대조-완료) 구현 대조 완료 |
 | estop_guard.py | [src/patrol_amr/patrol_amr/estop_guard.py](../src/patrol_amr/patrol_amr/estop_guard.py) · `EStopGuard.observe`·`stopped` | [3.2절](#32-estop_guardpy--구현-대조-완료) 구현 대조 완료 |
 | motion_guard.py | [src/patrol_amr/patrol_amr/motion_guard.py](../src/patrol_amr/patrol_amr/motion_guard.py) · `MotionGuard.evaluate` | [3.3절](#33-motion_guardpy--구현-대조-완료) 구현 대조 완료 (축소 범위) |
@@ -65,8 +65,11 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 | heartbeat_guard.py | [src/patrol_amr/patrol_amr/heartbeat_guard.py](../src/patrol_amr/patrol_amr/heartbeat_guard.py) · `HeartbeatGuard.observe`·`state` | [3.5절](#35-heartbeat_guardpy--구현-대조-완료-순수-모듈) 구현 대조 완료 (ROS 연결 대기) |
 | battery_monitor.py | [src/patrol_amr/patrol_amr/battery_monitor.py](../src/patrol_amr/patrol_amr/battery_monitor.py) · `classify_observation`·`BatteryStateModel.update` | [5.1절](#51-battery_monitorpy--구현-대조-완료) 구현 대조 완료 |
 | robot_status_state.py | [src/patrol_amr/patrol_amr/robot_status_state.py](../src/patrol_amr/patrol_amr/robot_status_state.py) · `RobotStatusState.update_states`·`observe_pose`·`observe_odometry`·`snapshot` | [7.1절](#71-robot_status_statepy--구현-대조-완료) 구현 대조 완료 |
-| status_reporter.py | [src/patrol_amr/patrol_amr/status_reporter.py](../src/patrol_amr/patrol_amr/status_reporter.py) · `PublicationGate`·`StatusReporter` | [7.2절](#72-status_reporterpy--구현-대조-완료-축소-범위) 구현 대조 완료 (축소 범위) |
-| 공통 Nav2 연결·위치·결과 발행 | 실제 코드 파일·모듈별 행으로 분리하여 기록 | 미작성 |
+| Nav2 pose 실행 | `src/patrol_amr/patrol_amr/navigation_adapter.py:NavigationAdapter`, `nav2_goal_runner.py:Nav2GoalRunner` | [Nav2와 도킹](../src/patrol_amr/docs/mission_navigation.md#nav2와-도킹) 구현 대조 완료 · IT-16 |
+| 실기 구동 gate | `motion_authorization.py`, `robot_readiness.py`, `robot_readiness_callbacks.py`, `motion_gate.py`, `launch/hardware_patrol.launch.py` | [ROS 구성과 설정](../src/patrol_amr/docs/mission_navigation.md#ros-구성과-설정) 구현 대조 완료 |
+| 미션 내부 상태 | `src/patrol_amr/patrol_amr/mission_state.py:MissionStateTracker`, `mission_status_store.py:MissionStatusStore` | [내부 상태와 영속성](../src/patrol_amr/docs/mission_navigation.md#내부-상태와-영속성) 구현 대조 완료 |
+| status_reporter.py | [src/patrol_amr/patrol_amr/status_reporter.py](../src/patrol_amr/patrol_amr/status_reporter.py) · `PublicationGate`·`StatusReporter` | [7.2절](#72-status_reporterpy--구현-대조-완료) RobotStatus·PatrolReport 결합 구현 대조 완료 |
+| patrol_report.py | [src/patrol_amr/patrol_amr/patrol_report.py](../src/patrol_amr/patrol_amr/patrol_report.py) · `PatrolReportFactory` | [7.3절](#73-patrol_reportpy--구현-대조-완료) 순수 계약 모듈 구현 대조 완료 |
 
 각 그림에는 시작 조건, 함수·콜백 호출 순서, 조건별 분기, 외부 Action·토픽 송수신, 성공·실패·취소·안전 중단, 종료·복구 대기 경로를 표시한다. timeout·재시도 수치와 enum을 복제하지 않고 Q-ID·TBD-ID를 참조한다. 구현 대조 시 코드 버전과 관련 통합시험 ID를 기록한다.
 
@@ -138,11 +141,11 @@ flowchart TD
     RESTART --> DB
 ~~~
 
-검증: [단위시험](../tests/test_command_store.py) 14건은 enum, 신규·동일·충돌, ACCEPTED→EXECUTING→COMPLETED, 상태 역행 방지, 완료 report 재전달, DB 재개, JSON/필드 검증, 다른 robot 차단, Q-14 경계와 1,000개 보존을 확인한다. 아직 없는 mission ROS adapter와 공용 CommandCheck 숫자·publisher를 붙인 뒤 IT-02를 통과해야 AMR-05 전체 완료다.
+검증 기록: main 구현 당시 로컬 단위시험 14건으로 enum, 신규·동일·충돌, ACCEPTED→EXECUTING→COMPLETED, 상태 역행 방지, 완료 report 재전달, DB 재개, JSON/필드 검증, 다른 robot 차단, Q-14 경계와 1,000개 보존을 확인했다. 아직 없는 mission ROS adapter와 공용 CommandCheck 숫자·publisher를 붙인 뒤 IT-02를 통과해야 AMR-05 전체 완료다.
 
 ## 3. 로컬 안전과 속도 출력
 
-local_safety_supervisor가 최종 속도 발행권을 가진다. Nav2나 yaw 정렬 기능이 안전 출력을 우회하지 않도록 한다. 구체적인 토픽·타입은 TBD-IF-009다.
+local_safety_supervisor가 `/{robot}/cmd_vel`의 최종 속도 발행권을 가진다. Nav2나 yaw 정렬 기능이 안전 출력을 우회하지 않도록 한다. TBD-IF-009는 2026-09-08 결정됐으며 Nav2 `collision_monitor`의 `/{robot}/cmd_vel_safe`와 mission_supervisor의 `/{robot}/cmd_vel_yaw`는 `TwistStamped`, 최종 출력은 `Twist`를 사용한다. 두 후보 사이의 중재 정책은 TBD-AMR-001에 남아 있다.
 
 - 유효하지 않은 token은 주행에 사용하지 않는다. 만료·회수 시 신규 주행을 막고 안전 정지한다.
 - token의 `control_session_id`·`token_id`·`holder_robot_id`·`message_sequence`를 확인한다. 로컬 lease 경과는 Q-01을 따른다.
@@ -232,7 +235,7 @@ flowchart TD
     T2 -->|예| ER[EVENT_AUTO_RELEASED 로그]
 ~~~
 
-**15단계 추가 — 물리 E-stop 로컬 latch(2026-09-08).** [Q-10](../interfaces.md#9-qos와-공통-시간거리-기준)과 [interfaces.md 3.1절](../interfaces.md)이 "물리 E-stop은 수동 reset까지 latch"를 문장으로 확정해 두었다. 관제가 보낸 `latched`를 그대로 비추기만 하면 이 문장을 지킬 수 없다 — 관제가 나중에 `latched=false`를 보내거나 발행을 멈추면, 아무도 버튼을 만지지 않았는데 로봇이 다시 움직인다.
+**15단계 추가 — 물리 E-stop 로컬 latch(2026-09-08).** [Q-10](interfaces.md#9-qos와-공통-시간거리-기준)과 [interfaces.md 3.1절](interfaces.md)이 "물리 E-stop은 수동 reset까지 latch"를 문장으로 확정해 두었다. 관제가 보낸 `latched`를 그대로 비추기만 하면 이 문장을 지킬 수 없다 — 관제가 나중에 `latched=false`를 보내거나 발행을 멈추면, 아무도 버튼을 만지지 않았는데 로봇이 다시 움직인다.
 
 - 수락된 `latched=true` 관측이 이 가드가 소유한 latch를 건다. **들어오는 메시지로는 내려가지 않는다.** `reset_local_latch()`만 내린다.
 - `stopped`는 `active` 또는 arbiter의 `latched` 또는 로컬 latch 중 하나라도 참이면 참이다. 셋을 분리해 두었으므로 reset은 로컬 latch만 내리고 활성 E-stop이나 arbiter의 주장을 덮어쓰지 않는다.
@@ -419,7 +422,7 @@ flowchart TD
     HEALTHY --> WAITCMD[복구만으로 자동 재출발 금지]
 ~~~
 
-검증: [단위시험](../tests/test_heartbeat_guard.py) 10건은 MISSING 기본값, 1.0초 경계와 초과, 정상 갱신, 중복·역순이 timeout을 연장하지 않음, session 교체와 이전 session 재등장 차단, uint64·시각·시계 역행 검증을 확인한다. 전체 회귀는 `Ran 190 tests`/`OK`, 두 패키지 빌드는 성공했다. 메시지 타입 합의 후 `local_safety_supervisor`에 연결하고 IT-10을 통과하기 전에는 AMR-20을 100%로 표시하지 않는다.
+검증 기록: main 구현 당시 로컬 단위시험 10건으로 MISSING 기본값, 1.0초 경계와 초과, 정상 갱신, 중복·역순이 timeout을 연장하지 않음, session 교체와 이전 session 재등장 차단, uint64·시각·시계 역행 검증을 확인했다. 전체 회귀는 `Ran 190 tests`/`OK`, 두 패키지 빌드는 성공했다. 메시지 타입 합의 후 `local_safety_supervisor`에 연결하고 IT-10을 통과하기 전에는 AMR-20을 100%로 표시하지 않는다.
 
 ## 4. Nav2·위치·Keepout
 
@@ -508,7 +511,7 @@ Candidate/Event 필드·enum·QoS는 TBD-IF-006, 증적 전송은 TBD-IF-007을 
 
 ## 7. 상태·결과·진단
 
-RobotStatus의 발행·변경 rate는 Q-02다. PatrolReport는 명령과 연결해 SUCCEEDED/FAILED/CANCELED 및 실패·취소 reason을 제공한다. 통신 두절 후 결과 전달 방식은 TBD-IF-003이다.
+RobotStatus의 발행·변경 rate는 Q-02다. PatrolReport는 명령과 연결해 SUCCEEDED/FAILED/CANCELED 및 실패·취소 reason을 제공한다. AMR-07은 subscriber가 없을 때 영속 큐에 보존하고 연결 후 같은 report ID로 발행한다. 수신 애플리케이션 저장 완료 ACK와 최종 큐 삭제 조건은 [TBD-IF-003 검토 요청서](change_requests/CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md)에 남겼다.
 
 ### 7.1 robot_status_state.py — 구현 대조 완료
 
@@ -542,7 +545,7 @@ flowchart TD
     AGE --> COPY[독립 복사본 반환]
 ~~~
 
-**14단계 추가 — odometry 축과 `motion_stopped`(2026-09-08).** [interfaces.md 3절](../interfaces.md)이 판정에 필요한 네 값을 모두 확정해 두었으므로 이 모듈이 정한 숫자는 없다.
+**14단계 추가 — odometry 축과 `motion_stopped`(2026-09-08).** [interfaces.md 3절](interfaces.md)이 판정에 필요한 네 값을 모두 확정해 두었으므로 이 모듈이 정한 숫자는 없다.
 
 ```text
 선속도 절댓값 ≤ 0.05 m/s  AND  각속도 절댓값 ≤ 0.1 rad/s
@@ -569,7 +572,9 @@ flowchart TD
 - **17단계 pose 연결(2026-09-08):** Nav2 AMCL 표준 상대 토픽 `amcl_pose`(`geometry_msgs/PoseWithCovarianceStamped`)를 구독한다. `map` frame이고 pose·covariance 전부가 유한한 메시지는 현재 pose와 last-valid pose에 함께 보존한다. frame·수치가 무효면 `pose_valid=false`로 바꾸되 last-valid pose는 지우지 않는다. `pose_valid` 전이만 Q-02의 변경 발행 대상으로 표시하고 일반 위치 이동은 정기 2 Hz snapshot에 반영한다.
 - pose 수신이 끊겨도 임의 timeout으로 `pose_valid=false`를 만들지 않는다. Q-03·Q-05의 1.5초는 관제 STALE 및 주행 재개 조건이지 pose 유효성 정의가 아니다. RobotStatus의 pose와 last-valid pose가 측정 timestamp를 포함하므로 소비자가 그 시각으로 age를 판단한다.
 - odometry 수신은 **즉시 발행 대상이 아니다.** Q-02가 즉시 발행을 요구하는 것은 mission·safety·battery enum과 `pose_valid`이고 속도는 그 목록에 없다. 속도는 매 표본마다 바뀌므로 변경 트리거로 다루면 이유 없이 10 Hz 제한을 넘긴다.
-- 남은 안전한 미연결 값은 mission supervisor가 공급해야 하는 operational·mission·docking·command·mission·waypoint·scan·reason 축과 미정인 safety enum이다. SOC 미수신은 0으로 오해하지 않도록 NaN으로 낸다.
+- **AMR-07 미션 상태 연결(2026-09-08):** `mission_status.json`을 `MissionStatusBridge`로 읽어 mission enum, active command·mission ID, 현재 waypoint와 reason을 같은 RobotStatus에 반영한다. 파일 경로는 robot별 ROS runtime 아래를 기본으로 사용하며 parameter로 바꿀 수 있다.
+- **AMR-07 결과 발행(2026-09-08):** `patrol_report_outbox.json`의 종료 결과를 `PatrolReportDrain`이 `/{robot}/patrol_report`로 발행한다. subscriber가 없거나 publish가 실패하면 큐를 유지하고 다음 poll에서 재시도한다. 현재 삭제 시점은 matched subscriber가 있는 publish 호출 성공 직후이며 애플리케이션 저장 ACK 기반 삭제는 TBD-IF-003이다.
+- operational·docking·scan의 실제 공급 경로와 safety enum 수치는 아직 미정이다. SOC 미수신은 0으로 오해하지 않도록 NaN으로 낸다.
 
 ~~~mermaid
 flowchart TD
@@ -590,6 +595,15 @@ flowchart TD
     RAW[battery_state 콜백] --> SOC{present / SOC 유효?}
     SOC -->|예| KEEP_SOC[SOC + 센서 stamp 보존]
     SOC -->|아니오| UNKNOWN_SOC[NaN + 빈 stamp]
+    MFILE[mission_status.json] --> MPOLL[0.1초 mission poll]
+    MPOLL --> MBRIDGE[mission 상태·ID·waypoint·reason 반영]
+    MBRIDGE --> PENDING
+    OUTBOX[patrol_report_outbox.json] --> RPOLL[0.1초 report poll]
+    RPOLL --> SUB{subscriber 존재?}
+    SUB -->|아니오| OUTBOX
+    SUB -->|예| RPUB[/{robot}/patrol_report 발행]
+    RPUB -->|실패| OUTBOX
+    RPUB -->|성공| RREMOVE[해당 pending record 제거]
     TICK[0.02초 timer] --> DUE{최초 또는 변경 0.1초 또는 정기 0.5초 도달?}
     DUE -->|아니오| WAIT[대기]
     DUE -->|예| SNAP[RobotStatusState.snapshot]
@@ -601,11 +615,11 @@ flowchart TD
     SEQ --> PUB[/{robot}/robot_status 발행]
 ~~~
 
-검증: [단위시험](../tests/test_status_reporter.py) 16건은 필수 설정, 최초·정기 2 Hz·변경 최대 10 Hz 판정, 시간 역행 거절, status_sequence, token 필드 매핑, pose·orientation·covariance의 유한성 판정을 확인한다. [robot_status_state 단위시험](../tests/test_robot_status_state.py) 32건은 유효 pose 저장, 무효 pose 뒤 last-valid 보존과 age 계산을 포함한다. 실제 토픽 echo는 사용자 환경에서 확인해야 한다.
+검증(2026-09-08): status reporter·상태 모델·미션 bridge·report adapter/outbox/reporter 관련 단위시험 47건이 통과했다. `patrol_interfaces`와 `patrol_amr`를 다시 빌드한 뒤 AMR-07 ROS 스모크에서 `RobotStatus`의 실패 상태·reason 303과 `PatrolReport`의 FAILED·최종 W4·시각·outbox 제거를 확인했다. 기존 안전·배터리·속도 상태 스모크도 통과해 결합 전 경로가 유지됨을 확인했다. 실제 관제 저장 ACK 종단시험은 TBD-IF-003 결정 뒤 수행한다.
 
 ### 7.3 patrol_report.py — 구현 대조 완료
 
-2026-09-08: 사용자 18단계 진행 요청에 따라 [patrol_report.py](../src/patrol_amr/patrol_amr/patrol_report.py)를 추가했다. 아직 mission/checkpoint 코드가 병합되지 않아 ROS publisher를 임의 콜백에 연결하지 않고, 확정된 계약만으로 최종 결과를 검증하고 불변 record를 만드는 순수 Python 모듈이다.
+2026-09-08: 사용자 18단계 진행 요청에 따라 [patrol_report.py](../src/patrol_amr/patrol_amr/patrol_report.py)를 추가했다. 이 파일은 확정된 계약으로 최종 결과를 검증하고 불변 record를 만드는 순수 Python 모듈이다. AMR-07의 실제 영속 발행 경로는 `mission_reporter.py`·`patrol_report_outbox.py`·`patrol_report_adapter.py`와 `status_reporter.py`가 담당한다.
 
 - `PatrolResult`와 `ReasonCode`는 [PatrolReport.msg](../src/patrol_interfaces/msg/PatrolReport.msg)의 결과 3종과 reason code 29종을 그대로 옮겼다. 정의되지 않은 숫자는 거절한다.
 - `PatrolReportFactory`는 로봇·source session 하나의 report sequence를 관리한다. [interfaces.md 1.2절](interfaces.md#12-공용-식별자-규칙)에 따라 `rpt-<robot_session>-<report_sequence>`를 만들고 sequence는 최소 네 자리로 0을 채운다. persistent owner가 재시작 뒤 다음 sequence를 복원할 수 있도록 `next_sequence` 입력·조회만 제공한다.
@@ -613,7 +627,7 @@ flowchart TD
 - FAILED와 CANCELED는 `NONE`이 아닌 reason code와 비어 있지 않은 reason이 모두 필요하다. 성공·실패·취소 모두 시작·종료 시각을 보존하고 종료가 시작보다 앞서면 거절한다.
 - 같은 command ID와 완전히 같은 결과를 다시 넣으면 기존 record 객체와 report ID를 그대로 반환한다. 다른 결과로 덮으려 하면 거절하고 sequence도 소비하지 않는다.
 - `populate_message()`는 header 발행 시각을 호출자에게 명시적으로 받고 `PatrolReport.msg`의 모든 payload 필드를 채운다. `publish_record()`는 호출자가 소유한 publisher와 message type을 사용해 한 번 발행한다. publisher QoS helper는 계약 그대로 RELIABLE·VOLATILE·KEEP_LAST(20)이다.
-- 이번 단계는 영속 큐·ACK·ROS publisher를 구현하지 않는다. 미전송 report를 저장하고 재연결·재시작 뒤 재발행하려면 mission 결과 입력, 저장 위치와 수명, 수신 확인·삭제 계약이 더 필요하다. 메모리 중복 방지를 영속 완료로 오해하지 않는다.
+- AMR-07 통합으로 미션 결과 입력, robot별 영속 큐와 ROS publisher를 연결했다. 수신 애플리케이션의 저장 완료 ACK와 그 ACK를 기준으로 한 최종 큐 삭제 조건은 TBD-IF-003이며, 현재 두 결과 생성 경로를 하나의 canonical factory/store로 정리하는 작업은 I-01 결합 단계에 남긴다.
 
 ~~~mermaid
 flowchart TD
@@ -632,10 +646,11 @@ flowchart TD
     RETURN --> MAP[populate_message: header 시각 + 전체 wire 필드]
     MAP --> EMIT[publish_record: caller-owned publisher로 1회 발행]
     EMIT --> QOS[RELIABLE / VOLATILE / KEEP_LAST 20]
-    QOS --> PENDING[mission 병합 후 ROS publisher·영속 outbox 연결]
+    QOS --> PERSIST[AMR-07 outbox·status_reporter 발행 경로]
+    PERSIST --> ACK[애플리케이션 ACK·최종 삭제 TBD-IF-003]
 ~~~
 
-검증: [단위시험](../tests/test_patrol_report.py) 22건은 result/reason 상수 일치, report ID 형식과 sequence 복원, 필수 필드·시각 경계, 실패·취소 reason 강제, 동일 command 재요청의 ID 재사용, 충돌 거절과 sequence 비소비, 전체 wire 필드 변환, event ID 복사, 1회 발행 helper와 QoS depth를 확인한다. 전체 단위시험은 `Ran 196 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 두 패키지 성공이다. ROS 환경에서 QoS 객체가 `20 RELIABLE VOLATILE KEEP_LAST`인 것도 확인했다. mission 입력 subscriber가 없으므로 아직 사용자 종단 토픽 시험 대상은 아니다.
+검증 기록: main 구현 당시 로컬 단위시험 22건으로 result/reason 상수 일치, report ID 형식과 sequence 복원, 필수 필드·시각 경계, 실패·취소 reason 강제, 동일 command 재요청의 ID 재사용, 충돌 거절과 sequence 비소비, 전체 wire 필드 변환, event ID 복사, 1회 발행 helper와 QoS depth를 확인했다. 전체 단위시험은 `Ran 196 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 두 패키지 성공이다. ROS 환경에서 QoS 객체가 `20 RELIABLE VOLATILE KEEP_LAST`인 것도 확인했다. mission 입력 subscriber가 없으므로 아직 사용자 종단 토픽 시험 대상은 아니다.
 
 다음 기존 안전 로그를 보존한다.
 
