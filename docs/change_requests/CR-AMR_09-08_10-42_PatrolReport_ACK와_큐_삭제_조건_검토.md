@@ -10,6 +10,8 @@
 - 결정 일자·근거: PatrolReport 필드·result·reason code·QoS와 미전송 report 영속 보관·동일 report ID 재전송은 2026-09-07 기준 문서에서 결정됐다. 애플리케이션 수신 ACK와 큐 삭제 조건은 아직 없다.
 - 코드 변경 승인 근거·범위: 사용자가 AMR-07 `status_reporter` 구현을 지시했다. AMR 내부 outbox와 ROS publisher만 구현하며 관제·System monitor 코드는 변경하지 않는다.
 
+후속 권장 계약은 [E-stop reset과 PatrolReport 저장 ACK 인터페이스 명세](CR-AMR_09-08_13-54_E-stop_reset과_PatrolReport_ACK_인터페이스_명세.md)에 정리했다. 이 문서의 결정 요청을 구체화한 초안이며 영향 팀 합의 전에는 확정 계약이 아니다.
+
 ## 변경 이유
 
 AMR은 임무 종료 결과를 로컬 영속 큐에 먼저 기록한 뒤 `status_reporter`가
@@ -95,3 +97,4 @@ status_reporter
 | 일자 | 검토자·단위 | 결정·의견 | 근거 |
 |---|---|---|---|
 | 2026-09-08 10:42 | 박성현·AMR | subscriber 연결+publish 성공을 임시 삭제 기준으로 구현하고 ACK 계약을 요청 | AMR-07 단일 기능 구현 및 기존 TBD-IF-003 대조 |
+| 2026-09-08 13:54 | 박성현·AMR | System monitor의 기존 IngestionAck 구현을 대조해 상세 권장 계약 초안을 별도 명세로 연결 | 사용자 인터페이스 명세서 작성 요청 |
