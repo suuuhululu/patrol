@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from enum import Enum
 
 
+MAX_GOAL_RETRIES = 3
+
+
 class NavigationResult(Enum):
     """Normalized result returned by all motion adapters."""
 

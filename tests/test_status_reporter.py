@@ -2,30 +2,72 @@
 
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
 
 
 PATROL_AMR_PACKAGE_ROOT = (
-    Path(__file__).resolve().parents[1] / 'src/patrol_amr'
+    Path(__file__).resolve().parents[1] / 'src/patrol_amr_safety'
 )
 sys.path.insert(0, str(PATROL_AMR_PACKAGE_ROOT))
 
-from patrol_amr import status_reporter as MODULE  # noqa: E402
+from patrol_amr_safety import status_reporter as MODULE  # noqa: E402
+
+
+def pose_payload(value=0.0):
+    return SimpleNamespace(
+        pose=SimpleNamespace(
+            position=SimpleNamespace(x=value, y=0.0, z=0.0),
+            orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        covariance=[0.0] * 36,
+    )
+
+
+class PosePayloadTests(unittest.TestCase):
+    def test_finite_pose_and_covariance_are_accepted(self):
+        self.assertTrue(MODULE.pose_payload_is_finite(pose_payload()))
+
+    def test_nonfinite_position_is_rejected(self):
+        self.assertFalse(
+            MODULE.pose_payload_is_finite(pose_payload(float('nan')))
+        )
+
+    def test_nonfinite_orientation_is_rejected(self):
+        payload = pose_payload()
+        payload.pose.orientation.w = float('inf')
+        self.assertFalse(MODULE.pose_payload_is_finite(payload))
+
+    def test_nonfinite_covariance_is_rejected(self):
+        payload = pose_payload()
+        payload.covariance[12] = float('nan')
+        self.assertFalse(MODULE.pose_payload_is_finite(payload))
+
+
+class AcceptedTokenFieldTests(unittest.TestCase):
+    def test_nonempty_id_is_valid(self):
+        self.assertEqual(
+            MODULE.accepted_token_fields('tok-a'), ('tok-a', True)
+        )
+
+    def test_empty_id_is_invalid(self):
+        self.assertEqual(MODULE.accepted_token_fields(''), ('', False))
+
+    def test_non_string_is_rejected(self):
+        for value in (None, True, 1):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    MODULE.accepted_token_fields(value)
 
 
 class ConfigurationTests(unittest.TestCase):
     def test_valid_explicit_configuration(self):
-        MODULE.validate_configuration(
-            'robot1', 'robot1-20260907T120000', 200
-        )
+        MODULE.validate_configuration('robot1', 'robot1-20260907T120000')
 
     def test_invalid_configuration_is_rejected(self):
         cases = (
-            ('robot2', 'robot1-20260907T120000', 0),
-            ('robot1', '', 0),
-            ('robot1', 'session', -1),
-            ('robot1', 'session', 256),
-            ('robot1', 'session', True),
+            ('robot2', 'robot1-20260907T120000'),
+            ('robot1', ''),
         )
         for args in cases:
             with self.subTest(args=args):
@@ -70,14 +112,14 @@ class PublicationGateTests(unittest.TestCase):
 class StatusSequenceTests(unittest.TestCase):
     def test_sequence_starts_at_one_and_increases(self):
         sequence = MODULE.StatusSequence()
-        self.assertEqual(sequence.next_value(), 1)
-        self.assertEqual(sequence.next_value(), 2)
+        self.assertEqual(sequence.next(), 1)
+        self.assertEqual(sequence.next(), 2)
 
     def test_sequence_refuses_uint64_overflow(self):
         sequence = MODULE.StatusSequence()
         sequence._value = MODULE.UINT64_MAX
         with self.assertRaises(OverflowError):
-            sequence.next_value()
+            sequence.next()
 
 
 if __name__ == '__main__':

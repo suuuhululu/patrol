@@ -142,7 +142,7 @@ ros2 topic pub --once \
   --qos-durability transient_local \
   /control/estop \
   patrol_interfaces/msg/EStop \
-  "{target_robot_id: 'robot6', active: false, reason: 0, latched: false, sequence: 1}"
+  "{target_robot_id: 'robot6', active: false, reason: 0, sequence: 1}"
 ```
 
 ### 터미널 3: 시험용 DriveToken 갱신 — 계속 켜 둠
@@ -189,14 +189,16 @@ ros2 topic pub --once \
     mission_id: '${MISSION_ID}',
     robot_id: 'robot6',
     command: 1,
-    target_id: '',
-    issued_by: 'amr-hardware-test',
-    parameters_json: '{}'}"
+    target_id: 'robot6_default',
+    issued_by: 'amr-hardware-test'}"
 ```
 
 START_PATROL은 dock 상태를 확인해 필요할 때 Undock Action을 실행하고,
-W1~W7 `NavigateToPose`가 각각 성공한 뒤 Dock Action을 실행한다. 한 waypoint가
-실패하거나 취소되면 다음 waypoint로 넘어가지 않는다.
+W1~W7 `NavigateToPose`를 순서대로 실행한 뒤 Dock Action을 실행한다. 일반
+Nav2 실패·goal 거절은 최초 시도 뒤 최대 3번 더 실행한다. 총 4번 실패한
+중간 W1~W6은 checkpoint를 다음 지점으로 넘기고 계속하며, 마지막 W7 실패는
+순찰을 실패로 종료한다. STOP/CANCEL·DriveToken 상실·`motion_allowed=false`로
+취소된 goal은 재시도하거나 다음 waypoint로 넘어가지 않는다.
 
 ### 시험 중 정지
 
@@ -211,8 +213,7 @@ ros2 topic pub --once \
     mission_id: '${MISSION_ID}',
     robot_id: 'robot6',
     command: 0,
-    issued_by: 'amr-hardware-test',
-    parameters_json: '{}'}"
+    issued_by: 'amr-hardware-test'}"
 ```
 
 즉시 안전 차단하려면 DriveToken 터미널을 `Ctrl+C`로 종료한다. 최대 1초
@@ -226,3 +227,7 @@ Nav2도 사용이 끝났을 때만 각각 종료한다.
 - PatrolReport 수신 애플리케이션 ACK·큐 삭제 조건 합의(TBD-IF-003)
 - Detection yaw 후보와 Nav2 후보의 전환 정책(TBD-AMR-001)
 - Keepout·안전구역 기능 및 현장 좌표 검증
+
+robot1에서 AMR-16의 실패 재시도·중간 waypoint skip·안전 취소를 검증할
+때는 [AMR-16 실제 로봇 시험](../../docs/development/amr16-robot-test.md)을
+따른다. 전용 실패 유도 설정은 기본 launch에서 자동 선택되지 않는다.

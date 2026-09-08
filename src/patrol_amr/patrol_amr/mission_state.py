@@ -50,6 +50,17 @@ class MissionStateTracker:
                 changes['last_waypoint_index'] = waypoint_index
             self._replace(**changes)
 
+    def pause(self) -> None:
+        """Preserve mission identity and progress while reporting STOP."""
+        with self._lock:
+            self._replace(
+                mission='MISSION_PAUSED',
+                waypoint_index=-1,
+                outcome='PAUSED',
+                reason_code=0,
+                reason='',
+            )
+
     def command_finished(
         self,
         outcome: str,

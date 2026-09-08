@@ -137,14 +137,14 @@ string issued_by
 
 command ID는 1.2절 형식을 사용한다. 같은 내용의 재전송은 같은 ID와 원래 발급 시각·payload를 유지하고 내용·목적 변경은 새 ID다. START_PATROL은 새 mission ID를 생성한다. 같은 순찰의 대피·재개·복귀·도킹은 mission ID를 유지하고 command ID만 새로 생성한다. 완료·실패·취소 뒤의 새 START_PATROL과 독립 수동 DOCK는 새 mission ID를 사용한다.
 
-AMR은 command ID를 최소 24시간 보관한다. 1,000개를 초과해도 24시간 이내 항목은 삭제하지 않고, 24시간이 지난 항목 중 최신 1,000개는 유지한다. 같은 ID를 중복 실행하지 않는다. 같은 ID가 실행 전 다시 오면 기존 ACCEPTED, 실행 중이면 EXECUTING, 완료 후면 기존 PatrolReport를 재발행한다. 같은 ID에 `robot_id`, `command`, `target_id`, `target_pose`, `mission_id` 중 다른 값이 있으면 `REJECTED / COMMAND_ID_CONFLICT`로 거절한다. DDS 수신 시각은 충돌 비교 대상이 아니다. `parameters_json`은 사용하지 않으며 공용 `.msg`와 기존 AMR 지문·검증 로직에서 제거하도록 요청한다.
+AMR은 command ID를 최소 24시간 보관한다. 1,000개를 초과해도 24시간 이내 항목은 삭제하지 않고, 24시간이 지난 항목 중 최신 1,000개는 유지한다. 같은 ID를 중복 실행하지 않는다. 같은 ID가 실행 전 다시 오면 기존 ACCEPTED, 실행 중이면 EXECUTING, 완료 후면 기존 PatrolReport를 재발행한다. 같은 ID에 `robot_id`, `command`, `target_id`, `target_pose`, `mission_id` 중 다른 값이 있으면 `REJECTED / COMMAND_ID_CONFLICT`로 거절한다. DDS 수신 시각은 충돌 비교 대상이 아니다. `parameters_json`은 사용하지 않으며 공용 `.msg`와 AMR 지문·검증·DB 스키마에서 제거했다. 기존 DB 행은 migration 시 보존한다.
 
 명령별 필수값과 의미는 다음과 같다. 빈 값은 해당 타입의 기본값을 뜻한다. 합의된 명령에서는 `target_pose`를 사용하지 않지만, 필드 제거는 AMR 검토 후 결정하므로 현재 스키마에는 유지한다.
 
 | command | mission_id | target_id | target_pose | 처리 기준 |
 |---|---|---|---|---|
 | STOP | 활성 mission이 있으면 해당 ID, 없으면 빈 값 허용 | 빈 값 | 미사용 | 활성 mission이 없어도 안전한 no-op으로 ACCEPTED 가능하며 재개 가능한 상태를 보존한다. |
-| START_PATROL | 새 ID 필수 | `patrol_plan_id` 필수 | 미사용 | plan ID의 명명·저장·waypoint 구성은 TBD-AMR-005다. |
+| START_PATROL | 새 ID 필수 | robot1은 `robot1_default`, robot6은 `robot6_default` | 미사용 | 다른 plan ID는 `REJECTED / INVALID_TARGET`이다. waypoint 구성 변경은 TBD-AMR-005다. |
 | MOVE_TO_SAFE_ZONE | 기존 활성 mission ID 필수 | 빈 값 | 미사용 | AMR이 map·안전영역에서 가장 가까운 유효 좌표를 동적으로 계산한다. 계산 결과·도착 보고 계약은 TBD-AMR-005·TBD-IF-003에서 검토한다. |
 | RESUME_PATROL | 재개할 기존 mission ID 필수 | 빈 값 | 미사용 | CANCEL된 mission은 재개할 수 없다. |
 | DOCK | 기존 또는 독립 신규 mission ID 필수 | robot1은 `dock_1`, robot6은 `dock_6` | 미사용 | docking station은 target_id만 사용한다. |
@@ -173,7 +173,7 @@ uint64 sequence
 | CHECK_EXECUTING | 2 | 실제 command 실행을 시작함 |
 | CHECK_REJECTED | 3 | command를 실행하지 않음 |
 
-정의되지 않은 check_state 숫자는 폐기하고 프로토콜 경고를 기록한다. 정상 전이는 ACCEPTED → EXECUTING이며 역방향 전이는 항상 폐기한다. 관제 내부 `WAITING` 상태에서 ACCEPTED가 누락된 EXECUTING을 받으면 동일 `command_id`·`mission_id`·`robot_id`가 모두 일치할 때만 `WAITING → EXECUTING` 복구 예외로 수락하고 관제 운영 경고 `ACCEPTED_MISSING`을 기록한다. 이 예외 수락 뒤 재전송을 중단할지는 AMR과의 전송 계약으로 남긴다.
+정의되지 않은 check_state 숫자는 폐기하고 프로토콜 경고를 기록한다. 정상 전이는 ACCEPTED → EXECUTING이며 역방향 전이는 항상 폐기한다. 관제 내부 `WAITING` 상태에서 ACCEPTED가 누락된 EXECUTING을 받으면 동일 `command_id`·`mission_id`·`robot_id`가 모두 일치할 때만 `WAITING → EXECUTING` 복구 예외로 수락하고 관제 운영 경고 `ACCEPTED_MISSING`을 기록한다. 이 예외를 수락하면 AMR이 실행을 시작한 증거이므로 해당 MissionCommand 재전송을 중단한다.
 
 관제는 MissionCommand를 발행한 뒤 5초 이내에 같은 command ID의 ACCEPTED 또는 REJECTED를 기다린다. 매 시도 5초 timeout 후 동일 ID·payload를 최대 2회 재전송한다. 이후에도 확인되지 않으면 관제 운영 판단 `COMMAND_CHECK_TIMEOUT`을 기록하고 새 command ID를 자동 생성하지 않는다. EXECUTING은 정상 Check timeout 응답 조건이 아니며 최종 결과는 PatrolReport로 전달한다. 중간 CommandCheck가 일부 누락됐어도 ID가 유효한 PatrolReport는 최종 결과로 수락하고 프로토콜 경고만 기록한다. `COMMAND_CHECK_TIMEOUT`과 `ACCEPTED_MISSING`은 AMR CommandCheck reason code가 아니라 TBD-IF-011의 관제 운영 이벤트다.
 
@@ -240,7 +240,7 @@ UI 정지 요청은 OPERATOR 원인을 즉시 활성화한다. UI 해제 요청�
 
 ## 4. RobotStatus
 
-필드 의미 기준은 다음과 같다. safety_state enum은 2026-09-08 결정이며 실제 `.msg`와 AMR·시스템 모니터 반영은 요청 중이다.
+필드 의미 기준은 다음과 같다. safety_state enum은 2026-09-08 결정이며 `.msg`와 AMR 상태 발행 경로에 반영했다. 시스템 모니터 소비 호환성은 별도 검토 대상이다.
 
 ~~~text
 std_msgs/Header header                         # RobotStatus snapshot 생성 시각
@@ -524,7 +524,7 @@ DB 테이블·컬럼 매핑·인덱스·보존·백업 등 내부 저장 설계�
 
 | ID | 결정할 내용·현재 상태 | 영향 단위 |
 |---|---|---|
-| TBD-IF-001 | **결정(2026-09-08):** CommandCheck 0~3 수치, 정상·복구 예외·역방향 전이, 명령별 mission/target, `parameters_json` 제거, 203~206 reason code. 잔여 구현 검토: ACCEPTED 누락 복구 수락 후 재전송 중단 여부, `target_pose` 필드 제거 여부, START_PATROL plan ID 규칙. [기존 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) · [2026-09-08 AMR 요청서](change_requests/CR-관제_09-08_15-15_AMR_명령_Heartbeat_E-stop_상태_계약.md) | AMR·관제 |
+| TBD-IF-001 | **결정(2026-09-08):** CommandCheck 0~3 수치, 정상·복구 예외·역방향 전이, 일치하는 EXECUTING 후 재전송 중단, 명령별 mission/target, `parameters_json` 제거, 203~206 reason code, `target_pose` 필드 유지·기본값 강제, robot별 default plan ID. [기존 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) · [관제 요청서](change_requests/CR-관제_09-08_15-15_AMR_명령_Heartbeat_E-stop_상태_계약.md) · [AMR 확정 회신](change_requests/CR-AMR_09-08_17-00_명령_Heartbeat_E-stop_상태_계약_확정_회신.md) | AMR·관제 |
 | TBD-IF-002 | **일부 결정(2026-09-07):** control session, token ID, message sequence, holder 회수·교대·정지 기준. 잔여: 송신 timestamp 기반 message age 검증. [요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) | AMR·관제 |
 | TBD-IF-003 | **일부 결정(2026-09-08):** RobotStatus·PatrolReport 의미 필드와 ID 연결, safety_state 0~5와 의미, 유효 ID의 최종 report 수락, AMR 로컬 영속 outbox·동일 report ID 발행 구현. 잔여: waypoint·visit·scan 상세 타입, 안전구역 계산 결과·도착 보고, 수신 애플리케이션 저장 ACK와 ACK 이후 큐 삭제 조건. [관제 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) · [AMR 계약 요청서](change_requests/CR-관제_09-08_15-15_AMR_명령_Heartbeat_E-stop_상태_계약.md) · [AMR ACK 검토 요청서](change_requests/CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md) | AMR·관제·시스템 모니터 |
 | TBD-IF-004 | **일부 결정(2026-09-08):** `ControlHeartbeat` 타입·필드·5 Hz·1초 timeout·QoS, E-stop reason 0~6, 전체 대상 `all`, 대표 원인 발행, 원인 제거 3초 해제, 하드웨어 E-stop·manual reset 제외. 잔여: E-stop reason 우선순위·원인별 활성/해제 조건·TRANSIENT_LOCAL depth, UI 요청 API와 전체 원인 집합 표시 계약. [AMR 요청서](change_requests/CR-관제_09-08_15-15_AMR_명령_Heartbeat_E-stop_상태_계약.md) · [System monitor 요청서](change_requests/CR-관제_09-08_15-15_System_monitor_E-stop_UI_운영상태_연계.md) | AMR·관제·시스템 모니터 |

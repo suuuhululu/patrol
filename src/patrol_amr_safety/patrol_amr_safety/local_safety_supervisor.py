@@ -39,9 +39,10 @@ import math
 import time
 from typing import NamedTuple
 
-from patrol_amr import drive_token_guard as dtg
-from patrol_amr import estop_guard as eg
-from patrol_amr import motion_guard as mg
+from patrol_amr_safety import drive_token_guard as dtg
+from patrol_amr_safety import estop_guard as eg
+from patrol_amr_safety import motion_guard as mg
+from patrol_amr import heartbeat_guard as hg
 
 
 class TokenStatus(NamedTuple):
@@ -84,6 +85,7 @@ class SafetyGate:
     def __init__(self, robot_id: str):
         self._token_guard = dtg.DriveTokenGuard(robot_id)
         self._estop_guard = eg.EStopGuard(robot_id)
+        self._heartbeat_guard = hg.HeartbeatGuard()
         self._motion_guard = mg.MotionGuard()
         self._candidate = None
         self._candidate_stamp = None
@@ -137,7 +139,6 @@ class SafetyGate:
         target_robot_id,
         active,
         reason,
-        latched,
         sequence,
     ):
         """Apply one /control/estop observation; returns EStopVerdict."""
@@ -145,9 +146,21 @@ class SafetyGate:
             target_robot_id,
             active,
             reason,
-            latched,
             sequence,
         )
+
+    def observe_heartbeat(self, control_session_id, sequence, now):
+        """Accept a heartbeat and revoke any token from an older session."""
+        previous = self._heartbeat_guard.control_session_id
+        verdict = self._heartbeat_guard.observe(
+            control_session_id, sequence, now)
+        if (
+            verdict is hg.HeartbeatVerdict.ACCEPTED
+            and control_session_id != previous
+        ):
+            self._token_guard.synchronize_control_session(
+                control_session_id, now)
+        return verdict
 
     def observe_candidate(self, linear, angular, stamp_seconds) -> bool:
         """Store one arbitrated drive candidate; False if it was rejected.
@@ -181,15 +194,17 @@ class SafetyGate:
             is dtg.DriveAuthority.GRANTED
         )
         estop_active = self._estop_guard.stopped
+        heartbeat_healthy = self._heartbeat_guard.healthy(monotonic_now)
         if self._candidate is None:
             return self._motion_guard.evaluate(
-                drive_granted, estop_active, None, None
+                drive_granted, estop_active, None, None, heartbeat_healthy
             )
         return self._motion_guard.evaluate(
             drive_granted,
             estop_active,
             self._candidate,
             ros_now - self._candidate_stamp,
+            heartbeat_healthy,
         )
 
     def blocked_reasons(self, now: float):
@@ -202,7 +217,9 @@ class SafetyGate:
             self._token_guard.authority(now) is dtg.DriveAuthority.GRANTED
         )
         estop_active = self._estop_guard.stopped
-        return self._motion_guard.blocked_reasons(drive_granted, estop_active)
+        heartbeat_healthy = self._heartbeat_guard.healthy(now)
+        return self._motion_guard.blocked_reasons(
+            drive_granted, estop_active, heartbeat_healthy)
 
     def motion_allowed(self, now: float) -> bool:
         return not self.blocked_reasons(now)
@@ -214,8 +231,8 @@ def create_node_class():
     from rclpy.node import Node
     from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
     from geometry_msgs.msg import Twist, TwistStamped
-    from patrol_interfaces.msg import DriveToken, EStop
-    from std_msgs.msg import Bool, String
+    from patrol_interfaces.msg import ControlHeartbeat, DriveToken, EStop
+    from std_msgs.msg import Bool, String, UInt8
 
     def to_twist(pair):
         """Final output is unstamped Twist: the drive base takes no stamp.
@@ -248,6 +265,7 @@ def create_node_class():
                 )
             self._gate = SafetyGate(robot_id)
             self._last_published = None
+            self._last_safety_state = None
             self._last_accepted_token_id = None
             self._last_output_reasons = None
 
@@ -262,6 +280,12 @@ def create_node_class():
             # lease 만료(DriveTokenGuard.authority, 애플리케이션 계층)가
             # 담당하므로 DDS deadline 이 없어도 안전 방향은 유지된다.
             drive_token_qos = QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=3,
+                reliability=ReliabilityPolicy.BEST_EFFORT,
+                durability=DurabilityPolicy.VOLATILE,
+            )
+            heartbeat_qos = QoSProfile(
                 history=HistoryPolicy.KEEP_LAST,
                 depth=3,
                 reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -302,6 +326,9 @@ def create_node_class():
             self._publisher = self.create_publisher(
                 Bool, 'motion_allowed', output_qos
             )
+            self._safety_state_publisher = self.create_publisher(
+                UInt8, 'safety_state', output_qos
+            )
             # 16단계 AMR 내부 연결. 비어 있지 않은 값 하나가
             # RobotStatus의 accepted_token_id와 token_valid=true를 함께
             # 뜻한다. 두 독립 토픽으로 나누지 않아 서로 다른 시점의 ID와
@@ -320,6 +347,12 @@ def create_node_class():
             )
             self.create_subscription(
                 EStop, '/control/estop', self._on_estop, estop_qos
+            )
+            self.create_subscription(
+                ControlHeartbeat,
+                '/control/heartbeat',
+                self._on_heartbeat,
+                heartbeat_qos,
             )
             # cmd_vel_yaw 는 계약에만 예약하고 구독하지 않는다: 두 후보
             # 사이의 선택은 주행 중재(TBD-AMR-001)이고 이 작업 범위 밖이다.
@@ -354,7 +387,6 @@ def create_node_class():
                 message.target_robot_id,
                 message.active,
                 message.reason,
-                message.latched,
                 message.sequence,
             )
             event = estop_transition_event(
@@ -369,6 +401,22 @@ def create_node_class():
             self._publish_if_changed()
             # E-stop 활성은 "즉시 반영"이므로 재확인 타이머를 기다리지 않고
             # 이 콜백에서 바로 STOP 을 내보낸다 (amr.md 3절).
+            self._publish_output(always=False)
+
+        def _on_heartbeat(self, message) -> None:
+            verdict = self._gate.observe_heartbeat(
+                message.control_session_id,
+                message.sequence,
+                time.monotonic(),
+            )
+            if verdict is not hg.HeartbeatVerdict.ACCEPTED:
+                self.get_logger().warning(
+                    f'dropped heartbeat: {verdict.value} '
+                    f'control_session_id={message.control_session_id!r} '
+                    f'sequence={message.sequence}'
+                )
+            self._publish_if_changed()
+            self._publish_token_status_if_changed()
             self._publish_output(always=False)
 
         def _on_candidate(self, message) -> None:
@@ -407,10 +455,15 @@ def create_node_class():
         def _publish_if_changed(self) -> None:
             now = time.monotonic()
             allowed = self._gate.motion_allowed(now)
-            if allowed == self._last_published:
+            safety_state = 4 if self._gate.estop_active else (1 if allowed else 3)
+            if safety_state != self._last_safety_state:
+                self._last_safety_state = safety_state
+                self._safety_state_publisher.publish(UInt8(data=safety_state))
+            if allowed != self._last_published:
+                self._last_published = allowed
+                self._publisher.publish(Bool(data=allowed))
+            else:
                 return
-            self._last_published = allowed
-            self._publisher.publish(Bool(data=allowed))
             reasons = sorted(r.value for r in self._gate.blocked_reasons(now))
             self.get_logger().info(
                 f'motion allowed: {allowed} blocked_reasons: {reasons}'

@@ -1,20 +1,18 @@
 """Persistent MissionCommand deduplication for AMR-05.
 
-The store implements the fixed parts of interfaces.md Q-14 without guessing
-the remaining command-specific target or ``parameters_json`` schemas:
+The store implements the fixed parts of interfaces.md Q-14:
 
 * retain every command received in the last 24 hours;
 * retain the newest 1,000 commands older than 24 hours;
 * never execute the same command ID twice, including after process restart;
-* treat changes to robot, command, target, target pose, parameters, or mission
+* treat changes to robot, command, target, target pose, or mission
   as a command-ID conflict;
 * return the existing accepted/executing/completed state for an exact retry;
 * retain the completed report payload so the future ROS adapter can resend it.
 
-Target pose is supplied as JSON-compatible data by the future ROS adapter.  It
-is canonicalized only for exact comparison.  ``parameters_json`` is checked
-for valid JSON when non-empty, but its keys and value types remain TBD-IF-001
-and are deliberately not interpreted here.
+Target pose is supplied as JSON-compatible data by the ROS adapter and is
+canonicalized only for exact comparison. Legacy databases containing the
+removed ``parameters_json`` column are migrated in one transaction.
 """
 
 from dataclasses import dataclass
@@ -73,6 +71,10 @@ class CommandStore:
         self._connection = sqlite3.connect(database_path)
         self._connection.row_factory = sqlite3.Row
         self._connection.execute('PRAGMA foreign_keys = ON')
+        self._initialize_schema()
+        self._connection.commit()
+
+    def _initialize_schema(self) -> None:
         self._connection.execute(
             '''
             CREATE TABLE IF NOT EXISTS mission_commands (
@@ -82,7 +84,6 @@ class CommandStore:
                 command INTEGER NOT NULL,
                 target_id TEXT NOT NULL,
                 target_pose_json TEXT NOT NULL,
-                parameters_json TEXT NOT NULL,
                 received_at REAL NOT NULL,
                 state TEXT NOT NULL,
                 report_id TEXT,
@@ -90,7 +91,47 @@ class CommandStore:
             )
             '''
         )
-        self._connection.commit()
+        columns = {
+            row['name'] for row in self._connection.execute(
+                'PRAGMA table_info(mission_commands)'
+            ).fetchall()
+        }
+        if 'parameters_json' not in columns:
+            return
+        with self._connection:
+            self._connection.execute(
+                'ALTER TABLE mission_commands RENAME TO mission_commands_v1'
+            )
+            self._connection.execute(
+                '''
+                CREATE TABLE mission_commands (
+                    command_id TEXT PRIMARY KEY,
+                    mission_id TEXT NOT NULL,
+                    robot_id TEXT NOT NULL,
+                    command INTEGER NOT NULL,
+                    target_id TEXT NOT NULL,
+                    target_pose_json TEXT NOT NULL,
+                    received_at REAL NOT NULL,
+                    state TEXT NOT NULL,
+                    report_id TEXT,
+                    report_payload_json TEXT
+                )
+                '''
+            )
+            self._connection.execute(
+                '''
+                INSERT INTO mission_commands (
+                    command_id, mission_id, robot_id, command, target_id,
+                    target_pose_json, received_at, state, report_id,
+                    report_payload_json
+                )
+                SELECT command_id, mission_id, robot_id, command, target_id,
+                       target_pose_json, received_at, state, report_id,
+                       report_payload_json
+                FROM mission_commands_v1
+                '''
+            )
+            self._connection.execute('DROP TABLE mission_commands_v1')
 
     def close(self) -> None:
         self._connection.close()
@@ -110,19 +151,20 @@ class CommandStore:
         command,
         target_id: str,
         target_pose: Any,
-        parameters_json: str,
         received_at: float,
     ) -> CommandObservation:
         """Persist a new command or classify a retry without executing it."""
         command_id = _nonempty_string(command_id, 'command_id')
-        mission_id = _nonempty_string(mission_id, 'mission_id')
+        command = _command_value(command)
+        if not isinstance(mission_id, str):
+            raise ValueError('mission_id must be a str')
+        if not mission_id and command is not MissionCommand.STOP:
+            raise ValueError('mission_id may be empty only for STOP')
         if robot_id not in ROBOT_IDS:
             raise ValueError(f'robot_id must be one of {ROBOT_IDS}')
-        command = _command_value(command)
         if not isinstance(target_id, str):
             raise ValueError('target_id must be a str')
         target_pose_json = _canonical_json(target_pose, 'target_pose')
-        parameters_json = _parameters_json(parameters_json)
         received_at = _finite_nonnegative(received_at, 'received_at')
 
         existing = self._connection.execute(
@@ -137,7 +179,6 @@ class CommandStore:
                 command=command,
                 target_id=target_id,
                 target_pose_json=target_pose_json,
-                parameters_json=parameters_json,
             )
 
         # A command addressed to the other robot is invalid input for this
@@ -151,8 +192,8 @@ class CommandStore:
                 '''
                 INSERT INTO mission_commands (
                     command_id, mission_id, robot_id, command, target_id,
-                    target_pose_json, parameters_json, received_at, state
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    target_pose_json, received_at, state
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ''',
                 (
                     command_id,
@@ -161,7 +202,6 @@ class CommandStore:
                     int(command),
                     target_id,
                     target_pose_json,
-                    parameters_json,
                     received_at,
                     CommandState.ACCEPTED.value,
                 ),
@@ -250,6 +290,30 @@ class CommandStore:
             return None
         return patrol_report.record_from_json(row['report_payload_json'])
 
+    def completed_reports(self):
+        """Restore every retained terminal report in receive order.
+
+        The store deliberately does not mark a report as acknowledged: the
+        shared contract has no report ACK yet.  Callers may therefore replay
+        these immutable records after a transport reconnection, and receivers
+        deduplicate them by report ID as required by interfaces.md section 5.
+        """
+        from patrol_amr import patrol_report
+
+        rows = self._connection.execute(
+            '''
+            SELECT report_payload_json
+            FROM mission_commands
+            WHERE state = ?
+            ORDER BY received_at ASC, rowid ASC
+            ''',
+            (CommandState.COMPLETED.value,),
+        ).fetchall()
+        return tuple(
+            patrol_report.record_from_json(row['report_payload_json'])
+            for row in rows
+        )
+
     def observation(self, command_id: str) -> CommandObservation:
         row = self._required(command_id)
         return _observation_for_row(row)
@@ -302,7 +366,6 @@ class CommandStore:
         command,
         target_id,
         target_pose_json,
-        parameters_json,
     ) -> CommandObservation:
         fingerprint = (
             mission_id,
@@ -310,7 +373,6 @@ class CommandStore:
             int(command),
             target_id,
             target_pose_json,
-            parameters_json,
         )
         stored = (
             row['mission_id'],
@@ -318,7 +380,6 @@ class CommandStore:
             row['command'],
             row['target_id'],
             row['target_pose_json'],
-            row['parameters_json'],
         )
         if fingerprint != stored:
             return CommandObservation(
@@ -362,10 +423,6 @@ def _canonical_json(value, name) -> str:
         )
     except (TypeError, ValueError) as error:
         raise ValueError(f'{name} must be JSON-compatible') from error
-
-
-def _parameters_json(value: str) -> str:
-    return _json_text(value, 'parameters_json', allow_empty=True)
 
 
 def _json_text(value, name, *, allow_empty) -> str:

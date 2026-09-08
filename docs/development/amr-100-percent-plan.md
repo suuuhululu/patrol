@@ -78,10 +78,28 @@
 
 ## 5. 현재 체크포인트와 다음 행동
 
+- 2026-09-08 20단계 확정 부분: 신규 명령 1회 dispatch, 현재 ACK 재응답, 충돌 거절, 완료 report 재전달 판정, 재연결 epoch report replay를 구현했다. 전체 자동시험은 `Ran 231 tests`/`OK`다.
+- 21단계 첫 구현으로 실제 좌표에 비의존적인 Q-08 안전구역 후보 판정·선택·`SAFE_ZONE_NOT_FOUND` 결정을 추가했다. 실제 map·mask·P1~P7·도크·안전구역 좌표는 저장소에 없어 AMR-08·09·10·16은 아직 100%가 아니다.
+- 사용자가 제공한 `final_project_map`(126×90, 0.05 m/px, origin `[-5.801,-3.430,0]`)과 WP1~WP7을 패키지에 추가했다. 빨간 기본 Keepout 2개와 노란 중앙통로 Keepout 1개를 별도 마스크로 생성했다. 도크 pose·안전구역 후보 좌표, 실제 Nav2 filter 활성 정책·parameter·통합이 남아 AMR-08·09·10·16은 아직 100%가 아니다.
+- 빨간 기본 mask는 상시, 노란 중앙통로 mask는 관제가 `/vision/cctv/patrol_allowed=false`를 받았을 때 활성하는 정책으로 자산에 분리했다. 자동시험 `Ran 250 tests`/`OK`, 두 패키지 빌드 성공이다.
+- 21단계 Nav2 이중 Keepout 연결로 기존 TurtleBot4 parameter에 적용하는 overlay, robot1·robot6 namespace launch, base/center mask server와 filter info server lifecycle 구성을 추가했다. 기본 filter는 항상 ON, 중앙통로 filter만 관제 transaction 대상으로 분리했다. 전체 자동시험 `Ran 255 tests`/`OK`, 두 패키지 빌드와 launch 인자 검증이 성공했다. 관제 적용·read-back·rollback과 양쪽 로봇 실기는 [이중 Keepout parameter 요청서](../change_requests/CR-AMR_09-08_13-02_이중_Keepout_parameter_계약.md) 합의 후 남는다.
+- 병합된 실제 production 경로 `mission_supervisor → PatrolScenario → NavigationAdapter → Nav2GoalRunner`에 AMR-16 정책을 연결했다. 일반 Nav2 실패·거절은 최초 1회 뒤 최대 3회 재시도하고, 중간 W1~W6의 네 번째 실패는 checkpoint를 넘겨 다음 WP로 진행하며 마지막 W7 실패는 종료한다. 안전 권한 상실·취소는 재시도하지 않는다. robot1·robot6 실기 전에는 AMR-16을 100%로 표시하지 않는다.
+- 종단 ROS 연결을 막는 5개 공유 계약은 [AMR 수정 요청서](../change_requests/CR-AMR_09-08_11-48_명령_상태_보고_종단_계약.md)로 분리했다. 미정 숫자·payload·상태 전이는 임의로 확정하지 않았다.
+- 다음 기능은 사용자의 `진행` 확인 후에만 시작한다.
 - AMR-03과 AMR-12만 사용자 표에서 이미 100%다.
 - 18단계 `patrol_report.py`는 AMR-07의 구성·동일 ID 재사용과 전체 wire 필드 변환·발행/QoS helper까지 구현했다. mission 입력·영속 outbox trigger가 없으므로 AMR-07은 아직 100%가 아니다.
 - 20단계 AMR-05의 첫 구현으로 `command_store.py`에 재시작 영속 중복 제거, 상태·완료 report 보존, Q-14 retention을 추가했다. public CommandCheck 숫자와 mission ROS adapter가 없어 AMR-05는 아직 100%가 아니다.
+- `command_store`와 `patrol_report` 사이에 canonical report JSON 영속·재시작 복원을 연결했다. command/robot ID 불일치도 차단한다. ROS mission adapter와 재전송 trigger가 남아 있어 AMR-05·07은 아직 100%가 아니다.
+- AMR-06의 active command/mission ID, waypoint, scan, reason code/detail을 상태 모델에 원자 저장하고 RobotStatus wire 필드까지 매핑했다. 실제 mission adapter 입력이 없어 AMR-06은 아직 100%가 아니다.
 - 23단계 AMR-20의 확정 부분으로 `heartbeat_guard.py`에 session·sequence와 1초 초과 timeout을 추가했다. wire 메시지 타입과 최종 안전 ROS 배선이 없어 AMR-20은 아직 100%가 아니다.
-- 최신 `origin/main`에는 `nav2_client.py`, `mission_supervisor`, `command_store.py`, 관제 통합 launch가 없다.
-- 따라서 다음은 19단계다. 타 담당 코드의 실제 위치/병합 일정을 확인하고, 없으면 현재 계약으로 직접 구현 가능한 범위와 반드시 먼저 결정할 TBD를 분리한다.
+- 현재 로컬 작업에는 `mission_supervisor`, 실제 Nav2·도킹 adapter, `command_store.py`, robot1·robot6 hardware launch가 있다. 병합 충돌은 양쪽 자산·의존성을 모두 보존해 정리했다.
+- 현재는 21단계다. AMR-16 production 연결은 구현됐고, [실제 robot1 시험](amr16-robot-test.md)의 재시도·skip·안전 취소·최종 goal PASS 전까지 70%로 유지한다. AMR-08·09·10은 map/TF 실측·관제 transaction·안전구역 입력이 별도로 남는다.
+- AMR-16 production 연결 자동검증은 전체 단위시험 `Ran 352 tests` / `OK`, `patrol_interfaces`·`patrol_amr` symlink 빌드 성공이다. 이는 실기 PASS를 대신하지 않는다.
+- 20단계 AMR-05·06의 남은 조각이던 **mission ROS adapter** 를 `command_gateway.py` 로 구현했다. `mission_ingress.py` 가 docstring 에서 예고한 "future ROS mission node" 다. entry point 4번째 노드이며 `mission_command` 를 구독해 `command_check` 를 발행하고, SQLite 저장소는 `~/.local/state/patrol_amr/<robot>/` 에 두어 재빌드가 실행 이력을 지우지 않는다.
+- 내부 신호 3개는 뜻을 하나씩만 갖는다. `command_dispatch`(1회 실행), `active_command`(현재 명령 정체), `report_replay_request`(보존 report 재전송). **durability 를 일부러 다르게 뒀다** — dispatch·replay 는 VOLATILE 이어야 늦게 붙은 구독자에게 과거 신호가 재전달되어 명령이 두 번 실행되는 일이 없고, active_command 는 상태이므로 TRANSIENT_LOCAL 이어야 늦게 뜬 status_reporter 가 빈 ID 를 내보내지 않는다. 첫 구현에서 이 불일치로 값이 전달되지 않는 것을 실측하고 고쳤다.
+- PatrolReport 발행은 이 노드에 넣지 않았다. AMR-07 은 다른 담당의 행이고, 한 report 토픽에 발행자가 둘이면 cmd_vel 단일 발행자 규칙이 막으려는 것과 같은 실패가 된다. 완료 명령 재수신 시에는 `report_replay_request` 로 command_id 만 넘긴다.
+- `check_state` 정수 3개와 거절 reason code 2개는 필수 parameter 다. TBD-IF-001 의 열린 항목이라 숫자를 만들지 않았고, 없으면 노드가 시작을 거부한다. `status_reporter` 의 `safety_state` 와 같은 방식이다.
+- AMR-06 의 `active_command_id`·`active_mission_id` 를 `status_reporter` 가 `active_command` 구독으로 채우도록 연결했다. 거절된 명령은 현재 명령이 아니므로 반영하지 않는다. **종료 시 값을 비우는 경로는 없다** — 명령이 종료 상태에 도달했음을 저장소에 표시하는 주체가 A1 mission owner 이고 아직 없다. 마지막 수락 명령을 유지하는 것은 이 로봇이 아는 사실이며 TBD-AMR-005 의 전이 규칙을 추측한 것이 아니다.
+- 자동 검증(2026-09-08): 전체 단위시험 `Ran 289 tests`, 실패 1건은 `turtlebot4_navigation` 미설치 환경 사유다. 스모크 `AMR_SMOKE_PASS`. 격리 도메인에서 신규 1회 dispatch·중복 무dispatch·ID 충돌 거절과 RobotStatus 의 active ID 반영·거절 시 유지를 확인했다.
+- AMR-05·06 은 여전히 100% 가 아니다. AMR-05 는 24시간/1,000개 보존과 재시작 영속 ROS 시험이, AMR-06 은 mission·docking 축 입력과 2/10 Hz ROS 시험이 남는다.
 - 진행 중에는 이 문서의 행별 gate를 닫은 증거를 추가한다. 하위 체크만 끝났을 때는 `부분 구현`으로 기록하고 행 상태를 `완료`로 바꾸지 않는다.

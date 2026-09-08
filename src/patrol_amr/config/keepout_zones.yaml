@@ -1,0 +1,31 @@
+frame_id: map
+map_id: final_project_map
+layers:
+  - id: base_keepout
+    color_reference: red
+    activation_policy: always
+    polygons:
+      - id: base_right
+        points:
+          - [-0.504, 0.126]   # P1
+          - [-1.628, 0.188]   # P2
+          - [-1.761, -2.156]  # P3
+          - [-0.667, -2.230]  # P4
+      - id: base_left
+        points:
+          - [-2.267, 0.222]   # P5
+          - [-3.462, 0.292]   # P6
+          - [-3.616, -2.082]  # P7
+          - [-2.445, -2.068]  # P8
+  - id: center_corridor_keepout
+    color_reference: yellow
+    activation_policy: control_when_patrol_disallowed
+    control_input: /vision/cctv/patrol_allowed
+    active_value: false
+    polygons:
+      - id: center_corridor
+        points:
+          - [-1.628, 0.188]   # P2
+          - [-2.267, 0.222]   # P5
+          - [-2.445, -2.068]  # P8
+          - [-1.761, -2.156]  # P3

@@ -75,7 +75,9 @@ class CommandStore:
             return Claim(ClaimResult.NEW, command_id)
 
     def finish(self, command_id: str, outcome: str, reason: str = '') -> None:
-        if outcome not in {'SUCCEEDED', 'FAILED', 'CANCELED', 'REJECTED'}:
+        if outcome not in {
+            'SUCCEEDED', 'FAILED', 'CANCELED', 'REJECTED', 'PAUSED'
+        }:
             raise ValueError(f'unsupported outcome: {outcome}')
         with self._lock:
             entry = self._data['commands'].get(command_id)

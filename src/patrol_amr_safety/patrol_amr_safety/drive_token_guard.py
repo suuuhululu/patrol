@@ -139,6 +139,31 @@ class DriveTokenGuard:
         self._revoked_last = False
         return TokenVerdict.ACCEPTED
 
+    def synchronize_control_session(
+        self,
+        control_session_id: str,
+        now: float,
+    ) -> bool:
+        """Invalidate authority when heartbeat announces a new session.
+
+        Returns True only when the active session changed. A retired session
+        can never replace the current session.
+        """
+        if not isinstance(control_session_id, str) or not control_session_id:
+            raise ValueError('control_session_id must be a non-empty str')
+        self._check_time(now)
+        self._advance_clock(now)
+        if control_session_id in self._retired_control_sessions:
+            return False
+        if control_session_id == self._control_session_id:
+            return False
+        if self._control_session_id is not None:
+            self._retired_control_sessions.add(self._control_session_id)
+        self._invalidate(revoked=False)
+        self._control_session_id = control_session_id
+        self._last_message_sequence = None
+        return True
+
     def authority(self, now: float) -> DriveAuthority:
         self._check_time(now)
         if self._token_id is None:

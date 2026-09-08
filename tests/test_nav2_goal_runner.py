@@ -15,6 +15,7 @@ class FakeNavigator:
 
     def __init__(self):
         self.sent = False
+        self.send_calls = 0
 
     def getPoseStamped(self, position, yaw):
         """Return a traceable stand-in pose."""
@@ -23,6 +24,7 @@ class FakeNavigator:
     def goToPose(self, pose):
         """Match BasicNavigator's void-style asynchronous start."""
         self.sent = True
+        self.send_calls += 1
         return None
 
     def isTaskComplete(self):
@@ -42,6 +44,7 @@ class RejectingNavigator(FakeNavigator):
 
     def goToPose(self, pose):
         """Match TurtleBot4Navigator's explicit rejection return."""
+        self.send_calls += 1
         return False
 
 
@@ -68,6 +71,35 @@ class RunningNavigator(FakeNavigator):
     def getResult(self):
         """Return canceled after the gate requested a stop."""
         return 3
+
+    def getFeedback(self):
+        """Return one traceable feedback object while moving."""
+        return {'distance_remaining': 1.0}
+
+
+class ResultNavigator(FakeNavigator):
+    """Return one configured terminal result per goal attempt."""
+
+    def __init__(self, results):
+        super().__init__()
+        self.results = iter(results)
+
+    def getResult(self):
+        return next(self.results)
+
+
+class LoggedResultNavigator(ResultNavigator):
+    """Result navigator exposing the ROS logger surface used in hardware."""
+
+    def __init__(self, results):
+        super().__init__(results)
+        self.warnings = []
+
+    def get_logger(self):
+        return self
+
+    def warning(self, message):
+        self.warnings.append(message)
 
 
 class Nav2GoalRunnerTest(unittest.TestCase):
@@ -100,9 +132,11 @@ class Nav2GoalRunnerTest(unittest.TestCase):
 
     def test_explicit_goal_rejection_is_reported(self):
         """TurtleBot4Navigator's False result maps to REJECTED."""
-        result = Nav2GoalRunner(RejectingNavigator()).go_to(
+        navigator = RejectingNavigator()
+        result = Nav2GoalRunner(navigator).go_to(
             Waypoint('W1', 1.0, 2.0, 90.0), threading.Event())
         self.assertIs(result, NavigationResult.REJECTED)
+        self.assertEqual(4, navigator.send_calls)
 
     def test_readiness_loss_cancels_an_active_goal(self):
         """A stale live gate stops a goal that was already moving."""
@@ -115,9 +149,50 @@ class Nav2GoalRunnerTest(unittest.TestCase):
         }
         gate = {'ready': True}
         navigator = RunningNavigator(gate)
+        runner = Nav2GoalRunner(navigator, lambda: gate['ready'])
         with patch.dict(sys.modules, modules):
-            result = Nav2GoalRunner(
-                navigator, lambda: gate['ready']).go_to(
+            result = runner.go_to(
                     Waypoint('W1', 1.0, 2.0, 90.0), threading.Event())
-        self.assertIs(result, NavigationResult.FAILED)
+        self.assertIs(result, NavigationResult.CANCELED)
         self.assertTrue(navigator.canceled)
+        self.assertEqual({'distance_remaining': 1.0}, runner.last_feedback)
+
+    def test_three_failures_are_retried_then_fourth_attempt_succeeds(self):
+        package = ModuleType('nav2_simple_commander')
+        module = ModuleType('nav2_simple_commander.robot_navigator')
+        module.TaskResult = SimpleNamespace(SUCCEEDED=1, FAILED=2, CANCELED=3)
+        modules = {
+            'nav2_simple_commander': package,
+            'nav2_simple_commander.robot_navigator': module,
+        }
+        navigator = ResultNavigator([2, 2, 2, 1])
+        runner = Nav2GoalRunner(navigator)
+        with patch.dict(sys.modules, modules):
+            result = runner.go_to(
+                Waypoint('W1', 1.0, 2.0, 90.0), threading.Event())
+        self.assertIs(result, NavigationResult.SUCCEEDED)
+        self.assertEqual(4, navigator.send_calls)
+
+    def test_four_failed_attempts_return_failure(self):
+        package = ModuleType('nav2_simple_commander')
+        module = ModuleType('nav2_simple_commander.robot_navigator')
+        module.TaskResult = SimpleNamespace(SUCCEEDED=1, FAILED=2, CANCELED=3)
+        modules = {
+            'nav2_simple_commander': package,
+            'nav2_simple_commander.robot_navigator': module,
+        }
+        navigator = LoggedResultNavigator([2, 2, 2, 2])
+        with patch.dict(sys.modules, modules):
+            result = Nav2GoalRunner(navigator).go_to(
+                Waypoint('W1', 1.0, 2.0, 90.0), threading.Event())
+        self.assertIs(result, NavigationResult.FAILED)
+        self.assertEqual(4, navigator.send_calls)
+        self.assertEqual(
+            navigator.warnings,
+            [
+                'W1 attempt 1/4 failed: FAILED; retrying',
+                'W1 attempt 2/4 failed: FAILED; retrying',
+                'W1 attempt 3/4 failed: FAILED; retrying',
+                'W1 failed after 4 attempts: FAILED',
+            ],
+        )
