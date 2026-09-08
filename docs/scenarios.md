@@ -256,7 +256,7 @@ flowchart TD
 
 기본 흐름: ① AMR 최종 속도 차단과 Goal 취소를 분리 수행 ② 상태·원인 보고 ③ STALE에서 관제 신규 mission/token 갱신 중단 ④ 정상 수신5초·유효 pose/age·배터리·E-stop·Keepout·permit 등 복구 게이트 확인 ⑤ 별도 유효 명령·token으로 재개한다.
 
-예외/미정: 하드웨어·물리 E-stop과 수동 reset은 구현하지 않는다. 모든 활성 원인이 사라진 상태가 3초 연속 유지되어야 관제가 해제할 수 있다. heartbeat는 `ControlHeartbeat`로 관제 5 Hz 발행·AMR 1초 timeout이다. Ctrl+C/SIGINT 정상 종료는 E-stop이 아닌 `CONTROL_SHUTDOWN` 운영 이벤트이며, 재기동 뒤 새 control session과 새 token·별도 command 전에는 재개하지 않는다. reason 우선순위·UI 요청 API는 TBD-IF-004·TBD-CTRL-004다. 정지 감속·거리는 TBD-AMR-006이며 30초 경과 자동 교대를 사용하지 않는다.
+예외/미정: 하드웨어·물리 E-stop과 수동 reset은 구현하지 않는다. 모든 활성 원인이 사라진 상태가 3초 연속 유지되어야 관제가 해제할 수 있다. heartbeat는 `ControlHeartbeat`로 관제 5 Hz 발행·AMR 1초 timeout이다. Ctrl+C/SIGINT 정상 종료는 E-stop이 아닌 `CONTROL_SHUTDOWN` 운영 이벤트이며, 재기동 뒤 새 control session과 새 token·별도 command 전에는 재개하지 않는다. 대표 reason은 `SYSTEM_FAULT → UNKNOWN → OPERATOR → KEEPOUT_FAILURE → COMMUNICATION → OBSTACLE → TOKEN` 순으로 선택한다. UI 요청 API와 원인별 상세 조건은 차기 버전 TBD-IF-004·TBD-CTRL-004다. 정지 감속·거리는 TBD-AMR-006이며 30초 경과 자동 교대를 사용하지 않는다.
 
 완료 조건: 안전 출력 우회 없음·오래된 상태로 자동 출발 없음·결과 미수신 UNREPORTED 유지. 로그·실측 정지·적용 버전으로 IT-03/04/10/11/12/16을 검증한다. 현재 실제 시험 결과는 NOT_RUN, 미정 의존 부분 BLOCKED.
 

@@ -102,13 +102,13 @@ flowchart TD
 
 ## 2. 명령과 임무 실행
 
-1. 수신 namespace와 robot_id, 명령 enum, 필수 인자를 검증한다. 미정 인자 규칙은 TBD-IF-001을 따른다.
+1. 수신 namespace와 robot_id, 명령 enum, v1.0의 명령별 mission·target 필수 인자를 검증한다.
 2. 영속 command_id 기록을 조회해 동일 명령을 다시 실행하지 않는다.
 3. 주행이 필요한 명령은 유효 token 및 로컬 안전 조건을 통과해야 한다.
 4. 필요할 때 mission_supervisor가 내부 Nav2 Action을 호출한다. 관제가 Nav2 Action을 직접 실행하는 경로를 만들지 않는다.
 5. 진행 상태를 RobotStatus에 반영하고 종료 시 PatrolReport를 생성한다.
 
-START_PATROL, MOVE_TO_SAFE_ZONE, RESUME_PATROL, DOCK는 실행 목적을 구분한다. STOP과 CANCEL의 정확한 임무 보존·종료 차이, 명령 대체 우선순위, 순찰 재개 지점은 TBD-AMR-005 및 TBD-CTRL-001에서 합의한다.
+START_PATROL, MOVE_TO_SAFE_ZONE, RESUME_PATROL, DOCK는 실행 목적을 구분한다. STOP은 재개 가능한 상태를 보존하고 활성 mission이 없으면 안전한 no-op으로 ACCEPTED한다. CANCEL은 지정한 활성 mission 전체를 종료하고 재개 상태를 남기지 않으며 존재하지 않거나 끝난 mission은 INVALID_MISSION으로 거절한다. 명령 우선순위는 v1.0 계약을 따르고 세부 순찰 재개 지점만 TBD-AMR-005로 차기 버전에 이관한다.
 
 Operational/Mission/Docking은 별개 상태 축이다. interfaces.md의 enum을 따른다. 순찰→대피→대기→재개, 복귀→도킹→완료/실패 흐름은 기준이나 모든 상태 쌍 사이의 전이가 허용된다는 뜻은 아니다. 상세 전이표는 TBD-AMR-005다.
 
@@ -153,7 +153,7 @@ flowchart TD
 
 ### 2.2 command_check.py — 구현 대조 완료 (순수 모듈)
 
-`CheckStateMapping`은 ACCEPTED·EXECUTING·REJECTED의 서로 다른 uint8 값을 호출자가 모두 제공해야만 생성된다. TBD-IF-001이 확정되기 전에는 기본 숫자를 만들지 않는다. `CommandCheckFactory`는 robot/source session을 검증하고 sequence를 증가시키며, 잘못된 command의 빈 ID도 그대로 echo할 수 있다. `populate_message()`·`publish_record()`는 전체 wire 필드를 변환·발행하고 QoS는 RELIABLE·VOLATILE·KEEP_LAST(10)이다.
+`CheckStateMapping`은 v1.0의 UNKNOWN=0, ACCEPTED=1, EXECUTING=2, REJECTED=3을 사용한다. `CommandCheckFactory`는 robot/source session을 검증하고 sequence를 증가시키며, 잘못된 command의 빈 ID도 그대로 echo할 수 있다. `populate_message()`·`publish_record()`는 전체 wire 필드를 변환·발행하고 QoS는 RELIABLE·VOLATILE·KEEP_LAST(10)이다.
 
 ~~~mermaid
 flowchart TD

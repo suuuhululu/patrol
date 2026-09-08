@@ -606,8 +606,8 @@ flowchart TD
 
 - `patrol_interfaces/msg/MissionCommand`는 공용 패키지 의존성으로 사용한다.
   공용 패키지를 먼저 빌드·source한 뒤 ROS 노드를 기동한다. 구조화 ID,
-  mission ID, 충돌 fingerprint와 보관 규칙은 반영했고 CommandCheck 수치와
-  명령별 target 규칙은 TBD-IF-001에 남아 있다.
+  mission ID, 충돌 fingerprint와 보관 규칙, CommandCheck 수치와
+  명령별 target 규칙은 v1.0 계약에 반영했다.
 - 미션 상태는 AMR 내부 영속 `mission_status.json`으로 프로세스 경계를
   넘기며 공개 ROS 내부 토픽을 새로 만들지 않았다. `status_reporter`가 이를
   읽어 RobotStatus의 mission·command·waypoint·reason 필드를 만든다.
