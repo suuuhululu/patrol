@@ -38,6 +38,11 @@ Three internal topics leave this node, each with exactly one meaning:
 Splitting dispatch from active matters: a duplicate of a running command
 is still the active command but must not start a second run.
 
+This node also owns Q-14 retention. ``CommandStore.prune`` implements the
+rule -- keep everything from the last 24 hours, plus the newest 1,000
+older records -- but nothing was calling it, so the store grew forever.
+The gateway prunes once at startup and then on a slow timer.
+
 Answering the arbiter correctly and never running the same command twice
 is a separable job, and it is the half whose contract is already fixed.
 
@@ -148,6 +153,11 @@ def create_node_class():
     class CommandGateway(Node):
         """Answer every MissionCommand exactly once per command identity."""
 
+        # Q-14 의 경계는 24시간이라 1초에 1초씩만 움직인다. 명령마다 DELETE 를
+        # 돌리면 얻는 것 없이 쓰기만 늘고, 하루짜리 창에서 1분의 지연은 보존
+        # 판정을 바꾸지 않는다. 계약 수치가 아니라 이 노드의 유지보수 주기다.
+        PRUNE_PERIOD_SECONDS = 60.0
+
         def __init__(self):
             super().__init__('command_gateway')
             self.declare_parameter('robot_id', '')
@@ -239,6 +249,9 @@ def create_node_class():
                 self._on_mission_command,
                 command_qos,
             )
+            # 시작 시 한 번 — 저장소에는 지난 세션의 오래된 기록이 남아 있다.
+            self._prune()
+            self.create_timer(self.PRUNE_PERIOD_SECONDS, self._prune)
 
             self._command_check_type = CommandCheck
             self._dispatch_type = String
@@ -313,6 +326,26 @@ def create_node_class():
             if decision.dispatch_new:
                 self._dispatch_publisher.publish(
                     self._dispatch_type(data=message.command_id)
+                )
+
+        def _prune(self) -> None:
+            """Apply Q-14 retention to the durable command store.
+
+            The same ROS clock that stamped ``received_at`` measures the
+            cutoff; mixing in a monotonic or wall clock here would compare
+            two different time bases against one stored value.
+            """
+            try:
+                deleted = self._store.prune(
+                    self.get_clock().now().nanoseconds / 1e9
+                )
+            except ValueError as error:
+                self.get_logger().warning(f'retention prune skipped: {error}')
+                return
+            if deleted:
+                self.get_logger().info(
+                    f'Q-14 retention removed {deleted} old command records; '
+                    f'{self._store.count()} retained'
                 )
 
         def destroy_node(self):

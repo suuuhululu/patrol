@@ -83,8 +83,7 @@
 - 사용자가 제공한 `final_project_map`(126×90, 0.05 m/px, origin `[-5.801,-3.430,0]`)과 WP1~WP7을 패키지에 추가했다. 빨간 기본 Keepout 2개와 노란 중앙통로 Keepout 1개를 별도 마스크로 생성했다. 도크 pose·안전구역 후보 좌표, 실제 Nav2 filter 활성 정책·parameter·통합이 남아 AMR-08·09·10·16은 아직 100%가 아니다.
 - 빨간 기본 mask는 상시, 노란 중앙통로 mask는 관제가 `/vision/cctv/patrol_allowed=false`를 받았을 때 활성하는 정책으로 자산에 분리했다. 자동시험 `Ran 250 tests`/`OK`, 두 패키지 빌드 성공이다.
 - 21단계 Nav2 이중 Keepout 연결로 기존 TurtleBot4 parameter에 적용하는 overlay, robot1·robot6 namespace launch, base/center mask server와 filter info server lifecycle 구성을 추가했다. 기본 filter는 항상 ON, 중앙통로 filter만 관제 transaction 대상으로 분리했다. 전체 자동시험 `Ran 255 tests`/`OK`, 두 패키지 빌드와 launch 인자 검증이 성공했다. 관제 적용·read-back·rollback과 양쪽 로봇 실기는 [이중 Keepout parameter 요청서](../change_requests/CR-AMR_09-08_13-02_이중_Keepout_parameter_계약.md) 합의 후 남는다.
-- 21단계 공통 Nav2 Action 모듈로 `NavigateToPose` goal·feedback·성공·실패·취소와 최초 시도 뒤 최대 3회 재시도를 구현했다. 네 번째 실패 시 중간 waypoint는 skip, 최종 goal은 route 실패로 구분하며 안전 취소는 재시도하지 않는다. 전체 자동시험 `Ran 269 tests`/`OK`, 두 패키지 빌드가 성공했다. mission supervisor 연결과 robot1·robot6 실기는 남아 있어 AMR-16은 아직 100%가 아니다.
-- 21단계 공통 waypoint route 모듈로 측정된 WP1~WP7을 `Nav2Client`에 순차 전달한다. 성공은 다음 WP, 중간 skip도 기록 후 다음 WP, final 실패·취소는 즉시 종료한다. 중간 skip이 있는 route 완료를 별도 `COMPLETED_WITH_SKIPS`로 보존해 미정인 mission 성공 판정을 대신하지 않는다. 전체 자동시험 `Ran 289 tests`/`OK`, 두 패키지 빌드가 성공했다. ROS mission adapter와 실기는 남는다.
+- 병합된 실제 production 경로 `mission_supervisor → PatrolScenario → NavigationAdapter → Nav2GoalRunner`에 AMR-16 정책을 연결했다. 일반 Nav2 실패·거절은 최초 1회 뒤 최대 3회 재시도하고, 중간 W1~W6의 네 번째 실패는 checkpoint를 넘겨 다음 WP로 진행하며 마지막 W7 실패는 종료한다. 안전 권한 상실·취소는 재시도하지 않는다. robot1·robot6 실기 전에는 AMR-16을 100%로 표시하지 않는다.
 - 종단 ROS 연결을 막는 5개 공유 계약은 [AMR 수정 요청서](../change_requests/CR-AMR_09-08_11-48_명령_상태_보고_종단_계약.md)로 분리했다. 미정 숫자·payload·상태 전이는 임의로 확정하지 않았다.
 - 다음 기능은 사용자의 `진행` 확인 후에만 시작한다.
 - AMR-03과 AMR-12만 사용자 표에서 이미 100%다.
@@ -93,8 +92,8 @@
 - `command_store`와 `patrol_report` 사이에 canonical report JSON 영속·재시작 복원을 연결했다. command/robot ID 불일치도 차단한다. ROS mission adapter와 재전송 trigger가 남아 있어 AMR-05·07은 아직 100%가 아니다.
 - AMR-06의 active command/mission ID, waypoint, scan, reason code/detail을 상태 모델에 원자 저장하고 RobotStatus wire 필드까지 매핑했다. 실제 mission adapter 입력이 없어 AMR-06은 아직 100%가 아니다.
 - 23단계 AMR-20의 확정 부분으로 `heartbeat_guard.py`에 session·sequence와 1초 초과 timeout을 추가했다. wire 메시지 타입과 최종 안전 ROS 배선이 없어 AMR-20은 아직 100%가 아니다.
-- 현재 로컬 작업에는 `nav2_client.py`와 `command_store.py`가 추가됐지만 `mission_supervisor`와 관제 통합 launch는 없다.
-- 현재는 21단계다. 공통 Nav2 모듈 자동 검증 뒤에도 AMR-08·09·10·16 종단 gate 가운데 mission 연결·관제 transaction·실기 항목은 남는다.
+- 현재 로컬 작업에는 `mission_supervisor`, 실제 Nav2·도킹 adapter, `command_store.py`, robot1·robot6 hardware launch가 있다. 병합 충돌은 양쪽 자산·의존성을 모두 보존해 정리했다.
+- 현재는 21단계다. AMR-16 production 연결 자동 검증 뒤 실제 로봇 시험을 수행한다. AMR-08·09·10은 map/TF 실측·관제 transaction·안전구역 입력이 별도로 남는다.
 - 20단계 AMR-05·06의 남은 조각이던 **mission ROS adapter** 를 `command_gateway.py` 로 구현했다. `mission_ingress.py` 가 docstring 에서 예고한 "future ROS mission node" 다. entry point 4번째 노드이며 `mission_command` 를 구독해 `command_check` 를 발행하고, SQLite 저장소는 `~/.local/state/patrol_amr/<robot>/` 에 두어 재빌드가 실행 이력을 지우지 않는다.
 - 내부 신호 3개는 뜻을 하나씩만 갖는다. `command_dispatch`(1회 실행), `active_command`(현재 명령 정체), `report_replay_request`(보존 report 재전송). **durability 를 일부러 다르게 뒀다** — dispatch·replay 는 VOLATILE 이어야 늦게 붙은 구독자에게 과거 신호가 재전달되어 명령이 두 번 실행되는 일이 없고, active_command 는 상태이므로 TRANSIENT_LOCAL 이어야 늦게 뜬 status_reporter 가 빈 ID 를 내보내지 않는다. 첫 구현에서 이 불일치로 값이 전달되지 않는 것을 실측하고 고쳤다.
 - PatrolReport 발행은 이 노드에 넣지 않았다. AMR-07 은 다른 담당의 행이고, 한 report 토픽에 발행자가 둘이면 cmd_vel 단일 발행자 규칙이 막으려는 것과 같은 실패가 된다. 완료 명령 재수신 시에는 `report_replay_request` 로 command_id 만 넘긴다.
