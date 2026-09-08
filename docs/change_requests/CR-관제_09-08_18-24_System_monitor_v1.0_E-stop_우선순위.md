@@ -21,3 +21,14 @@ System monitor는 수신한 대표 reason을 표시하며 자체 우선순위를
 
 현재 표시·저장 구조가 위 v1.0 값을 그대로 소비하는지 확인해 달라. 코드 변경이 불필요하면 그 근거와 함께 `변경 불필요`로 회신한다. 삭제된 System monitor 측 설계 문서는 재생성하지 않으며 실제 구현·시험 완료는 별도로 기록한다.
 
+
+## System monitor 회신
+
+- 회신 일자: 2026-09-08
+- 결론: **변경 불필요**
+- 근거:
+  - `/control/estop` 수신부(`src/patrol_sysmon/app/ros/payloads.py` `estop_payload`)는 `target_robot_id`·`active`·`reason`·`sequence`만 읽고 reason 값을 그대로 저장한다. 원인 집합을 조합하거나 자체 우선순위를 계산하는 코드가 없다.
+  - 저장(`estop_latest`·`estop_history`)은 대상별 최신 행과 대표 원인이 바뀐 시점만 남기며, 화면은 수신한 reason 하나를 0~6 라벨로 표시한다. 우선순위 순서가 바뀌어도 System monitor 코드는 영향이 없다.
+  - `latched`·manual reset 의존은 이미 제거했다(PR #16, `EStop.msg`에서 `latched` 삭제). 물리 E-stop UI·필드는 없다.
+  - 전체 활성 원인 집합(`active_reasons`)과 UI 요청 API는 차기 버전 TBD-IF-011·TBD-CTRL-004 확정 후 별도 반영한다.
+- 검증: ROS를 source한 sysmon 전체 시험 통과. 별도 프로세스 DDS 시험에서 새 `EStop`으로 `/control/estop` 매칭과 대상별 저장을 확인했다.

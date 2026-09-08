@@ -1225,3 +1225,12 @@ EStopState ───→ 최신 1행 + 활성·해제가 바뀐 시점만 이력
 - AMR 후속 작업(AMR 담당): `local_safety_supervisor.py`가 `message.latched`를 읽고 `estop_guard.observe()`가 `latched` 인자를 받는다. 새 `EStop`에는 이 필드가 없으므로 수신 콜백에서 AttributeError가 난다. `estop_guard`가 `target_robot_id == 'all'`을 자기 대상으로 처리하지 않는 점도 계약과 다르다. `mission_command_parser.py`는 `getattr(msg, 'parameters_json', '')`이라 빌드·실행은 되지만 내부 지문·저장 열은 정리 대상이다.
 - 변경 파일: `app/ros/registry.py`, `app/ros/payloads.py`, `app/ros/node.py`, `app/models/safety.py`, `app/models/robot.py`, `app/models/history.py`, `app/services/safety_service.py`, `app/services/robot_service.py`, `app/schema.sql`, `app/database.py`, `app/templates/index.html`, `app/static/js/dashboard.js`, `app/static/css/dashboard.css`, `tests/test_patrol_safety.py`, `tests/test_ros_adapter.py`, `testkit/ros_topic_test.py`.
 - 검증: `.venv` 119개 통과(ROS 7개 skip), ROS를 source한 전체 **119개 통과**. 별도 프로세스 DDS 시험(도메인 격리)에서 `/control/estop`이 `EStop`으로 매칭돼 대상별 최신 행과 변경 이력이 저장되는 것을 확인했다. 이 시험이 첫 구현의 migration 결함(재초기화 때마다 `estop_history`를 legacy로 넘김)을 잡아내 고쳤다.
+
+## 35. v1.0 기준선 병합 확인 (2026-09-08)
+
+- main의 v1.0 확정(interfaces.md, 관제 v1.0 기준선)을 브랜치에 병합했다. System monitor 코드 변경이 필요한 항목은 없다.
+  - E-stop 대표 원인 우선순위 `SYSTEM_FAULT → UNKNOWN → OPERATOR → KEEPOUT_FAILURE → COMMUNICATION → OBSTACLE → TOKEN`: 모니터는 수신 reason을 그대로 표시하므로 영향 없음. [요청서 회신](../../../docs/change_requests/CR-관제_09-08_18-24_System_monitor_v1.0_E-stop_우선순위.md)에 `변경 불필요`로 적었다.
+  - PatrolReport reason code 203~206 추가: `reason_code`를 정수로 저장·표시하므로 영향 없음.
+  - Keepout parameter가 base·center corridor 이중 구조로 확정: 모니터는 `KeepoutStatus` 토픽만 소비하므로 영향 없음. 정식 상태 토픽은 TBD-IF-008.
+  - main이 `RobotStatus.msg`에 `SAFETY_*` 상수를 넣어 34번의 것과 중복됐다. 주석 있는 블록 하나만 남겼다.
+- main이 `docs/설계기준-차이-정리.md`를 삭제했다(v1.0 정리). 재생성하지 않는다. 34번 항목의 해당 파일 언급은 이력으로 남긴다.

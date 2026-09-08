@@ -62,14 +62,6 @@ uint8 CHARGING=4
 uint8 PATROL_READY=5
 uint8 FULL=6
 
-# ---- safety : [계약] interfaces.md 4절 -----------------------------------
-uint8 SAFETY_UNKNOWN=0
-uint8 SAFETY_NORMAL=1
-uint8 SAFETY_STOPPING=2
-uint8 SAFETY_STOPPED=3
-uint8 SAFETY_ESTOPPED=4
-uint8 SAFETY_ERROR=5
-
 std_msgs/Header header
 string robot_id
 string source_session_id
