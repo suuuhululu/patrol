@@ -19,7 +19,7 @@ UC-01~08은 전체 순찰 시스템 관점이다. 외부 액터는 관제 운영
 | UC-07 | 이력 조회 | 판단·운영 로그 제공 | 결과·이벤트 제공 | 진단 로그 제공 | 저장 이력·증적 읽기 전용 조회 | W-06 및 저장 연계 |
 | UC-08 | 안전 정지·복구 | Safety Arbiter·복구 게이트·재개 결정 | 공통 로컬 안전·Goal 취소·보고·명령 대기 | permit 제공 | 판단 결과 표시 | W-04·05 |
 
-UC와 코드 파일은 일대일 관계가 아니다. AMR은 [시나리오별 모듈](amr.md#11-시나리오별-코드-분리와-개발-단위)을 공유하고, UC-03·05의 교대 판단이나 UC-06·07의 조회 기능을 AMR 시나리오 코드로 복제하지 않는다. UC-02·04·05·08은 UC-01 진행 중에도 발생할 수 있으며 동시 발생 시 중재는 기존 안전 계약 및 TBD-CTRL-001·TBD-AMR-005·TBD-INT-001·002·004를 따른다.
+UC와 코드 파일은 일대일 관계가 아니다. AMR은 [시나리오별 모듈](amr.md#11-시나리오별-코드-분리와-개발-단위)을 공유하고, UC-03·05의 교대 판단이나 UC-06·07의 조회 기능을 AMR 시나리오 코드로 복제하지 않는다. UC-02·04·05·08은 UC-01 진행 중에도 발생할 수 있으며 동시 발생 시 중재는 기존 안전 계약, [관제의 확정 중재·화재 정책](control_server.md), TBD-AMR-005 및 TBD-INT-001·002를 따른다.
 
 통신·수치 기준은 [interfaces.md](interfaces.md), 팀별 처리 규칙은 [AMR](amr.md)·[관제](control_server.md)·[비전](vision.md)·[Monitor](monitoring_and_data.md), 기동·실제 시험 명세는 [integration.md](integration.md)가 기준이다. UC의 수치 요약을 변경할 때 기준 문서와 함께 대조한다.
 
@@ -33,7 +33,7 @@ UC와 코드 파일은 일대일 관계가 아니다. AMR은 [시나리오별 �
 
 트리거: 관제 입력 경로의 START_PATROL 요청(운영자 UI 상세 TBD-CTRL-004). System Monitor는 명령 발행 주체가 아니다.
 
-기본 흐름: ① 관제 게이트·대상 검증 ② token과 새 MissionCommand 발행 ③ AMR 중복·권한 검증 ④ 내부 Nav2로 순찰·관측하고 관제의 임무 조정에 따라 복귀·도킹 ⑤ RobotStatus 진행 및 PatrolReport 결과 발행 ⑥ Monitor 조회.
+기본 흐름: ① 관제 게이트·대상 검증 ② token과 새 MissionCommand 발행 ③ AMR 중복·권한 검증 및 CommandCheck 반환 ④ 내부 Nav2로 순찰·관측하고 관제의 임무 조정에 따라 복귀·도킹 ⑤ RobotStatus 진행 및 command별 PatrolReport 결과 발행 ⑥ Monitor 조회.
 
 예외/미정: token만 수신하면 출발하지 않는다. 차량 UC-04, 배터리 UC-05, 안전/복구 UC-08을 비동기로 적용한다. waypoint·scan·방문 완료·재개 위치 TBD-AMR-005.
 
@@ -68,7 +68,7 @@ flowchart TD
 
 기본 흐름: ① 후보 생성 ② yaw 정렬 ③ 정렬 상태 1초 연속 탐지 의도 ④ 확정 이벤트·증적 생성 ⑤ 전달·저장 상태 연결 ⑥ 읽기 전용 경보·이력 조회. 화재 확정 시 부저 ON, 도킹 완료 후 OFF.
 
-예외/미정: 정렬 오차·동일 대상·단절·confidence TBD-AMR-001, Detection·증적 계약 TBD-IF-006·007. 누락·순서 역전·저장 실패 TBD-MON-002. 화재 후 무조건 순찰 지속을 가정하지 않으며 임무 순서 TBD-INT-004. 위험도·고온·영상 비교는 확정 기능이 아니다.
+예외/미정: 정렬 오차·동일 대상·단절·confidence TBD-AMR-001, Detection·증적 계약 TBD-IF-006·007. 누락·순서 역전·저장 실패 TBD-MON-002. 화재 확정 후 현재 mission의 순찰·복귀·도킹까지 기존 token으로 완료하고 종료 시 회수하며, 이후 다른 로봇에 새 token을 발급하지 않는다. 위험도·고온·영상 비교는 확정 기능이 아니다.
 
 완료 조건: 확정 이벤트와 증적의 연결·불완전 상태·중복을 검증한다. 로컬 image_path만으로 원격 전달 완료를 선언하지 않는다.
 
@@ -86,8 +86,9 @@ flowchart TD
     F --> G[Monitor 경보·이력 조회]
     F -. 누락·실패 .-> H[관제 운영 경고 / 저장 복구 TBD-MON-002]
     E -. 화재 .-> I[부저 ON / 제어자 TBD-AMR-004]
-    I --> J[후속 임무 순서 TBD-INT-004]
-    J --> K[도킹 완료 후 부저 OFF / TBD-AMR-004]
+    I --> J[현재 mission 순찰·복귀·도킹 / 기존 token 유지]
+    J --> K[DOCKED·CHARGING 2초 후 부저 OFF]
+    J -. 도킹 실패 .-> L[다른 활성 화재가 없으면 부저 OFF·관제 경고]
 ~~~
 
 ## UC-03 · 주행 권한 회수와 두 로봇 교대
@@ -100,7 +101,7 @@ flowchart TD
 
 기본 흐름: ① 기존 임무/상태 확인 ② 기존 token 회수 ③ 합의된 실제 정지 확인 ④ 가용 다음 로봇 선정 및 출발 게이트 ⑤ 새 command_id와 token 발행 ⑥ 수락·진행·결과 관측.
 
-예외/미정: 실제 정지 확인 방법, 이전 로봇의 도킹 이동과 신규 출발 순서는 TBD-INT-001. 배터리 적격성 TBD-CTRL-003. ACK·재전송 TBD-IF-001·CTRL-001. 무응답 30초 뒤 자동 교대나 n회 생략을 확정하지 않는다.
+예외/미정: 신규 token 전 실제 정지는 odometry 선속도 ≤0.05 m/s, 각속도 ≤0.1 rad/s, 0.5초 연속, age ≤0.5초로 확인한다. 이전 로봇의 도킹 이동과 신규 출발의 세부 중재는 TBD-INT-001이다. 명령 확인은 5초 Check timeout과 동일 ID 최대 2회 재전송을 사용한다. 무응답 30초 뒤 자동 교대나 n회 생략을 사용하지 않는다.
 
 완료 조건: 이전 권한과 신규 권한의 중첩 없음, 중복 요청에서 재실행 없음, 적용 버전과 정지·출발 증거 확인. 미정 순서 의존 시험은 BLOCKED.
 
@@ -112,7 +113,7 @@ flowchart TD
 flowchart TD
     A[관제 교대 판단] --> B[기존 임무·상태 확인]
     B --> C[기존 token 회수]
-    C --> D{실제 정지 확인 / TBD-INT-001}
+    C --> D{odometry 실제 정지 기준 충족}
     D -->|미확인| X[신규 출발 보류]
     D -->|확인| E[다음 로봇 선정·게이트 검증]
     E --> F{출발 조건 충족}
@@ -166,9 +167,9 @@ flowchart TD
 
 트리거: SOC·충전 방향 또는 입력 유효성 변화.
 
-기본 흐름: ① SOC 백분율 기준 방전 <10% CRITICAL, 10% 이상~20% 미만 LOW, ≥20% NORMAL / 충전 <50% CHARGING, 50% 이상~80% 미만 PATROL_READY, ≥80% FULL / 무효·미수신 UNKNOWN(메시지 SOC 비율은 interfaces.md 8절 기준) ② CRITICAL 즉시·나머지3초 지속 전이 ③ 관제 상태·적격성 판단 ④ 합의된 복귀/교대 명령 ⑤ DOCKING 진입 후60초 이내 센서3초 연속 확인 ⑥ 충전과 다음 출발 조건 확인.
+기본 흐름: ① SOC 백분율 기준 방전 <10% CRITICAL, 10% 이상~20% 미만 LOW, ≥20% NORMAL / 충전 <50% CHARGING, 50% 이상~80% 미만 PATROL_READY, ≥80% FULL / 무효·미수신 UNKNOWN(메시지 SOC 비율은 interfaces.md 8절 기준) ② CRITICAL 즉시·나머지3초 지속 전이 ③ CRITICAL은 즉시 복귀·도킹 판단, LOW는 새 mission 없이 현재 mission의 순찰·복귀·도킹까지 완료 ④ DOCKING 진입 후60초 이내 DOCKED·CHARGING 2초 연속 확인 ⑤ 충전과 다음 출발 조건 확인.
 
-예외/미정: 완주 강제·n회 생략은 미채택. 배터리 출발 적격성 TBD-CTRL-003, 입력·충전·센서 관계 TBD-AMR-003·004, 교대 순서 TBD-INT-001. 도킹 timeout은 관제 보고.
+예외/미정: LOW 진행 중 CRITICAL로 바뀌면 mission 완료 대기를 중단한다. UNKNOWN은 신규 순찰·교대 투입에서 제외한다. 입력·충전·센서 생성 방식은 TBD-AMR-003·004, 이전 로봇 도킹과 신규 출발의 세부 중재는 TBD-INT-001이다. 도킹 timeout은 관제에 보고한다.
 
 완료 조건: 10/20/50/80 경계·충전방향·UNKNOWN·전이시간·도킹 성공/실패를 검증한다. 실제 주행/충전과 값 주입 시험을 구분한다.
 
@@ -255,7 +256,7 @@ flowchart TD
 
 기본 흐름: ① AMR 최종 속도 차단과 Goal 취소를 분리 수행 ② 상태·원인 보고 ③ STALE에서 관제 신규 mission/token 갱신 중단 ④ 정상 수신5초·유효 pose/age·배터리·E-stop·Keepout·permit 등 복구 게이트 확인 ⑤ 별도 유효 명령·token으로 재개한다.
 
-예외/미정: 물리 E-stop은 수동 reset까지 latch, 비물리 해제 조건3초 연속. heartbeat 전체 계약 TBD-IF-004, 최종 속도 토픽·타입 TBD-IF-009, 정지 감속·거리 TBD-AMR-006. 30초 경과 자동 교대를 확정하지 않는다.
+예외/미정: 물리 E-stop은 수동 reset까지 latch, 비물리 해제 조건3초 연속. heartbeat는 관제 5 Hz 발행·AMR 1초 timeout이며 메시지 타입명은 TBD-IF-004다. 최종 속도 토픽·타입 TBD-IF-009, 정지 감속·거리 TBD-AMR-006. 30초 경과 자동 교대를 사용하지 않는다.
 
 완료 조건: 안전 출력 우회 없음·오래된 상태로 자동 출발 없음·결과 미수신 UNREPORTED 유지. 로그·실측 정지·적용 버전으로 IT-03/04/10/11/12/16을 검증한다. 현재 실제 시험 결과는 NOT_RUN, 미정 의존 부분 BLOCKED.
 
@@ -275,4 +276,3 @@ flowchart TD
     H --> I[AMR 검증 후 재개]
     D --> M[관제 판단 토픽·Monitor 표시]
 ~~~
-

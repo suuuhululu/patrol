@@ -26,17 +26,97 @@ PC 3에서 함께 실행해도 시스템 모니터 팀의 코드 소유권과 �
 
 ## 2. 명령과 권한
 
-로봇 표시명은 AMR1/AMR2, 계약 식별자는 robot1/robot6이다. 명령별로 UUID v4 command_id를 사용하고 동일 재전송에서 유지한다. 대체·새 목적에는 새 ID를 부여한다. 관제는 외부 Nav2 Action을 호출하지 않는다.
+로봇 표시명은 AMR1/AMR2, 계약 식별자는 robot1/robot6이다. 관제는 외부 Nav2 Action을 호출하지 않고 MissionCommand로만 AMR에 임무를 요청한다.
 
-Drive Token 발급·갱신·회수는 관제가 결정한다. AMR은 별도의 로컬 검증·만료 책임을 가진다. 발행·lease는 Q-01을 따른다. token을 받은 사실과 임무를 실행하라는 명령을 분리한다.
+### 2.1 식별자 규칙
 
-한 holder를 지정하는 공통 토큰 모델을 유지한다. 다른 로봇으로 교대할 때 기존 token을 먼저 회수한다. 실제 정지 확인과 신규 발급 사이의 조건은 TBD-INT-001이며 회수 메시지 발행만으로 상대의 정지 완료를 단정하지 않는다.
+2026-09-07 사용자 결정으로 UUID v4 대신 사람이 로그에서 식별할 수 있는 구조화 문자열 ID를 사용한다. ID는 추적·중복 제거용이며 제어 로직은 ID 문자열을 파싱하지 않고 별도 `robot_id`, `command`, `state`, `sequence` 필드를 사용한다. 영문 소문자, 숫자, 하이픈을 사용하며 순번은 최소 네 자리로 0을 채운다. source session은 `<source>-<YYYYMMDDTHHMMSS>[-<restart_sequence>]` 형식으로 프로세스 시작 시 생성하고 재시작 시 변경한다.
 
-명령 우선순위·동시 명령 중재, START/RESUME 차이, 재전송 timeout은 TBD-CTRL-001이다.
+| 종류 | 형식 | 생성자·수명 |
+|---|---|---|
+| 관제 세션 | `ctrl-<YYYYMMDDTHHMMSS>[-<restart_sequence>]` | 관제 시작 시 생성, 재시작 시 변경 |
+| mission | `msn-<control_session>-<robot_id>-<mission_sequence>` | 관제가 새 mission 시작 시 생성 |
+| command | `cmd-<control_session>-<robot_id>-<command>-<sequence>` | 관제가 새 명령·대체 명령마다 생성 |
+| Drive Token | `tok-<control_session>-<holder_robot_id>-<grant_sequence>` | 관제가 새 주행 권한을 부여할 때 생성 |
+| PatrolReport | `rpt-<robot_session>-<report_sequence>` | AMR이 command 최종 결과마다 생성 |
+| CCTV 차량 이벤트 | `cam-<camera_session>-<state>-<sequence>` | 비전 생산 ID의 관제 수신 형식 |
+| AMR Detection | `det-<robot_session>-<event_type>-<sequence>` | AMR이 확정 이벤트마다 생성 |
+| 증적 | `evi-<robot_session>-<event_sequence>-<evidence_sequence>` | AMR이 증적마다 생성 |
+| 관제 운영 이벤트 | `op-<control_session>-<event_type>-<sequence>` | 관제가 STALE·경고·상태 변화마다 생성 |
+
+시간만으로 유일성을 보장하지 않고 세션 내 증가 sequence를 함께 사용한다. command sequence는 robot이나 mission이 바뀌어도 초기화하지 않는 관제 전체 공통 순번이다. 같은 command의 재전송에는 같은 ID를 유지하고 내용·목적 변경에는 새 ID를 사용한다.
+
+명령 ID의 command 표기는 `start`, `evacuate`, `resume`, `dock`, `stop`, `cancel`을 사용한다. mission ID는 command ID의 상위 개념이다. START_PATROL에서 새 mission ID를 생성하고, 해당 순찰의 대피·재개·복귀·도킹은 같은 mission ID와 각기 새로운 command ID를 사용한다. 완료·실패·취소된 mission 뒤의 새 START_PATROL과 독립 수동 DOCK에는 새 mission ID를 사용한다.
+
+이 결정은 [interfaces.md](interfaces.md)에 공용 계약으로 반영했다. AMR·비전·시스템 모니터 기능 문서는 직접 수정하지 않고 각 생산·소비 단위의 검토와 수정 요청 절차로 반영한다.
+
+### 2.2 MissionCommand와 CommandCheck
+
+AMR은 MissionCommand를 받으면 다음 의미의 CommandCheck를 반환하고, 최종 결과는 PatrolReport로 반환한다.
+
+| 상태 | 의미 |
+|---|---|
+| ACCEPTED | 형식·상태 검증을 통과하고 실행 대기열에 들어감 |
+| EXECUTING | 실제 command 실행을 시작함 |
+| REJECTED | command를 실행하지 않음 |
+
+CommandCheck에는 `command_id`, `mission_id`, `robot_id`, `check_state`, `reason_code`, `reason`, `source_session_id`, `sequence`, `timestamp`를 포함한다. 같은 command ID가 재수신되면 실행 전에는 기존 ACCEPTED, 실행 중에는 EXECUTING, 이미 끝났으면 기존 PatrolReport를 다시 보낸다. 같은 command ID에 다른 payload가 들어오면 `REJECTED / COMMAND_ID_CONFLICT`로 거절하고 관제가 경고를 발생시킨다.
+
+충돌 비교 대상은 `robot_id`, `command`, `target_id`, `target_pose`, `parameters`, `mission_id`다. 재전송에서는 원래 발급 시각과 payload를 유지하며 DDS 수신 시각은 비교하지 않는다.
+
+Check timeout은 MissionCommand 최초 발행 후 해당 command ID의 ACCEPTED 또는 REJECTED를 기다리는 시간으로 5초다. timeout이면 동일 command ID와 동일 payload를 최대 2회 재전송한다. 이후에도 확인되지 않으면 `COMMAND_CHECK_TIMEOUT`으로 판단하며 새 command ID를 자동 생성하지 않는다. EXECUTING 전환은 Check timeout의 응답 조건이 아니다.
+
+명령 ID는 최소 24시간 보관한다. 1,000개를 초과해도 24시간 이내 항목은 삭제하지 않고, 24시간이 지난 항목 중 최신 1,000개는 유지한다. AMR은 전체 command ID 문자열을 중복 제거 키로 사용한다.
+
+START_PATROL은 새 mission을 시작하고 RESUME_PATROL은 기존 mission ID를 이어간다. STOP은 실행을 멈추되 재개 가능한 상태를 보존하고, CANCEL은 command 또는 mission을 종료해 CANCELED PatrolReport를 만든다. E-stop과 token 만료는 명령 우선순위가 아니라 독립 안전 계층이다. MissionCommand 간 우선순위는 STOP → MOVE_TO_SAFE_ZONE → DOCK → CANCEL → RESUME_PATROL → START_PATROL 순이다.
+
+### 2.3 Drive Token
+
+Drive Token 발급·갱신·회수는 관제가 결정하고 AMR은 별도의 로컬 검증·만료 책임을 가진다. token을 받은 사실과 mission을 실행하라는 명령은 분리한다. 발행은 5 Hz, lease는 1.0초다.
+
+Drive Token에는 `control_session_id`, `token_id`, `holder_robot_id`, `lease_duration`, `message_sequence`를 포함한다. `token_id`는 새 권한을 부여할 때만 변경하고, `message_sequence`는 같은 관제 세션에서 갱신 메시지를 발행할 때마다 증가한다. 관제 재시작 시 control session을 변경하고 message sequence를 1부터 다시 시작한다. AMR은 새 control session을 받으면 이전 token을 무효화하며 새 token과 MissionCommand 없이는 자동 출발하지 않는다.
+
+회수는 빈 `token_id`, 이전 `holder_robot_id`, 증가한 `message_sequence`로 발행한다. 예를 들어 robot1 회수는 `token_id=""`, `holder_robot_id="robot1"`로 표현한다. 다른 로봇으로 교대할 때는 회수 발행 → AMR 회수 수락 → 실제 정지 확인 → 신규 holder token 발급 순서를 지킨다.
+
+실제 정지는 AMR odometry에서 선속도 절댓값 0.05 m/s 이하, 각속도 절댓값 0.1 rad/s 이하가 0.5초 연속 유지되고 속도 측정 age가 0.5초 이하일 때 확인한다. odometry가 오래됐거나 무효이면 정지 확인 실패다. 회수 메시지 수락만으로 정지를 단정하지 않으며 실제 정지를 확인하지 못하면 다른 로봇에 token을 발급하지 않는다.
 
 ## 3. RobotStatus와 통신 복구
 
 수신 로봇 ID와 namespace를 확인하고 마지막 수신 시각·유효 pose를 추적한다. Q-03을 초과하면 관제의 상태를 STALE로 전환하고 신규 mission과 token 갱신을 중단한다. 결과 미수신 임무는 UNREPORTED로 유지하며 PatrolReport를 대필하지 않는다.
+
+RobotStatus의 권장 의미 필드는 다음과 같다. 실제 ROS 타입·배치는 공용 인터페이스 반영 시 확정한다.
+
+~~~text
+header                       # RobotStatus snapshot 생성 시각
+robot_id
+source_session_id
+status_sequence
+operational_state
+mission_state
+docking_state
+battery_state
+safety_state
+active_command_id
+active_mission_id
+pose                         # 자체 측정 시각 포함
+pose_valid
+last_valid_pose              # 자체 측정 시각 포함
+linear_velocity
+angular_velocity
+motion_stopped
+accepted_token_id
+token_valid
+battery_soc
+battery_timestamp
+current_waypoint_id
+scan_state
+reason_code
+reason
+~~~
+
+`header.stamp`는 상태 snapshot 생성 시각, pose의 stamp는 pose 측정 시각, last_valid_pose의 stamp는 마지막 유효 pose 측정 시각이다. 관제 수신 시각은 관제 로컬에서 별도 기록하고 측정 시각으로 대체하지 않는다. `motion_stopped`는 2.3절의 속도·연속 유지·신선도 기준을 충족할 때만 true다.
+
+PatrolReport에는 `report_id`, `robot_id`, `source_session_id`, `command_id`, `mission_id`, `result`, `reason_code`, `reason`, `started_at`, `finished_at`, `final_waypoint_id`, `related_event_ids`를 포함하는 것을 기준으로 한다. command 하나가 최종 상태에 이를 때 report 하나를 생성하고, AMR은 MissionCommand에서 받은 command ID와 mission ID를 그대로 반환한다. 여러 command의 report가 같은 mission ID를 공유할 수 있다. 같은 report ID의 재전송은 중복 저장하지 않으며, 늦게 report가 도착하면 현재 UNREPORTED는 해제하되 발생·해제 이력은 보존한다.
 
 복구 시 다음을 모두 확인한다.
 
@@ -46,7 +126,7 @@ Drive Token 발급·갱신·회수는 관제가 결정한다. AMR은 별도의 �
 4. 필요한 Keepout 적용 상태와 배터리 조건이 충족된다.
 5. 유효 Drive Token을 확보하고 재개 명령을 발행할 수 있다.
 
-하나라도 실패하면 자동 순찰을 시작하지 않는다. Q-06의 오래된 pose는 복구 참고용이며 주행 재개 위치로 대체하지 않는다. 재개 가능 배터리 상태와 연속 정상 수신의 세부 정의는 TBD-CTRL-003이다.
+하나라도 실패하면 자동 순찰을 시작하지 않는다. Q-06의 오래된 pose는 복구 참고용이며 주행 재개 위치로 대체하지 않는다. 재개 가능한 배터리 상태는 NORMAL, PATROL_READY, FULL이며 배터리 입력이 유효하고 최신이어야 한다. RobotStatus 정상 수신은 Q-04의 5초 동안 계약에 맞는 연속 메시지를 받고 그 사이 Q-03의 STALE 조건이 다시 발생하지 않은 상태다.
 
 ## 4. 차량 상태와 Keepout
 
@@ -66,9 +146,15 @@ Keepout transaction의 대상은 해당 로봇의 global/local costmap이다.
 
 안전구역 후보는 Q-08을 충족해야 한다. 후보가 없으면 현재 위치 정지와 SAFE_ZONE_NOT_FOUND 보고를 처리한다. mask·차량 동선 제공, 후보 계산 위치, Keepout ON 이전에 탈출 가능성을 어떻게 검증할지는 TBD-CTRL-002 및 TBD-INT-003이다.
 
+Keepout과 안전구역의 세부 설계안은 AMR 팀이 먼저 제시하고 관제 담당자가 검토·확인한다. 제시안에는 실제 costmap 노드·parameter, lifecycle·read-back, 안전구역 계산 위치, 지도·차량 동선 공급, 탈출 경로 사전 검증, 대피 도착 기준, rollback 중 AMR 상태를 포함해야 한다. 검토 전에는 위 항목을 관제 구현에서 추측해 확정하지 않는다. 관제의 기존 Keepout transaction·대피 조정 책임은 유지하며 최종 책임 경계는 제시안 확인 후 공용 계약에 반영한다.
+
 ## 5. 도킹과 역할 교대
 
-AMR은 도킹 실행·센서 성공 판정을 담당하고 관제는 실패를 받아 가용 AMR을 선정한다. 배터리와 거리를 판단 근거로 사용한다. 정확한 적격 상태·우선순위·동점 처리는 TBD-CTRL-003이다.
+AMR은 도킹 실행·센서 성공 판정을 담당하고 관제는 실패를 받아 가용 AMR을 선정한다. 배터리 입력이 UNKNOWN이면 신규 순찰·교대 투입을 금지한다. CRITICAL은 현재 waypoint 완료를 기다리지 않고 관제가 즉시 복귀 또는 도킹을 판단한다. LOW는 새 mission을 시작하지 않고 현재 mission의 순찰·복귀·도킹까지 완료한다. LOW 상태에서 CRITICAL로 전환되면 mission 완료 대기를 중단하고 즉시 복귀 또는 도킹을 판단한다. 이 정책은 E-stop, token, permit과 로컬 안전을 우회하지 않으며 복귀 경로가 없으면 현재 위치 안전 정지와 실패를 보고한다.
+
+교대 후보는 Battery 상태가 NORMAL, PATROL_READY 또는 FULL이고 pose·safety·통신 게이트를 통과한 로봇이다. 후보 점수는 배터리 60%, 인계 지점까지 거리 30%, 최근 장애·도킹 실패 이력 10%로 계산한다. 동점이면 유휴 시간이 긴 로봇, 다시 같으면 robot1 순으로 선택한다. 실제 점수 정규화와 장애 이력 구간은 구현 전에 시험 fixture로 고정한다.
+
+도킹 성공은 DOCKED 센서와 CHARGING 상태가 모두 2초 연속 유지될 때로 한다. 이 결정은 interfaces.md의 Q-09·Q-12와 integration.md의 통합시험 기준에 반영했으며 AMR 기능 반영은 수정 요청서로 추적한다.
 
 기존 AMR token 회수 후 새 command_id로 인계한다. 기존 임무 종료/대체와 새 임무의 연결 관계를 기록한다. 이전 로봇이 도킹하기 위한 주행과 새 로봇 순찰의 시간 관계는 TBD-INT-001에서 결정한다.
 
@@ -76,7 +162,13 @@ AMR은 도킹 실행·센서 성공 판정을 담당하고 관제는 실패를 �
 
 Safety Arbiter만 /control/estop을 발행한다. AMR 로컬 안전이 최종 속도를 통제하며 물리 E-stop은 수동 reset까지 latch한다. token·heartbeat·장애물 원인은 제거 후 관제가 해제 여부를 결정한다. 활성화 즉시, 자동 해제 조건은 Q-10을 따른다.
 
-E-stop 해제 부저는 사용하지 않는다. 화재 확정 부저의 ON/OFF는 별도 정책이다. 화재가 곧바로 어떤 mission 결과·정지·도킹 명령을 유발하는지는 TBD-INT-004다. reason code 702를 임무 결과 enum이나 Detection event_type 수치로 혼용하지 않는다.
+heartbeat는 5 Hz로 발행하고 1초 미수신을 timeout으로 한다. 메시지에는 `control_session_id`, `sequence`, `timestamp`를 포함한다. timeout 시 AMR은 로컬 안전 정지하며 heartbeat 복구만으로 자동 재출발하지 않는다.
+
+E-stop은 대상 robot ID 또는 전체 대상, active 상태, 원인, latch 상태, sequence, timestamp를 전달한다. 물리 E-stop은 수동 reset 전까지 해제하지 않는다. 비물리 원인은 제거 상태가 3초 연속 유지되면 관제가 해제를 결정한다. 해제 후에도 AMR은 정지 상태를 유지하고 새 token과 별도 MissionCommand를 모두 받은 뒤 이동한다. E-stop 해제 부저는 사용하지 않는다.
+
+화재 Detection이 확정되면 신규 순찰 구간을 추가하지 않고 현재 mission ID로 순찰·복귀·도킹까지 완료한다. 해당 mission의 기존 Drive Token은 도킹 완료 또는 실패까지 갱신·유지하고 종료 시 회수한다. 이후 다른 로봇에 새로운 Drive Token을 발급하지 않고 전체 순찰을 중단한다. 기존 token이 만료되거나 E-stop이 발생하면 화재 mission도 즉시 안전 정지하며 만료된 token을 새 token ID로 재발급해 자동 복구하지 않는다.
+
+화재 부저는 확정 event에서 ON하고 DOCKED와 CHARGING이 2초 연속 유지되면 OFF한다. 도킹 timeout 또는 실패가 확정되면 부저를 OFF하고 `FIRE_DOCKING_FAILED` 관제 경고를 활성화한다. 단, 다른 활성 화재 event가 남아 있으면 부저를 끄지 않는다. 부저 OFF 전달 실패도 관제 경고로 남긴다. 기존 mission의 정상 완료 여부와 별개로 FIRE_DETECTED=702는 reason code로만 사용하고 PatrolReport 결과 enum이나 Detection event_type 수치로 혼용하지 않는다.
 
 ## 7. 기록과 검증
 
@@ -86,13 +178,37 @@ E-stop 해제 부저는 사용하지 않는다. 화재 확정 부저의 ON/OFF�
 
 검증은 [integration.md](integration.md)의 token·상태·Keepout·교대·E-stop 시험을 따른다. Dashboard는 읽기 전용이므로 명령 입력 UI가 있다고 가정하지 않는다. 운영자 명령 입력 경로는 TBD-CTRL-004다.
 
+## 8. 결정 기록과 공동 반영 대기
+
+AMR 적용 검토와 robot1·robot6 반영 상태는 [관제 수정 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md)로 추적한다.
+
+- 2026-09-07 사용자 결정: command·mission·token·report·event·증적·운영 이벤트 ID는 2.1절의 사람이 식별 가능한 세션·sequence 기반 문자열을 사용한다. 근거: 개발 프로세스 학습 범위에서 로그 추적성과 이해 가능성을 우선한다. 영향: 관제·AMR·비전·시스템 모니터의 공용 메시지와 중복 처리. interfaces.md에 공용 계약을 반영했으며 상대 단위 기능 문서는 수정 요청과 검토 후 반영한다.
+- 2026-09-07 사용자 결정: MissionCommand 확인은 CommandCheck의 ACCEPTED·EXECUTING·REJECTED로 구분하고 최종 결과는 PatrolReport로 반환한다. Check timeout은 5초, 동일 ID·payload 최대 재전송은 2회다. START/RESUME과 STOP/CANCEL의 의미, command 중재 우선순위, ID 보존은 2.2절을 따른다. 영향: 관제·AMR, TBD-CTRL-001·TBD-IF-001·003.
+- 2026-09-07 사용자 결정: Drive Token은 control session, grant ID와 발행 sequence를 구분하고 회수 대상 holder를 명시한다. 교대는 실제 정지 확인 후 신규 token을 발급하며 정지 기준은 2.3절을 따른다. 영향: 관제·AMR, TBD-IF-002·TBD-INT-001·TBD-AMR-006.
+- 2026-09-07 사용자 결정: Keepout·안전구역 세부 설계는 AMR 팀이 먼저 제시하고 관제 담당자가 확인한다. 검토 전에는 미정 계약을 구현값으로 추측하지 않는다. 영향: 관제·AMR, TBD-CTRL-002·TBD-INT-003.
+- 2026-09-07 사용자 결정: LOW는 새 mission을 시작하지 않고 현재 mission의 순찰·복귀·도킹까지 완료하며, CRITICAL은 즉시 복귀 또는 도킹 판단으로 전환한다. 영향: 관제·AMR, TBD-CTRL-003·TBD-AMR-003·005.
+- 2026-09-07 사용자 결정: 화재 확정 후 현재 mission의 순찰·복귀·도킹까지 완료하고 기존 token을 그 종료까지 유지한다. 도킹 후 다른 로봇에 새 token을 발급하지 않는다. DOCKED와 CHARGING 2초 연속을 도킹 완료와 화재 부저 OFF 조건으로 하며, 도킹 실패 시 다른 활성 화재가 없는 경우 부저를 끄고 관제 경고를 발생시킨다. 영향: 관제·AMR, TBD-INT-004·TBD-AMR-004 및 Q-09·Q-12. 공용 기준 반영 완료, AMR 검토 대기.
+
+공용 계약과 시험 기준은 interfaces.md·integration.md·scenarios.md에 반영했다. 상대 단위 기능 문서는 직접 수정하지 않고 아래 계약을 수정 요청 절차로 전달한다.
+
+| 상대 단위 반영 대상 | 필요한 변경 |
+|---|---|
+| TBD-IF-001 | 구조화 command ID, CommandCheck, Check timeout·재전송·중복 보관 |
+| TBD-IF-002 | control session, token ID, message sequence, 대상 holder를 유지한 회수 |
+| TBD-IF-003 | RobotStatus·PatrolReport 필드와 command/mission/report ID 관계 |
+| TBD-IF-004 | heartbeat 5 Hz·1초 timeout, E-stop 필드·해제 규칙 |
+| TBD-IF-005·006·007·011 | 공통 ID 형식과 source session·sequence 반영 |
+| TBD-INT-001 | 실제 정지 확인 후 신규 holder token 발급 |
+| TBD-INT-004 | 화재 mission 완료·도킹·token 중단·부저 정책 |
+| Q-09·Q-12 | 공용 기준은 2초로 변경 완료, AMR 기능·시험 반영 필요 |
+
 ## TBD
 
 | ID | 미정 사항 | 영향 단위 | 상태 |
 |---|---|---|---|
-| TBD-CTRL-001 | 명령 우선순위·동시 처리·STOP/CANCEL/RESUME 정책·재전송 | 관제·AMR | OPEN |
-| TBD-CTRL-002 | 안전구역 계산자·지도/동선 공급, rollback 확인·timeout·재시도 | 관제·AMR | OPEN |
-| TBD-CTRL-003 | 재개/교대 배터리 적격 조건·거리 점수·동점, 정상 연속 수신 정의 | 관제·AMR | OPEN |
+| TBD-CTRL-001 | 명령 우선순위·동시 처리·STOP/CANCEL/RESUME 정책·재전송 | 관제·AMR | 공용 문서 반영 완료, AMR 검토 대기 |
+| TBD-CTRL-002 | 안전구역 계산자·지도/동선 공급, rollback 확인·timeout·재시도 | 관제·AMR | AMR 제시안 대기 |
+| TBD-CTRL-003 | 재개/교대 배터리 적격 조건·거리 점수·동점, 정상 연속 수신 정의 | 관제·AMR | 공용 문서 반영 완료, 점수 fixture·AMR 검토 대기 |
 | TBD-CTRL-004 | 운영자 명령 입력·수동 reset/해제 요청 경로 | 관제·AMR | OPEN |
 
 공용 계약 TBD는 interfaces.md를 참조한다. 결정 시 요청서와 상대 단위 반영 상태를 연결한다.
