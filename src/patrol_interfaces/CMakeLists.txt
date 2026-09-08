@@ -11,6 +11,8 @@ find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/CameraState.msg"
+  "msg/DetectionCandidate.msg"
+  "msg/AlignmentStatus.msg"
   DEPENDENCIES std_msgs
 )
 
