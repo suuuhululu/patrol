@@ -5,7 +5,7 @@ import unittest
 
 from patrol_amr.mission_command_store import CommandStore
 from patrol_amr.mission_controller import MissionController
-from patrol_amr.mission_types import MissionRequest, MissionType, PoseTarget
+from patrol_amr.mission_types import MissionRequest, MissionType
 from patrol_amr.navigation_adapter import NavigationResult, Waypoint
 from patrol_amr.safe_zone_selector import MapPose, SafeZoneCandidate
 
@@ -38,7 +38,9 @@ class MissionControllerTest(unittest.TestCase):
         self.addCleanup(self.temp_dir.cleanup)
         self.root = Path(self.temp_dir.name)
 
-    def controller(self, navigation, resume_policy='disabled', candidates=()):
+    def controller(
+        self, navigation, resume_policy='next_waypoint', candidates=()
+    ):
         return MissionController(
             navigation,
             CommandStore(self.root / 'commands.json'),
@@ -61,12 +63,27 @@ class MissionControllerTest(unittest.TestCase):
             command=command,
             target_id=target_id, target_pose=target_pose)
 
-    def test_resume_is_rejected_while_policy_tbd(self):
+    def test_resume_is_rejected_without_checkpoint(self):
         result = self.controller(FakeNavigation()).execute(
             self.request(MissionType.RESUME_PATROL, 'patrol-a'),
             threading.Event())
         self.assertEqual(result.outcome, 'REJECTED')
-        self.assertEqual(result.reason, 'TBD_AMR_005_RESUME_POLICY_OPEN')
+        self.assertEqual(result.reason, 'NO_PATROL_CHECKPOINT')
+
+    def test_resume_continues_from_next_not_completed_waypoint(self):
+        navigation = FakeNavigation([NavigationResult.SUCCEEDED])
+        controller = self.controller(navigation)
+        request = self.request(MissionType.RESUME_PATROL)
+        controller._store.save_checkpoint(request.mission_id, 1)
+
+        result = controller.execute(request, threading.Event())
+
+        self.assertEqual(result.outcome, 'SUCCEEDED')
+        self.assertEqual([goal.name for goal in navigation.goals], ['W2'])
+
+    def test_non_contract_resume_policy_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'next_waypoint'):
+            self.controller(FakeNavigation(), resume_policy='same_waypoint')
 
     def test_safe_zone_fails_when_provider_has_no_candidate(self):
         result = self.controller(FakeNavigation()).execute(

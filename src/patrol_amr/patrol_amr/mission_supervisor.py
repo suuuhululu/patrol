@@ -3,13 +3,11 @@
 
 from __future__ import annotations
 
-from patrol_amr.mission_command_store import CommandStore
-from patrol_amr.drive_token_callback import DriveTokenCallback
 from patrol_amr.mission_arbiter import MissionArbiter
 from patrol_amr.mission_command_callback import MissionCommandCallback
 from patrol_amr.mission_command_parser import MissionCommandParser
+from patrol_amr.mission_command_store import CommandStore
 from patrol_amr.mission_config import declare_parameters, load_config
-from patrol_amr.mission_drive_token import MissionDriveTokenGuard
 from patrol_amr.mission_reporter import MissionReporter
 from patrol_amr.mission_state import MissionStateTracker
 from patrol_amr.mission_status_store import MissionStatusStore
@@ -26,9 +24,8 @@ from rclpy.qos import (
 from std_msgs.msg import Bool
 
 try:
-    from patrol_interfaces.msg import DriveToken, MissionCommand
+    from patrol_interfaces.msg import MissionCommand
 except ImportError:  # shared package lands independently of this feature branch
-    DriveToken = None
     MissionCommand = None
 
 
@@ -39,22 +36,17 @@ MISSION_QOS = QoSProfile(
     durability=DurabilityPolicy.VOLATILE,
 )
 
-DRIVE_TOKEN_QOS = QoSProfile(
-    history=HistoryPolicy.KEEP_LAST,
-    depth=3,
-    reliability=ReliabilityPolicy.BEST_EFFORT,
-    durability=DurabilityPolicy.VOLATILE,
-)
+MISSION_DISPATCH_TOPIC = 'mission_dispatch'
 
 
 class MissionSupervisor(Node):
     """Wire ROS input to small callback, arbitration, and worker components."""
 
     def __init__(self) -> None:
-        if MissionCommand is None or DriveToken is None:
+        if MissionCommand is None:
             raise RuntimeError(
-                'patrol_interfaces MissionCommand and DriveToken are required; '
-                'the legacy DriveToken/String mission-start path is unsupported')
+                'patrol_interfaces MissionCommand is required for the internal '
+                'mission_dispatch path')
         super().__init__('mission_supervisor')
         declare_parameters(self)
         self._config = load_config(self)
@@ -76,8 +68,10 @@ class MissionSupervisor(Node):
             self._config.motion_enable_token,
             self._readiness.snapshot,
         )
-        self._drive_token_guard = MissionDriveTokenGuard(self._config.robot_id)
-        self._arbiter = MissionArbiter(self._motion_ready)
+        self._arbiter = MissionArbiter(
+            self._motion_ready,
+            self._state.snapshot,
+        )
         self._arbiter.set_external_stop(True)
         self._motion_permission = MotionPermission(
             self._synchronize_motion_authority)
@@ -89,22 +83,11 @@ class MissionSupervisor(Node):
             self.get_logger(),
             self._motion_summary,
         )
-        self._subscription = self.create_subscription(
+        self._mission_dispatch_subscription = self.create_subscription(
             MissionCommand,
-            'mission_command',
+            MISSION_DISPATCH_TOPIC,
             self._mission_command_callback,
             MISSION_QOS,
-        )
-        self._drive_token_callback = DriveTokenCallback(
-            self._drive_token_guard,
-            self._synchronize_motion_authority,
-            self.get_logger(),
-        )
-        self._drive_token_subscription = self.create_subscription(
-            DriveToken,
-            '/control/drive_token',
-            self._drive_token_callback,
-            DRIVE_TOKEN_QOS,
         )
         self._motion_permission_subscription = self.create_subscription(
             Bool,
@@ -118,8 +101,6 @@ class MissionSupervisor(Node):
             ),
         )
         self._motion_authority_was_valid = False
-        self._drive_token_timer = self.create_timer(
-            0.05, self._synchronize_motion_authority)
         self._worker = MissionWorker(
             self._config,
             self.get_namespace(),
@@ -146,40 +127,31 @@ class MissionSupervisor(Node):
             f'outbox={self._config.report_outbox_path}')
 
     def _motion_ready(self) -> bool:
-        """Require both robot readiness and a live DriveToken lease."""
+        """Require robot readiness and local safety's single authority view."""
         return (
             self._motion_gate.ready()
-            and self._drive_token_guard.valid()
             and self._motion_permission.allowed()
         )
 
     def _motion_summary(self) -> str:
-        """Combine static/sensor and DriveToken blockers for command logs."""
+        """Combine static/sensor and local-safety blockers for command logs."""
         blockers = list(self._motion_gate.blocking_reasons())
-        token = self._drive_token_guard.snapshot()
-        if not token.valid:
-            blockers.append(token.blocking_reason)
         if not self._motion_permission.allowed():
             blockers.append('LOCAL_SAFETY_BLOCKED')
         return 'READY' if not blockers else ','.join(blockers)
 
     def _synchronize_motion_authority(self) -> None:
-        """Cancel work when either token or local-safety permission is lost."""
-        token = self._drive_token_guard.snapshot()
-        valid = token.valid and self._motion_permission.allowed()
+        """Cancel work whenever local safety revokes mission permission."""
+        valid = self._motion_permission.allowed()
         self._arbiter.set_external_stop(not valid)
         if valid != self._motion_authority_was_valid:
             if valid:
                 self.get_logger().info(
                     'motion authority ready; waiting for MissionCommand')
             else:
-                reason = (
-                    token.blocking_reason
-                    if not token.valid
-                    else 'LOCAL_SAFETY_BLOCKED'
-                )
                 self.get_logger().warn(
-                    f'motion authority unavailable ({reason}); motion canceled')
+                    'motion authority unavailable (LOCAL_SAFETY_BLOCKED); '
+                    'motion canceled')
             self._motion_authority_was_valid = valid
 
     def mission_state_snapshot(self):

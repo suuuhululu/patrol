@@ -20,6 +20,9 @@ def generate_launch_description():
     hardware_test_mode = LaunchConfiguration('hardware_test_mode')
     motion_enable_token = LaunchConfiguration('motion_enable_token')
     source_session_id = LaunchConfiguration('source_session_id')
+    command_store_path = LaunchConfiguration('command_store_path')
+    mission_status_path = LaunchConfiguration('mission_status_path')
+    report_outbox_path = LaunchConfiguration('report_outbox_path')
     default_session = [
         robot_id,
         '-' + datetime.now().strftime('%Y%m%dT%H%M%S'),
@@ -50,6 +53,21 @@ def generate_launch_description():
             description=(
                 'Robot process session: '
                 '<robot_id>-<YYYYMMDDTHHMMSS>-<restart_sequence>')),
+        DeclareLaunchArgument(
+            'command_store_path', default_value='',
+            description=(
+                'Optional absolute path for the robot-specific mission '
+                'command/checkpoint store')),
+        DeclareLaunchArgument(
+            'mission_status_path', default_value='',
+            description=(
+                'Optional absolute path shared with status_reporter for '
+                'mission_status.json')),
+        DeclareLaunchArgument(
+            'report_outbox_path', default_value='',
+            description=(
+                'Optional absolute path shared with status_reporter for '
+                'patrol_report_outbox.json')),
         Node(
             package='patrol_amr',
             executable='mission_supervisor',
@@ -62,6 +80,9 @@ def generate_launch_description():
                     hardware_test_mode, value_type=bool),
                 'motion_enable_token': motion_enable_token,
                 'source_session_id': source_session_id,
+                'command_store_path': command_store_path,
+                'mission_status_path': mission_status_path,
+                'report_outbox_path': report_outbox_path,
             }],
             output='screen',
         ),

@@ -43,8 +43,10 @@ class MissionController:
         dock_sensor_stable_s: float = 2.0,
         safe_zone_candidates=lambda: (),
     ) -> None:
-        if resume_policy not in {'disabled', 'next_waypoint', 'same_waypoint'}:
-            raise ValueError(f'unsupported resume_policy: {resume_policy}')
+        if resume_policy != 'next_waypoint':
+            raise ValueError(
+                'resume_policy must be next_waypoint under the 2026-09-09 '
+                'AMR command/mission contract')
         self._navigation = navigation
         self._store = store
         self._resume_policy = resume_policy

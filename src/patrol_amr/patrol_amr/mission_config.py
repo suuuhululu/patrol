@@ -47,7 +47,7 @@ def declare_parameters(node) -> None:
     node.declare_parameter('patrol_plan_id', '')
     node.declare_parameter('waypoints_xyyaw', [0.0])
     node.declare_parameter('waypoint_dwell_s', 0.0)
-    node.declare_parameter('resume_policy', 'disabled')
+    node.declare_parameter('resume_policy', 'next_waypoint')
     node.declare_parameter('command_store_path', '')
     node.declare_parameter('mission_status_path', '')
     node.declare_parameter('report_outbox_path', '')
@@ -83,8 +83,10 @@ def load_config(node) -> MissionConfig:
         raise ValueError('dock_sensor_stable_s cannot exceed dock_timeout_s')
 
     resume_policy = str(node.get_parameter('resume_policy').value)
-    if resume_policy not in {'disabled', 'next_waypoint', 'same_waypoint'}:
-        raise ValueError(f'unsupported resume_policy: {resume_policy}')
+    if resume_policy != 'next_waypoint':
+        raise ValueError(
+            'resume_policy must be next_waypoint under the 2026-09-09 '
+            'AMR command/mission contract')
     runtime_root = Path(
         os.environ.get('ROS_HOME', str(Path.home() / '.ros'))
     ).expanduser() / 'patrol_amr' / robot_id
