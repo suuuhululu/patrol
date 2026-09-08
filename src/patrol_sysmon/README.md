@@ -139,7 +139,7 @@ cd /home/hun/finalpjtdb/finalproject/sysmon
 - [x] 11단계: 누수·장애물 이벤트와 고정 웹캠 차량 입출차 로그
 - [x] 12단계: ROS adapter 기본 틀·RobotStatus·정적 지도·네 압축 영상 변환
 - [x] 13단계: 실제 퍼블리셔 전 부하·다중 접속·SQLite 경합 측정 도구와 로컬 검증
-- [x] 14단계: 공용 `parking_interfaces` v1.0 구현·PC 3 빌드·import·의존성 점검
+- [x] 14단계: 공용 `patrol_interfaces` v1.0 구현·PC 3 빌드·import·의존성 점검
 - [x] 15단계: 가상 publisher 7개 토픽의 로컬 DDS·임시 DB·화면 API 종단검증
 - [x] 16단계: adapter·가상 publisher 별도 프로세스 실행과 7개 토픽 종단검증
 - [x] 17단계: AMR1·AMR2 global/local costmap 4개 수신·최신 저장·API·분리 표시
@@ -160,7 +160,7 @@ source /home/hun/rokey_ws/install/setup.bash
 .venv/bin/python ros_adapter.py
 ```
 
-현재 가상환경에는 `PyYAML`·`numpy`를 설치했고 PC 3 ROS workspace에는 `parking_interfaces` v1.0을 빌드했다. workspace source 후 `--check`는 `rclpy`, `parking_interfaces`, `nav_msgs`, `sensor_msgs`를 모두 찾아 종료 코드 0을 반환한다. 실제 AMR·비전 publisher 수신은 아직 실행하지 않았다.
+현재 가상환경에는 `PyYAML`·`numpy`를 설치했고 PC 3 ROS workspace에는 `patrol_interfaces` v1.0을 빌드했다. workspace source 후 `--check`는 `rclpy`, `patrol_interfaces`, `nav_msgs`, `sensor_msgs`를 모두 찾아 종료 코드 0을 반환한다. 실제 AMR·비전 publisher 수신은 아직 실행하지 않았다.
 
 현재 활성 입력은 RobotStatus 2개, `/map`, 압축 영상 4개, costmap 4개, DetectionEvent 2개, EvidenceChunk 2개로 총 15개다. 저장 결과는 로봇별 `ingestion_ack` 2개 토픽으로 회신한다. CameraState·patrol_allowed는 같은 등록표에 후속 항목으로만 두었으며 아직 구독하거나 저장하지 않는다. `pose_valid=false`와 유효하지 않은 battery SOC는 현재 DB가 의미를 보존할 수 없어 migration 전에는 저장하지 않는다.
 
@@ -172,7 +172,7 @@ source /home/hun/rokey_ws/install/setup.bash
 
 실제 ROS publisher를 받기 전에 현재 HTTP 입력과 대시보드 API를 사용해 PC 3 sysmon 자체의 처리 한계와 SQLite 읽기·쓰기 경합을 측정한다. 시험은 임시 DB와 임시 이미지 폴더에서만 실행하며 실제 `instance/sysmon.sqlite3`와 기존 증적·지도·영상 파일은 변경하지 않는다.
 
-공용 `parking_interfaces`, AMR·비전 코드, 실제 ROS 송수신, 네트워크·장비 성능은 이 단계 범위가 아니다. 이 단계의 결과를 실제 ROS 통합 성능으로 보고하지 않는다.
+공용 `patrol_interfaces`, AMR·비전 코드, 실제 ROS 송수신, 네트워크·장비 성능은 이 단계 범위가 아니다. 이 단계의 결과를 실제 ROS 통합 성능으로 보고하지 않는다.
 
 ### 시험 도구
 
@@ -231,7 +231,7 @@ SQLite 5초 timeout과 해제 후 복구를 확인하려면 운영 DB가 아닌 
 
 ## 14단계 공용 메시지 패키지
 
-계약 v1.0의 공용 메시지 14개는 [parking_interfaces](../parking_interfaces/README.md)에 구현했다. PC 3 `/home/hun/rokey_ws`에서 빌드하고 source한 뒤 모든 메시지 import와 adapter `--check` 통과를 확인했다. AMR·비전 workspace 적용 상태는 [CR-001](../docs/change_requests/CR-001_09-07_11-09_parking_interfaces_v1_구현.md)에서 추적한다.
+계약 v1.0의 공용 메시지 14개는 [patrol_interfaces](../patrol_interfaces/README.md)에 구현했다. PC 3 `/home/hun/rokey_ws`에서 빌드하고 source한 뒤 모든 메시지 import와 adapter `--check` 통과를 확인했다. AMR·비전 workspace 적용 상태는 [CR-001](../docs/change_requests/CR-001_09-07_11-09_patrol_interfaces_v1_구현.md)에서 추적한다.
 
 ## 15단계 가상 ROS 토픽 종단시험
 

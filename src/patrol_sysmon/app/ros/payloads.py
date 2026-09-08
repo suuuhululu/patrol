@@ -45,6 +45,79 @@ def _frame_id(header):
     return value
 
 
+def _position_of(pose, label):
+    """PoseWithCovariance와 PoseWithCovarianceStamped를 함께 받는다.
+
+    공용 계약이 Stamped를 쓰면 pose가 한 단계 더 중첩된다. 정의가 확정될 때까지
+    두 형태를 모두 받아 좌표를 잃지 않는다.
+    """
+    node = pose
+    for _ in range(3):
+        position = getattr(node, "position", None)
+        if position is not None:
+            return position
+        node = getattr(node, "pose", None)
+        if node is None:
+            break
+    raise RosMessageMappingError(f"{label} pose에서 position을 찾을 수 없습니다.")
+
+
+def _message_identity(message, label, *id_fields):
+    """중복 제거 키를 만든다. message_id가 없으면 세션·순번으로 대신한다.
+
+    공용 계약 RobotStatus·PatrolReport에는 message_id가 없고 source_session_id와
+    순번이 그 역할을 한다. 어느 정의가 와도 같은 뜻의 키를 만든다.
+    """
+    message_id = getattr(message, "message_id", "")
+    if isinstance(message_id, str) and message_id:
+        return message_id
+    session = getattr(message, "source_session_id", "")
+    sequence = getattr(message, "status_sequence", None)
+    if sequence is None:
+        sequence = getattr(message, "source_sequence", None)
+    if sequence is None:
+        sequence = getattr(message, "sequence", None)
+    if isinstance(session, str) and session and sequence is not None:
+        # 생산자(로봇)별로 유일해야 하므로 robot_id를 함께 넣는다.
+        producer = (
+            getattr(message, "robot_id", "")
+            or getattr(message, "target_robot_id", "")
+            or getattr(message, "camera_id", "")
+        )
+        return f"{session}-{producer}-{int(sequence)}" if producer else f"{session}-{int(sequence)}"
+    # 순번이 없는 계약은 그 메시지의 고유 ID를 중복 제거 키로 그대로 쓴다.
+    # 서비스가 UUID 형식을 검사하므로 접두사를 붙이지 않는다.
+    for field in id_fields:
+        value = getattr(message, field, "")
+        if isinstance(value, str) and value:
+            return value
+    raise RosMessageMappingError(
+        f"{label} message_id 또는 source_session_id·순번이 필요합니다."
+    )
+
+
+def _enum_name(message, value, fallback_table, prefixes, label):
+    """enum 이름을 메시지 클래스 상수에서 읽는다.
+
+    같은 이름의 상태라도 정의마다 숫자가 다를 수 있어 숫자표를 고정하지 않는다.
+    상수를 찾지 못하면 기존 표로 되돌아간다.
+    """
+    # 같은 숫자를 쓰는 다른 enum 묶음이 있으므로 기대하는 이름만 인정한다.
+    expected = set(fallback_table.values())
+    for name in dir(type(message)):
+        if not name.isupper() or getattr(type(message), name, None) != value:
+            continue
+        for prefix in prefixes:
+            if name.startswith(prefix) and name[len(prefix):] in expected:
+                return name[len(prefix):]
+        if name in expected:
+            return name
+    try:
+        return fallback_table[value]
+    except KeyError as exc:
+        raise RosMessageMappingError(f"지원하지 않는 {label} enum 값입니다.") from exc
+
+
 def _finite_number(value, field):
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise RosMessageMappingError(f"{field} 값은 유한한 숫자여야 합니다.")
@@ -68,19 +141,16 @@ def robot_status_payload(message):
     if not 0.0 <= battery_soc <= 1.0:
         raise RosMessageMappingError("battery_soc는 0.0에서 1.0 사이여야 합니다.")
     try:
-        # 계약 타입은 geometry_msgs/PoseWithCovariance이므로 pose가 한 단계 더 중첩된다.
-        position = message.pose.pose.position
+        position = _position_of(message.pose, "RobotStatus")
         header = message.header
         # [무효 위치] 좌표가 NaN이어도 배터리·임무는 계속 받아야 하므로 좌표만 비운다.
         x = _finite_number(position.x, "pose.position.x") if pose_valid else None
         y = _finite_number(position.y, "pose.position.y") if pose_valid else None
-        last_valid_pose_at = _optional_stamp_iso(message.last_valid_pose_stamp)
+        last_valid_pose_at = _last_valid_pose_time(message)
     except AttributeError as exc:
         raise RosMessageMappingError("RobotStatus pose 또는 header가 없습니다.") from exc
-    message_id = getattr(message, "message_id", "")
-    if not isinstance(message_id, str) or not message_id:
-        raise RosMessageMappingError("RobotStatus message_id가 필요합니다.")
-    frame_id = _frame_id(header)
+    message_id = _message_identity(message, "RobotStatus")
+    frame_id = _frame_id(header) or _frame_id(getattr(message.pose, "header", None))
     if frame_id != "map":
         raise RosMessageMappingError("RobotStatus header.frame_id는 map이어야 합니다.")
     return {
@@ -229,7 +299,10 @@ def camera_state_payload(topic, message):
         raise RosMessageMappingError("CameraState camera_id가 토픽 source와 다릅니다.")
     try:
         observed_at = _stamp_iso(message.header.stamp)
-        state = CAMERA_STATE_TYPES[message.state]
+        # [enum 값 차이] 같은 상태라도 정의마다 숫자가 다르므로 이름으로 맞춘다.
+        state = _enum_name(
+            message, message.state, CAMERA_STATE_TYPES, ("STATE_",), "CameraState state"
+        )
     except (AttributeError, KeyError) as exc:
         raise RosMessageMappingError("CameraState 필수 필드 또는 enum이 올바르지 않습니다.") from exc
     return {
@@ -267,6 +340,21 @@ def _optional_stamp_iso(stamp):
     return _stamp_iso(stamp)
 
 
+def _last_valid_pose_time(message):
+    """마지막 유효 위치의 시각을 꺼낸다.
+
+    우리 정의는 시각만(last_valid_pose_stamp), 공용 계약은 pose 전체를 담는다.
+    """
+    stamp = getattr(message, "last_valid_pose_stamp", None)
+    if stamp is not None:
+        return _optional_stamp_iso(stamp)
+    pose = getattr(message, "last_valid_pose", None)
+    header = getattr(pose, "header", None)
+    if header is not None:
+        return _optional_stamp_iso(header.stamp)
+    return None
+
+
 def patrol_visit_payload(topic, message):
     """PatrolVisit을 관측점 방문 저장 서비스 입력으로 바꾼다."""
     robot_id = _contract_robot(topic, message, PATROL_VISIT_SOURCES_BY_TOPIC, "PatrolVisit")
@@ -301,16 +389,24 @@ def patrol_report_payload(topic, message):
     """PatrolReport를 순찰 결과 저장 서비스 입력으로 바꾼다."""
     robot_id = _contract_robot(topic, message, PATROL_REPORT_SOURCES_BY_TOPIC, "PatrolReport")
     try:
-        result = PATROL_REPORT_RESULTS[message.result]
+        result = _enum_name(
+            message, message.result, PATROL_REPORT_RESULTS, (), "PatrolReport result"
+        )
         started_at = _stamp_iso(message.started_at)
-        ended_at = _optional_stamp_iso(message.ended_at)
+        # 공용 계약은 finished_at, 기존 정의는 ended_at으로 같은 뜻이다.
+        ended_stamp = getattr(message, "ended_at", None)
+        if ended_stamp is None:
+            ended_stamp = getattr(message, "finished_at", None)
+        ended_at = _optional_stamp_iso(ended_stamp)
     except (AttributeError, KeyError) as exc:
         raise RosMessageMappingError("PatrolReport 필수 필드 또는 enum이 올바르지 않습니다.") from exc
+    # 공용 계약에는 patrol_id가 없다. 없으면 mission_id로 순찰 회차를 잇는다.
+    patrol_id = getattr(message, "patrol_id", "") or getattr(message, "mission_id", "")
     return {
         "report_id": getattr(message, "report_id", ""),
-        "message_id": getattr(message, "message_id", ""),
+        "message_id": _message_identity(message, "PatrolReport", "report_id"),
         "robot_id": robot_id,
-        "patrol_id": getattr(message, "patrol_id", ""),
+        "patrol_id": patrol_id,
         "mission_id": getattr(message, "mission_id", ""),
         "command_id": getattr(message, "command_id", ""),
         "result": result,
