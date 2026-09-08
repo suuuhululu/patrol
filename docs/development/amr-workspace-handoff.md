@@ -46,6 +46,32 @@
 - 10단계 로컬 스모크까지 자동 검증했다. 다음 개발 재개 지점은 10절의 재정리된 우선순위와 상태표를 따른다.
 - 이전에 기록했던 작업 루트 아래 중첩 `patrol/` 디렉터리는 현재 존재하지 않는다. 작업 루트는 `/home/mu-01/patrol` 하나다.
 
+### 시험 절차 작성 규칙
+
+이 문서의 모든 사용자 시험 절차(6절, 6.4, 6.6, 6.7, 11절)는 아래 규칙을 따른다. 새 절차를 쓸 때도 같다.
+
+1. **터미널 실행 순서를 반드시 명시한다.** "터미널 1/2/3"으로 나열만 하지 않고 어느 것을 먼저 띄우는지 적는다. ROS는 발행자·구독자가 붙는 순서에 따라 초기 메시지를 놓칠 수 있어 순서가 결과를 바꾼다.
+
+2. **`cd`와 `source`는 명령에 포함하되 설명하지 않는다.** 무엇을 하는 명령인지는 이미 알고 있다. 대신 각 명령이 **어느 토픽·타입을 대상으로 하는지**, **각 필드가 무슨 뜻인지**, **어느 코드 경로가 처리하는지**를 적는다.
+
+3. **각 단계마다 "어느 터미널에 어떤 로그가 나와야 하는지"를 함께 적는다.** 명령만 나열하면 성공·실패를 판단할 수 없다. 명령 바로 아래에 기대 출력을 붙이고, 그것이 **몇 번 터미널에 나오는지** 명시한다. 여러 터미널이 동시에 반응하면 전부 적는다.
+
+세 번째 규칙의 형식은 다음과 같다.
+
+~~~markdown
+**터미널 3 — E-stop 해제.**
+
+```bash
+ros2 topic pub --once ... /control/estop ...
+```
+
+- **터미널 1**: `E_STOP_AUTO_RELEASED robot_id=robot1 ...`
+- **터미널 1**: `motion allowed: True blocked_reasons: []`
+- **터미널 2**: 변화 없음 — `0.0` 유지. 권한은 생겼지만 후보가 없어서다.
+~~~
+
+"변화 없음"도 기대 결과이므로 생략하지 않는다. 아무 반응이 없어야 정상인 경우와 명령이 실패해 반응이 없는 경우를 구분할 수 있어야 한다.
+
 ### 다른 컴퓨터로 옮기기 전 확인 순서
 
 1. 이전 컴퓨터에서 저장소·브랜치·HEAD·변경 파일을 확인한다.
@@ -883,7 +909,7 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 
 ## 11. 11단계 이후 실행 계획 — 2026-09-08
 
-1~10단계와 같은 규칙을 유지한다. **한 단계마다 구현 → 시험을 끝내고, 사용자 통과 확인 전에는 다음 단계로 넘어가지 않는다.** 순수 Python 모듈은 단위시험까지, ROS 노드는 사용자 ROS 토픽 시험까지가 한 단계다.
+1~10단계와 같은 규칙을 유지한다. **한 단계마다 구현 → 시험을 끝내고, 사용자 통과 확인 전에는 다음 단계로 넘어가지 않는다.** 순수 Python 모듈은 단위시험까지, ROS 노드는 사용자 ROS 토픽 시험까지가 한 단계다. 시험 절차를 쓸 때는 1절의 [시험 절차 작성 규칙](#시험-절차-작성-규칙)을 따른다.
 
 | 단계 | 대상 | 시험 | 착수 가능 |
 |---|---|---|---|
@@ -937,13 +963,18 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 
 터미널 4개를 아래 **순서대로** 연다. 각 터미널에서 `cd ~/patrol`, `source /opt/ros/jazzy/setup.bash`, `source install/local_setup.bash`를 먼저 실행한다.
 
-**터미널 1 — 노드 실행.** 가장 먼저 띄운다.
+`ros2 run`은 namespace 없이 실행하므로 토픽이 `/cmd_vel`·`/cmd_vel_safe`다. `ros2 launch`로 띄우면 `/robot1/` 접두사가 붙고, 그때는 후보 발행 스크립트에 `--namespace /robot1`을 준다.
+
+**터미널 1 — 노드 실행.** 가장 먼저 띄운다. 이 노드가 시험 대상이다.
 
 ```bash
 ros2 run patrol_amr local_safety_supervisor --ros-args -p robot_id:=robot1
 ```
 
-`cmd_vel: STOP blocked_reasons: ['candidate_missing']` 로그가 나오면 정상이다. 후보를 아직 못 받았으므로 정지가 맞다.
+- **터미널 1**: `cmd_vel: STOP blocked_reasons: ['candidate_missing', 'drive_token_not_granted', 'estop_active']`
+- **터미널 1**: `motion allowed: False blocked_reasons: ['drive_token_not_granted', 'estop_active']`
+
+세 사유가 모두 뜨는 것이 정상이다. 관측 전 기본값은 E-stop 활성·token 없음이고 후보도 아직 없다.
 
 **터미널 2 — 최종 속도 관찰.** 노드가 뜬 뒤에 연다.
 
@@ -951,19 +982,32 @@ ros2 run patrol_amr local_safety_supervisor --ros-args -p robot_id:=robot1
 ros2 topic echo /cmd_vel
 ```
 
-`linear.x: 0.0`, `angular.z: 0.0`이 0.1초 간격으로 계속 나와야 한다. 스트림이 끊기는 것이 아니라 명시적인 0이 계속 나오는 것이 정상이다.
+- **터미널 2**: `linear.x: 0.0`, `angular.z: 0.0`이 0.1초 간격으로 계속 나온다.
 
-**터미널 3 — 주행 권한 부여.** E-stop 해제와 token을 차례로 넣는다. E-stop은 QoS를 맞추지 않으면 `DURABILITY` 불일치로 전달되지 않는다.
+스트림이 끊기는 것이 아니라 명시적인 0이 계속 나오는 것이 정상이다. 정지 상태를 "메시지 없음"이 아니라 값으로 알린다.
+
+**터미널 3 — ① E-stop 해제.** `EStop`은 `RELIABLE`·`TRANSIENT_LOCAL`이라 QoS를 맞추지 않으면 `DURABILITY` 불일치로 아예 전달되지 않는다.
 
 ```bash
 ros2 topic pub --once --qos-durability transient_local --qos-reliability reliable /control/estop patrol_interfaces/msg/EStop "{target_robot_id: 'robot1', active: false, reason: 0, latched: false, sequence: 1}"
 ```
 
+- **터미널 1**: `cmd_vel: STOP blocked_reasons: ['candidate_missing', 'drive_token_not_granted']` — `estop_active`가 사라진다.
+- **터미널 2**: 변화 없음. `0.0` 유지.
+
+`estop_active`만 빠지고 `motion allowed`는 아직 `False`다. token이 없기 때문이다.
+
+**터미널 3 — ② 주행 허가증.** ①이 끝난 뒤 같은 터미널에서 이어 실행한다. `-r 5`는 Q-01의 5 Hz 발행 규칙이고, `lease_duration` 8초는 손시험 중 만료되지 않도록 넉넉히 준 값이다.
+
 ```bash
 ros2 topic pub -r 5 /control/drive_token patrol_interfaces/msg/DriveToken "{control_session_id: 'ctrl-test', token_id: 'tok-a', holder_robot_id: 'robot1', lease_duration: {sec: 8, nanosec: 0}, message_sequence: 1}"
 ```
 
-터미널 1에 `motion allowed: True`가 뜬다. 터미널 2는 아직 `0.0`이다 — 권한은 생겼지만 후보가 없어서다. 이것이 권한 게이트와 출력 게이트를 나눈 이유다.
+- **터미널 1**: `motion allowed: True blocked_reasons: []`
+- **터미널 1**: `cmd_vel: STOP blocked_reasons: ['candidate_missing']`
+- **터미널 2**: **변화 없음. `0.0` 유지.**
+
+여기가 이 시험의 핵심이다. 주행이 허용됐는데도 속도는 0이다. 권한 게이트(`motion_allowed`)와 출력 게이트(`cmd_vel`)를 나눈 결과이며, 후보가 없으면 내보낼 값 자체가 없다.
 
 **터미널 4 — 후보 발행.** 여기서부터 실제로 속도가 나간다.
 
@@ -971,39 +1015,62 @@ ros2 topic pub -r 5 /control/drive_token patrol_interfaces/msg/DriveToken "{cont
 python3 tests/integration/publish_drive_candidate.py
 ```
 
-터미널 2에 `linear.x: 0.25`, `angular.z: -0.1`이 나오고 터미널 1에 `cmd_vel: candidate blocked_reasons: []`가 뜬다. `Ctrl+C`로 멈추면 0.5초 뒤 `0.0`으로 돌아간다.
+- **터미널 4**: `publishing (0.25, -0.1) on /cmd_vel_safe at 20.0 Hz`
+- **터미널 1**: `cmd_vel: candidate blocked_reasons: []`
+- **터미널 2**: `linear.x: 0.25`, `angular.z: -0.1` — 변형 없이 그대로 나온다.
 
 **`ros2 topic pub`을 쓰지 않는 이유.** 두 가지가 모두 막는다.
 
 - `ros2 topic pub`은 `header.stamp`를 채우지 않고 0으로 보낸다. 0은 1970년이므로 Q-17로 즉시 `candidate_stale`이 된다. 이는 **의도된 동작**이며, 계약대로 stamp를 채우지 않는 발행자를 실제로 걸러낸다.
 - 셸에서 `sec: $(date +%s)`로 채워도 안 된다. `date +%s`는 초 단위로 잘라 stamp가 최대 1초 과거가 되므로 0.5초 한도를 절반쯤은 넘긴다. 2026-09-08 실제로 재현해 확인했다.
 
-그래서 [publish_drive_candidate.py](../../tests/integration/publish_drive_candidate.py)가 노드와 같은 ROS 시계로 stamp를 채워 20 Hz(Nav2 `controller_frequency`와 같은 주기)로 발행한다. 이 스크립트는 12단계 손시험 중 Nav2를 대신할 뿐 주행 계약의 일부가 아니다.
+그래서 [publish_drive_candidate.py](../../tests/integration/publish_drive_candidate.py)가 노드와 같은 ROS 시계로 stamp를 채워 20 Hz(Nav2 `controller_frequency`와 같은 주기)로 발행한다. 이 스크립트는 손시험 중 Nav2를 대신할 뿐 주행 계약의 일부가 아니다.
 
-`--once`로 한 번만 보내 Q-17 만료를 눈으로 볼 수 있고, `ros2 launch`로 노드를 띄웠다면 `--namespace /robot1`을 준다.
+#### 12단계 확인 항목
 
-```bash
-python3 tests/integration/publish_drive_candidate.py --once
-```
+**시험 A — Q-17 후보 만료.** 터미널 4를 `Ctrl+C`로 멈춘다.
 
-**확인 항목과 통과 기준**
+- **터미널 1**: `cmd_vel: STOP blocked_reasons: ['candidate_stale']` — 0.5초 이내에 뜬다.
+- **터미널 2**: `0.0`으로 돌아간다.
+- **터미널 1**: `motion allowed`는 **찍히지 않는다.** 권한은 그대로 `True`다.
 
-| 순서 | 조작 | 기대 결과 |
-|---|---|---|
-| 1 | 노드만 실행 | `/cmd_vel`이 `0.0`, 사유 `candidate_missing` |
-| 2 | E-stop 해제 + token | `motion allowed: True`, `/cmd_vel`은 여전히 `0.0` |
-| 3 | 후보 스트림 시작 | `/cmd_vel`에 `0.25 / -0.1`이 변형 없이 나옴, 사유 `[]` |
-| 4 | 후보 `Ctrl+C` 후 0.5초 | `/cmd_vel`이 `0.0`, 사유 `candidate_stale` |
-| 5 | 후보 중 E-stop 활성 | 즉시 `0.0`, 사유 `estop_active` |
-| 6 | token 발행 중단 후 1초 | `0.0`, 사유에 `drive_token_not_granted` 포함 |
+마지막 항목이 중요하다. 후보가 끊겨도 주행 권한은 유지된다.
 
-5번은 후보 스트림을 켜 둔 채 터미널 3에서 아래를 실행하고, 6번은 터미널 3의 token 발행을 `Ctrl+C`로 멈춰 확인한다.
+**시험 B — E-stop 즉시 반영.** 터미널 4를 다시 켜서 `0.25`가 나가는 것을 확인한 뒤, 터미널 3의 token 발행을 멈추지 말고 **새 터미널이나 ②를 잠시 멈춘 뒤** 아래를 실행한다.
 
 ```bash
 ros2 topic pub --once --qos-durability transient_local --qos-reliability reliable /control/estop patrol_interfaces/msg/EStop "{target_robot_id: 'robot1', active: true, reason: 2, latched: false, sequence: 2}"
 ```
 
-종료는 각 터미널에서 `Ctrl+C`다. 터미널 1을 마지막에 닫는다.
+- **터미널 1**: `motion allowed: False blocked_reasons: ['estop_active']`
+- **터미널 1**: 바로 다음 줄에 `cmd_vel: STOP blocked_reasons: ['estop_active']`
+- **터미널 2**: 후보가 계속 들어오는데도 `0.0`으로 바뀐다.
+
+두 로그의 시각 차이가 1 ms 미만이어야 한다. 재확인 타이머(0.1초)를 기다리지 않고 콜백에서 바로 발행하기 때문이다.
+
+**시험 C — token 만료.** 터미널 3의 token 발행을 `Ctrl+C`로 멈추고 1초 이상 기다린다.
+
+- **터미널 1**: `motion allowed: False blocked_reasons: ['drive_token_not_granted']`
+- **터미널 1**: `cmd_vel: STOP blocked_reasons:`에 `drive_token_not_granted`가 포함된다.
+- **터미널 2**: `0.0`.
+
+Q-01 lease 1.0초가 메시지 수신이 아니라 시계로 만료되는 것을 확인하는 항목이다.
+
+#### 12단계 통과 기준
+
+| # | 조작 | 터미널 1 로그 | 터미널 2 `/cmd_vel` |
+|---|---|---|---|
+| 1 | 노드만 실행 | `candidate_missing`·`drive_token_not_granted`·`estop_active` | `0.0` |
+| 2 | E-stop 해제 | `estop_active` 사라짐 | `0.0` |
+| 3 | token 발행 | `motion allowed: True`, `cmd_vel: STOP ['candidate_missing']` | `0.0` |
+| 4 | 후보 스트림 | `cmd_vel: candidate blocked_reasons: []` | `0.25 / -0.1` |
+| 5 | 후보 중단 0.5초 | `cmd_vel: STOP ['candidate_stale']`, `motion allowed` 미출력 | `0.0` |
+| 6 | E-stop 활성 | `estop_active` 두 줄이 1 ms 이내 | `0.0` |
+| 7 | token 중단 1초 | `drive_token_not_granted` | `0.0` |
+
+3번과 5번이 이 단계의 핵심이다. 권한과 출력이 서로 독립적으로 움직여야 한다.
+
+종료는 터미널 4 → 3 → 2 → 1 순서로 `Ctrl+C`다.
 
 ### 13단계 — launch·스모크 확장 · 완료 2026-09-08
 
