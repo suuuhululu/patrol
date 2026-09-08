@@ -203,13 +203,11 @@ flowchart TD
     A[MissionCommand callback] --> B[MissionCommandParser.parse]
     B --> C{구조화 command·mission ID<br/>robot_id·enum 유효}
     C -->|아니오| R[거부 로그]
-    C -->|예| D{parameters_json이 빈 값 또는 유효 JSON}
+    C -->|예| D{명령별 target_id 계약 일치}
     D -->|아니오| R
-    D -->|예| E{MOVE_TO_SAFE_ZONE인가}
-    E -->|예| F{유한한 map pose·유효 quaternion}
-    F -->|아니오| R
-    F -->|예| G[MissionRequest]
-    E -->|아니오| G
+    D -->|예| E{target_pose가 기본값인가}
+    E -->|아니오| R
+    E -->|예| G[MissionRequest]
     G --> H[MissionArbiter.submit]
     H -->|허용| I[즉시 callback 종료]
     H -->|busy·safety 미준비·종료 중| R
@@ -303,9 +301,12 @@ flowchart TD
     B -->|해제| C{남은 waypoint}
     C -->|없음| D[checkpoint 삭제·SUCCEEDED]
     C -->|있음| E[MISSION_PATROLLING·현재 W]
-    E --> F[Nav2 go_to]
+    E --> F[Nav2 go_to / 최초 1회 + 재시도 최대 3회]
     F -->|성공| G[다음 W index 원자 저장]
-    F -->|실패·거부·취소| H[해당 checkpoint 유지·종료]
+    F -->|중간 W 일반 실패| S[다음 W index 저장 / skip]
+    F -->|마지막 W 실패| H[해당 checkpoint 유지·종료]
+    F -->|안전 취소| X
+    S --> C
     G --> I[설정된 dwell 동안 cancel 확인]
     I -->|완료| C
     I -->|취소| X
@@ -375,17 +376,27 @@ flowchart TD
 ~~~mermaid
 flowchart TD
     A[Waypoint] --> B{cancel 상태 또는 MotionGate 미준비}
-    B -->|예| X[goal 미전송]
+    B -->|예| X[CANCELED / goal 미전송 / 재시도 없음]
     B -->|아니오| C[map PoseStamped 생성·goToPose]
-    C -->|명시적 goal 거부| Y[REJECTED]
+    C -->|명시적 goal 거부| Y[REJECTED 결과]
     C -->|수락| D{task 완료}
-    D -->|아니오| E{cancel_event 또는 MotionGate 상실}
+    D -->|아니오| FB[getFeedback 보존]
+    FB --> E{cancel_event 또는 MotionGate 상실}
     E -->|예| F[cancelTask 1회]
     E -->|아니오| D
     F --> D
     D -->|예| G[getResult]
     G --> H[SUCCEEDED·FAILED·CANCELED·UNKNOWN]
+    Y --> R{일반 실패이고 총 4회 미만?}
+    H --> R
+    R -->|예| C
+    R -->|아니오| T[최종 NavigationResult]
 ~~~
+
+재시도 수는 `navigation_types.MAX_GOAL_RETRIES=3` 한 곳에서 관리한다. 최초
+시도까지 합쳐 goal당 최대 네 번이다. 안전 권한 상실은 일반 Nav2 실패와
+구분해 `CANCELED`로 반환하므로 재시도 루프에 들어가지 않는다. 중간 waypoint
+skip 뒤 최종 PatrolReport에 어떤 상세를 기록할지는 TBD-AMR-005 잔여다.
 
 `docking_runner.py`
 
@@ -595,8 +606,8 @@ flowchart TD
 
 - `patrol_interfaces/msg/MissionCommand`는 공용 패키지 의존성으로 사용한다.
   공용 패키지를 먼저 빌드·source한 뒤 ROS 노드를 기동한다. 구조화 ID,
-  mission ID, 충돌 fingerprint와 보관 규칙은 반영했고 CommandCheck 수치와
-  명령별 target 규칙은 TBD-IF-001에 남아 있다.
+  mission ID, 충돌 fingerprint와 보관 규칙, CommandCheck 수치와
+  명령별 target 규칙은 v1.0 계약에 반영했다.
 - 미션 상태는 AMR 내부 영속 `mission_status.json`으로 프로세스 경계를
   넘기며 공개 ROS 내부 토픽을 새로 만들지 않았다. `status_reporter`가 이를
   읽어 RobotStatus의 mission·command·waypoint·reason 필드를 만든다.

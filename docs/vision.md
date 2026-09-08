@@ -93,3 +93,4 @@ TBD-VIS-001(카메라 입력·확정 기준·장애 판단)과 TBD-VIS-002(순�
 | CameraState 필드 | `patrol_interfaces/msg/CameraState.msg` | `source_session_id`(string), `source_sequence`(uint64) 추가 |
 
 관제 수신부(5초 timeout, Bool 3회 연속 수신 기반 복구)는 이번 반영에 포함하지 않음(관제 담당).
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

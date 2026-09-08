@@ -38,6 +38,17 @@ uint8 DOCK_DOCKING=3
 uint8 DOCK_DOCKED=4
 uint8 DOCK_FAILED=5
 
+# ---- safety : [계약] interfaces.md 4절 (2026-09-08 결정) ---------------------
+# NORMAL 만으로 이동 권한을 뜻하지 않고, ESTOPPED 만으로 속도 0 을 보장하지 않는다.
+# safety_state·motion_stopped·속도 측정 age 는 서로 대체하지 않는다. 구체 원인은
+# reason_code·reason 으로 구분한다.
+uint8 SAFETY_UNKNOWN=0      # 초기화되지 않았거나 상태를 신뢰할 수 없음
+uint8 SAFETY_NORMAL=1       # 활성 로컬 안전 정지가 없음
+uint8 SAFETY_STOPPING=2     # 출력이 차단됐고 감속·정지 확인 중
+uint8 SAFETY_STOPPED=3      # 출력이 차단됐으며 실제 정지 조건이 확인됨
+uint8 SAFETY_ESTOPPED=4     # E-stop 활성 상태
+uint8 SAFETY_ERROR=5        # local_safety_supervisor 또는 관련 안전 계층 오류
+
 # ---- battery : [계약] interfaces.md 8절 ----------------------------------
 # 접두사 없는 이름은 8절 표기를 그대로 옮긴 것이다. 임의로 바꾸지 않는다.
 #   방전 <0.10 CRITICAL / 0.10~0.20 LOW / >=0.20 NORMAL
@@ -51,6 +62,14 @@ uint8 CHARGING=4
 uint8 PATROL_READY=5
 uint8 FULL=6
 
+# ---- safety : [계약] interfaces.md 4절 -----------------------------------
+uint8 SAFETY_UNKNOWN=0
+uint8 SAFETY_NORMAL=1
+uint8 SAFETY_STOPPING=2
+uint8 SAFETY_STOPPED=3
+uint8 SAFETY_ESTOPPED=4
+uint8 SAFETY_ERROR=5
+
 std_msgs/Header header
 string robot_id
 string source_session_id
@@ -61,7 +80,7 @@ uint8 operational_state                                  # OP_*
 uint8 mission_state                                      # MISSION_*
 uint8 docking_state                                      # DOCK_*
 uint8 battery_state                                      # UNKNOWN..FULL
-uint8 safety_state                                       # enum TBD-IF-003
+uint8 safety_state                                       # SAFETY_*
 
 string active_command_id
 string active_mission_id

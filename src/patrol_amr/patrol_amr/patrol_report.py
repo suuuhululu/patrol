@@ -33,6 +33,8 @@ PATROL_REPORT_QOS_DEPTH = 20
 _SOURCE_SESSION_RE = re.compile(
     r'^(robot1|robot6)-[0-9]{8}T[0-9]{6}(?:-[a-z0-9]+)*$'
 )
+# 노드가 parameter 단계에서 같은 규칙으로 먼저 거절할 수 있도록 공개한다.
+SOURCE_SESSION_PATTERN = _SOURCE_SESSION_RE
 
 
 class PatrolResult(IntEnum):
@@ -49,6 +51,10 @@ class ReasonCode(IntEnum):
     INVALID_COMMAND = 200
     INVALID_TARGET = 201
     UNSUPPORTED_COMMAND = 202
+    COMMAND_ID_CONFLICT = 203
+    INVALID_MISSION = 204
+    INVALID_PARAMETERS = 205
+    INVALID_STATE = 206
     NAV_NO_PATH = 300
     NAV_TIMEOUT = 301
     NAV_GOAL_REJECTED = 302

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# 필수 경로가 통째로 추적에서 빠진 커밋을 만들지 않는다.
+# 설치: git config core.hooksPath .githooks   (사람마다 한 번)
+set -euo pipefail
+repo_root="$(git rev-parse --show-toplevel)"
+exec "$repo_root/scripts/check_tracked_paths.sh"

@@ -81,7 +81,7 @@ def main():
     ), 'robot6-20260908T100000')
 
     command = [
-        'ros2', 'run', 'patrol_amr', 'status_reporter', '--ros-args',
+        'ros2', 'run', 'patrol_amr_safety', 'status_reporter', '--ros-args',
         '-r', '__ns:=/robot6',
         '-p', 'robot_id:=robot6',
         '-p', 'source_session_id:=robot6-20260908T100001',

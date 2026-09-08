@@ -7,6 +7,7 @@ from patrol_amr.mission_command_store import CommandStore
 from patrol_amr.mission_controller import MissionController
 from patrol_amr.mission_types import MissionRequest, MissionType, PoseTarget
 from patrol_amr.navigation_adapter import NavigationResult, Waypoint
+from patrol_amr.safe_zone_selector import MapPose, SafeZoneCandidate
 
 
 class FakeNavigation:
@@ -37,7 +38,7 @@ class MissionControllerTest(unittest.TestCase):
         self.addCleanup(self.temp_dir.cleanup)
         self.root = Path(self.temp_dir.name)
 
-    def controller(self, navigation, resume_policy='disabled'):
+    def controller(self, navigation, resume_policy='disabled', candidates=()):
         return MissionController(
             navigation,
             CommandStore(self.root / 'commands.json'),
@@ -48,6 +49,7 @@ class MissionControllerTest(unittest.TestCase):
             0.0,
             resume_policy,
             lambda state, index: None,
+            safe_zone_candidates=lambda: candidates,
         )
 
     @staticmethod
@@ -66,20 +68,21 @@ class MissionControllerTest(unittest.TestCase):
         self.assertEqual(result.outcome, 'REJECTED')
         self.assertEqual(result.reason, 'TBD_AMR_005_RESUME_POLICY_OPEN')
 
-    def test_safe_zone_requires_explicit_target(self):
+    def test_safe_zone_fails_when_provider_has_no_candidate(self):
         result = self.controller(FakeNavigation()).execute(
             self.request(MissionType.MOVE_TO_SAFE_ZONE), threading.Event())
-        self.assertEqual(result.outcome, 'REJECTED')
-        self.assertEqual(result.reason, 'SAFE_ZONE_TARGET_POSE_REQUIRED')
+        self.assertEqual(result.outcome, 'FAILED')
+        self.assertEqual(result.reason, 'SAFE_ZONE_NOT_FOUND')
+        self.assertEqual(result.reason_code, 400)
 
     def test_safe_zone_uses_map_target_and_reports_success(self):
         navigation = FakeNavigation([NavigationResult.SUCCEEDED])
-        result = self.controller(navigation).execute(
-            self.request(
-                MissionType.MOVE_TO_SAFE_ZONE,
-                'safe-a',
-                PoseTarget('map', -1.0, -2.0, 90.0),
-            ),
+        candidate = SafeZoneCandidate(
+            'safe-a', MapPose(-1.0, -2.0, 90.0), True, False,
+            0.5, 1.0, True, False, 3.0,
+        )
+        result = self.controller(navigation, candidates=(candidate,)).execute(
+            self.request(MissionType.MOVE_TO_SAFE_ZONE),
             threading.Event(),
         )
         self.assertEqual(result.outcome, 'SUCCEEDED')
@@ -90,8 +93,18 @@ class MissionControllerTest(unittest.TestCase):
         navigation = FakeNavigation()
         result = self.controller(navigation).execute(
             self.request(MissionType.STOP), threading.Event())
-        self.assertEqual(result.outcome, 'SUCCEEDED')
+        self.assertEqual(result.outcome, 'PAUSED')
         self.assertTrue(navigation.canceled)
+
+    def test_cancel_clears_checkpoint_and_reports_control_cancel(self):
+        navigation = FakeNavigation()
+        controller = self.controller(navigation)
+        request = self.request(MissionType.CANCEL)
+        controller._store.save_checkpoint(request.mission_id, 1)
+        result = controller.execute(request, threading.Event())
+        self.assertEqual(result.outcome, 'CANCELED')
+        self.assertEqual(result.reason_code, 100)
+        self.assertIsNone(controller._store.load_checkpoint(request.mission_id))
 
     def test_dock_uses_q09_timeout_and_stability_values(self):
         navigation = FakeNavigation([NavigationResult.SUCCEEDED])

@@ -75,11 +75,9 @@ class PatrolSafetyTests(unittest.TestCase):
         return payload
 
     def estop(self, **changes):
+        # 계약 EStop(interfaces.md 3.1절): 대상·활성·대표 원인·순번만 있다.
         payload = {
-            "estop_id": str(uuid.uuid4()), "message_id": str(uuid.uuid4()),
-            "active": True, "reason_code": 101, "reason": "안전 정지 시험",
-            "manual_reset_required": False, "source_id": "safety_arbiter",
-            "sequence": 1,
+            "target_robot_id": "robot1", "active": True, "reason": 4, "sequence": 1,
             "observed_at": (self.now - timedelta(seconds=3)).isoformat(),
         }
         payload.update(changes)
@@ -171,16 +169,14 @@ class PatrolSafetyTests(unittest.TestCase):
             self.assertEqual(safety_service.receive_estop(first, self.now)[0], "changed")
             # 같은 상태의 반복 수신은 최신 행만 갱신한다.
             self.assertEqual(
-                safety_service.receive_estop(
-                    dict(first, message_id=str(uuid.uuid4()), sequence=2), self.now
-                )[0],
+                safety_service.receive_estop(dict(first, sequence=2), self.now)[0],
                 "refreshed",
             )
+            view_active = safety_service.dashboard_safety(self.now)
             self.assertEqual(
                 safety_service.receive_estop(
                     dict(
-                        first, message_id=str(uuid.uuid4()), active=False,
-                        reason_code=0, reason="", sequence=3,
+                        first, active=False, reason=0, sequence=3,
                         observed_at=self.now.isoformat(),
                     ),
                     self.now,
@@ -190,9 +186,42 @@ class PatrolSafetyTests(unittest.TestCase):
             history = get_db().execute("SELECT COUNT(*) FROM estop_history").fetchone()[0]
             view = safety_service.dashboard_safety(self.now)
         self.assertEqual(history, 2)
+        self.assertTrue(view_active["estop"]["active"])
+        self.assertEqual(view_active["estop"]["state_label"], "비상정지 활성 (로봇 1)")
+        self.assertEqual(view_active["estop"]["reason"], "장애물 안전 차단")
         self.assertFalse(view["estop"]["active"])
         self.assertEqual(view["estop"]["state_label"], "정상")
         self.assertFalse(view["estop"]["stale"])
+        self.assertEqual(view["estop"]["reason"], "")
+
+    def test_estop_targets_are_kept_separately_and_all_covers_both_robots(self):
+        with self.app.app_context():
+            safety_service.receive_estop(self.estop(active=False, reason=0), self.now)
+            safety_service.receive_estop(
+                self.estop(target_robot_id="all", reason=1, sequence=7), self.now
+            )
+            rows = get_db().execute("SELECT COUNT(*) FROM estop_latest").fetchone()[0]
+            view = safety_service.dashboard_safety(self.now)
+        self.assertEqual(rows, 2)
+        self.assertTrue(view["estop"]["active"])
+        self.assertEqual(view["estop"]["state_label"], "비상정지 활성 (전체)")
+        self.assertEqual(view["estop"]["reason"], "운영자 정지 요청")
+        by_target = {item["target_robot_id"]: item for item in view["estop"]["targets"]}
+        self.assertFalse(by_target["robot1"]["active"])
+        self.assertTrue(by_target["all"]["active"])
+        # robot6은 받은 적이 없으므로 해제로 표시하지 않는다.
+        self.assertFalse(by_target["robot6"]["available"])
+
+    def test_estop_contract_violations_are_rejected(self):
+        with self.app.app_context():
+            for payload in (
+                self.estop(target_robot_id="AMR1"),
+                self.estop(reason=9),
+                self.estop(active="yes"),
+                self.estop(sequence=-1),
+            ):
+                with self.assertRaises(safety_service.SafetyValidationError):
+                    safety_service.receive_estop(payload, self.now)
 
     def test_missing_estop_is_not_shown_as_cleared(self):
         with self.app.app_context():

@@ -1,7 +1,7 @@
 """Deterministic SafetyGate tests; no robot or ROS graph required.
 
 local_safety_supervisor.py imports its sibling guard modules as members
-of the patrol_amr package (9단계). We add the package root to sys.path so
+of the patrol_amr_safety package. We add the package root to sys.path so
 those imports resolve straight from the source tree, without needing a
 colcon build first.
 """
@@ -12,11 +12,12 @@ import unittest
 
 
 PATROL_AMR_PACKAGE_ROOT = (
-    Path(__file__).resolve().parents[1] / 'src/patrol_amr'
+    Path(__file__).resolve().parents[1] / 'src/patrol_amr_safety'
 )
 sys.path.insert(0, str(PATROL_AMR_PACKAGE_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/patrol_amr'))
 
-from patrol_amr import (  # noqa: E402 (sys.path 설정 후 import)
+from patrol_amr_safety import (  # noqa: E402 (sys.path 설정 후 import)
     drive_token_guard as dtg,
     estop_guard as eg,
     local_safety_supervisor as lss,
@@ -40,6 +41,7 @@ def grant_token(
     holder=None,
     control_session_id=SESSION,
 ):
+    g.observe_heartbeat(control_session_id, message_sequence, now)
     return g.observe_drive_token(
         control_session_id,
         token_id,
@@ -50,10 +52,8 @@ def grant_token(
     )
 
 
-def set_estop(g, active, sequence, reason=17, target=None):
-    return g.observe_estop(
-        target or g.robot_id, active, reason, False, sequence
-    )
+def set_estop(g, active, sequence, reason=1, target=None):
+    return g.observe_estop(target or g.robot_id, active, reason, sequence)
 
 
 class DefaultStateTests(unittest.TestCase):
@@ -63,6 +63,7 @@ class DefaultStateTests(unittest.TestCase):
         reasons = g.blocked_reasons(0.0)
         self.assertIn(mg.MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED, reasons)
         self.assertIn(mg.MotionBlockReason.ESTOP_ACTIVE, reasons)
+        self.assertIn(mg.MotionBlockReason.HEARTBEAT_NOT_HEALTHY, reasons)
         self.assertFalse(g.motion_allowed(0.0))
 
 
@@ -113,11 +114,25 @@ class CombinationTests(unittest.TestCase):
 
     def test_missing_token_alone_blocks_even_without_estop(self):
         g = gate()
+        g.observe_heartbeat(SESSION, 1, 0.0)
         set_estop(g, False, sequence=1)
         self.assertEqual(
             g.blocked_reasons(0.0),
             frozenset({mg.MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED}),
         )
+
+    def test_heartbeat_timeout_blocks_and_new_session_revokes_token(self):
+        g = gate()
+        grant_token(g, 0.0)
+        set_estop(g, False, sequence=1)
+        self.assertTrue(g.motion_allowed(0.5))
+        self.assertFalse(g.motion_allowed(1.1))
+        self.assertIn(
+            mg.MotionBlockReason.HEARTBEAT_NOT_HEALTHY,
+            g.blocked_reasons(1.1),
+        )
+        g.observe_heartbeat('ctrl-20260907T120100', 1, 1.2)
+        self.assertEqual(g.token_status(1.2), lss.TokenStatus('', False))
 
 
 class DriveTokenLeaseTests(unittest.TestCase):
@@ -138,6 +153,38 @@ class DriveTokenLeaseTests(unittest.TestCase):
         set_estop(g, False, sequence=1)
         grant_token(g, 0.8, message_sequence=2, lease=1.0)
         self.assertTrue(g.motion_allowed(1.0))
+
+
+class TokenStatusTests(unittest.TestCase):
+    """16단계 RobotStatus용 accepted token view."""
+
+    def test_missing_token_is_empty_and_invalid(self):
+        self.assertEqual(gate().token_status(0.0), lss.TokenStatus('', False))
+
+    def test_accepted_token_exposes_id_and_validity(self):
+        g = gate()
+        grant_token(g, 0.0, token_id='tok-current')
+        self.assertEqual(
+            g.token_status(0.5), lss.TokenStatus('tok-current', True)
+        )
+
+    def test_expired_token_is_empty_and_invalid(self):
+        g = gate()
+        grant_token(g, 0.0, token_id='tok-expiring', lease=1.0)
+        self.assertEqual(g.token_status(1.0), lss.TokenStatus('', False))
+
+    def test_revoked_token_is_empty_and_invalid(self):
+        g = gate()
+        grant_token(g, 0.0)
+        grant_token(g, 0.1, token_id='', message_sequence=2)
+        self.assertEqual(g.token_status(0.1), lss.TokenStatus('', False))
+
+    def test_other_holder_is_empty_and_invalid(self):
+        g = gate('robot1')
+        g.observe_drive_token(
+            SESSION, 'tok-robot6', 'robot6', LEASE, 1, 0.0
+        )
+        self.assertEqual(g.token_status(0.0), lss.TokenStatus('', False))
 
 
 class DiscardedObservationTests(unittest.TestCase):
@@ -219,7 +266,10 @@ class CandidateOutputTests(unittest.TestCase):
         self.assertEqual(output, mg.STOP)
         self.assertEqual(
             reasons,
-            frozenset({mg.MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED}),
+            frozenset({
+                mg.MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED,
+                mg.MotionBlockReason.HEARTBEAT_NOT_HEALTHY,
+            }),
         )
 
     def test_active_estop_stops_a_fresh_candidate(self):
@@ -277,6 +327,7 @@ class CandidateOutputTests(unittest.TestCase):
             frozenset({
                 mg.MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED,
                 mg.MotionBlockReason.ESTOP_ACTIVE,
+                mg.MotionBlockReason.HEARTBEAT_NOT_HEALTHY,
                 mg.MotionBlockReason.CANDIDATE_STALE,
             }),
         )

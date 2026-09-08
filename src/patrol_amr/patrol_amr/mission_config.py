@@ -16,6 +16,7 @@ class MissionConfig:
     """Validated runtime configuration loaded from one ROS node."""
 
     robot_id: str
+    patrol_plan_id: str
     waypoints: tuple[Waypoint, ...]
     waypoint_dwell_s: float
     resume_policy: str
@@ -43,6 +44,7 @@ class MissionConfig:
 def declare_parameters(node) -> None:
     """Declare parameters owned by the mission integration feature."""
     node.declare_parameter('robot_id', 'robot1')
+    node.declare_parameter('patrol_plan_id', '')
     node.declare_parameter('waypoints_xyyaw', [0.0])
     node.declare_parameter('waypoint_dwell_s', 0.0)
     node.declare_parameter('resume_policy', 'disabled')
@@ -96,6 +98,10 @@ def load_config(node) -> MissionConfig:
         raise ValueError('source_session_id must be non-empty')
     return MissionConfig(
         robot_id=robot_id,
+        patrol_plan_id=(
+            str(node.get_parameter('patrol_plan_id').value)
+            or f'{robot_id}_default'
+        ),
         waypoints=waypoints,
         waypoint_dwell_s=dwell_s,
         resume_policy=resume_policy,

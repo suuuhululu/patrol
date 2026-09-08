@@ -41,6 +41,7 @@ def init_db():
     schema = Path(__file__).with_name("schema.sql").read_text(encoding="utf-8")
     # [순서] 낡은 순찰 표가 남아 있으면 새 인덱스 생성이 실패하므로 스키마 실행 전에 정리한다.
     _drop_legacy_patrol_tables(connection)
+    _migrate_estop_contract(connection)
     try:
         # [테이블 생성] 없을 때만 생성하며 초기화 전체를 하나의 트랜잭션으로 처리한다.
         connection.executescript("BEGIN IMMEDIATE;\n" + schema + "\nCOMMIT;")
@@ -50,6 +51,73 @@ def init_db():
     _migrate_vehicle_access(connection)
     _migrate_detection_storage(connection)
     _migrate_pose_validity(connection)
+    _migrate_safety_state(connection)
+
+
+ESTOP_COLUMNS = {
+    "estop_latest": {
+        "target_robot_id", "active", "reason", "sequence", "observed_at", "received_at",
+    },
+    "estop_history": {
+        "id", "target_robot_id", "active", "reason", "sequence", "observed_at", "received_at",
+    },
+}
+
+
+def _migrate_estop_contract(connection):
+    """EStopState 기준 E-stop 표를 계약 EStop(대상별·reason enum) 구조로 바꾼다.
+
+    옛 열(estop_id·manual_reset_required·source_id)은 새 계약에 대응 값이 없어 옮기지
+    않는다. 기록이 있으면 지우지 않고 `_legacy` 이름으로 남겨 필요할 때 확인하게 한다.
+    """
+    present = {
+        row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
+    stale = [
+        name for name, columns in ESTOP_COLUMNS.items()
+        if name in present
+        and {row[1] for row in connection.execute(f"PRAGMA table_info({name})")} != columns
+    ]
+    if not stale:
+        return
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        for name in stale:
+            rows = connection.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0]
+            connection.execute(f"DROP TABLE IF EXISTS {name}_legacy")
+            if rows:
+                connection.execute(f"ALTER TABLE {name} RENAME TO {name}_legacy")
+            else:
+                connection.execute(f"DROP TABLE {name}")
+        connection.commit()
+    except sqlite3.Error:
+        connection.rollback()
+        raise
+
+
+def _migrate_safety_state(connection):
+    """기존 상태 이력을 보존하며 RobotStatus 안전 상태 열만 추가한다."""
+    additions = (
+        ("safety_state", "TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK (safety_state IN "
+                         "('UNKNOWN', 'NORMAL', 'STOPPING', 'STOPPED', 'ESTOPPED', 'ERROR'))"),
+        ("motion_stopped", "INTEGER NOT NULL DEFAULT 0 CHECK (motion_stopped IN (0, 1))"),
+        ("safety_reason_code", "INTEGER NOT NULL DEFAULT 0"),
+        ("safety_reason", "TEXT NOT NULL DEFAULT ''"),
+    )
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        for name in ("robot_latest_status", "robot_status_history"):
+            columns = {row[1] for row in connection.execute(f"PRAGMA table_info({name})")}
+            for column, definition in additions:
+                if column not in columns:
+                    # 기존 행은 안전 상태를 받은 적이 없으므로 UNKNOWN 기본값이 맞다.
+                    connection.execute(f"ALTER TABLE {name} ADD COLUMN {column} {definition}")
+        connection.commit()
+    except sqlite3.Error:
+        connection.rollback()
+        raise
 
 
 def _drop_legacy_patrol_tables(connection):

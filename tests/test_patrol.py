@@ -55,6 +55,37 @@ class PatrolScenarioTest(unittest.TestCase):
         self.assertEqual(navigation.visited, ['W1', 'W2'])
         self.assertIsNone(store.load_checkpoint('patrol-a'))
 
+    def test_exhausted_intermediate_waypoint_is_skipped(self):
+        navigation = FakeNavigation([
+            NavigationResult.FAILED,
+            NavigationResult.SUCCEEDED,
+            NavigationResult.SUCCEEDED,
+        ])
+        store = CommandStore(self.root / 'commands-skip.json')
+        waypoints = [
+            Waypoint('W1', 1.0, 0.0, 0.0),
+            Waypoint('W2', 2.0, 0.0, 0.0),
+            Waypoint('W3', 3.0, 0.0, 0.0),
+        ]
+        states = []
+        scenario = PatrolScenario(
+            navigation, store, waypoints, 0.0,
+            lambda state, index: states.append((state, index)))
+
+        result = scenario.run('patrol-skip', 0, threading.Event())
+
+        self.assertIs(result, NavigationResult.SUCCEEDED)
+        self.assertEqual(navigation.visited, ['W1', 'W2', 'W3'])
+        self.assertEqual(
+            states,
+            [
+                ('MISSION_PATROLLING', 0),
+                ('MISSION_PATROLLING', 1),
+                ('MISSION_PATROLLING', 2),
+            ],
+        )
+        self.assertIsNone(store.load_checkpoint('patrol-skip'))
+
     def test_preexisting_cancel_does_not_send_goal(self):
         scenario, navigation, store, _ = self.make_scenario([])
         cancel = threading.Event()

@@ -5,9 +5,8 @@ accepted drive token) with the mission snapshot persisted by
 ``mission_supervisor``. Terminal mission results are drained from a persistent
 local outbox into the fixed public ``PatrolReport`` contract.
 
-``safety_state`` is a required parameter because TBD-IF-003 has not assigned
-its enum numbers. The node transports the explicitly supplied uint8 but does
-not attach an invented meaning to it.
+The internal ``safety_state`` topic carries the fixed public safety enum from
+the local safety supervisor into the status snapshot.
 """
 
 import math
@@ -15,7 +14,7 @@ import os
 from pathlib import Path
 import time
 
-from patrol_amr import robot_status_state as rss
+from patrol_amr_safety import robot_status_state as rss
 from patrol_amr.mission_status_store import (
     MissionStatusStore, MissionStatusStoreError)
 from patrol_amr.patrol_report_adapter import (
@@ -42,16 +41,12 @@ def stamp_to_seconds(stamp) -> float:
     return stamp.sec + stamp.nanosec / 1e9
 
 
-def validate_configuration(robot_id, source_session_id, safety_state):
+def validate_configuration(robot_id, source_session_id):
     """Validate values that must be explicit before a status can be emitted."""
     if robot_id not in rss.ROBOT_IDS:
         raise ValueError(f'robot_id must be one of {rss.ROBOT_IDS}')
     if not isinstance(source_session_id, str) or not source_session_id:
         raise ValueError('source_session_id must be a non-empty str')
-    if isinstance(safety_state, bool) or not isinstance(safety_state, int):
-        raise ValueError('safety_state must be an int')
-    if not 0 <= safety_state <= rss.UINT8_MAX:
-        raise ValueError('safety_state must fit in uint8')
 
 
 def accepted_token_fields(value: str):
@@ -80,6 +75,17 @@ def pose_payload_is_finite(pose_with_covariance) -> bool:
         and math.isfinite(value)
         for value in values
     )
+
+
+def populate_mission_fields(message, snapshot):
+    """Map mission-owned snapshot fields without interpreting TBD strings."""
+    message.active_command_id = snapshot.active_command_id
+    message.active_mission_id = snapshot.active_mission_id
+    message.current_waypoint_id = snapshot.current_waypoint_id
+    message.scan_state = snapshot.scan_state
+    message.reason_code = snapshot.reason_code
+    message.reason = snapshot.reason
+    return message
 
 
 class PublicationGate:
@@ -153,7 +159,7 @@ def create_node_class():
     from builtin_interfaces.msg import Time
     from geometry_msgs.msg import PoseWithCovarianceStamped
     from nav_msgs.msg import Odometry
-    from patrol_interfaces.msg import PatrolReport, RobotStatus
+    from patrol_interfaces.msg import CommandCheck, PatrolReport, RobotStatus
     from sensor_msgs.msg import BatteryState
     from std_msgs.msg import String, UInt8
 
@@ -166,14 +172,12 @@ def create_node_class():
             super().__init__('status_reporter')
             self.declare_parameter('robot_id', '')
             self.declare_parameter('source_session_id', '')
-            self.declare_parameter('safety_state', -1)
             self.declare_parameter('mission_status_path', '')
             self.declare_parameter('report_outbox_path', '')
 
             robot_id = self.get_parameter('robot_id').value
             source_session_id = self.get_parameter('source_session_id').value
-            safety_state = self.get_parameter('safety_state').value
-            validate_configuration(robot_id, source_session_id, safety_state)
+            validate_configuration(robot_id, source_session_id)
             mission_status_path = runtime_file(
                 robot_id,
                 self.get_parameter('mission_status_path').value,
@@ -187,7 +191,6 @@ def create_node_class():
 
             self._source_session_id = source_session_id
             self._state = rss.RobotStatusState(robot_id)
-            self._state.update_states(safety_state=safety_state)
             self._gate = PublicationGate()
             self._sequence = StatusSequence()
             self._battery_soc = float('nan')
@@ -232,9 +235,21 @@ def create_node_class():
                 UInt8, 'battery_status', self._on_battery_status, internal_qos
             )
             self.create_subscription(
+                UInt8, 'safety_state', self._on_safety_state, internal_qos
+            )
+            self.create_subscription(
                 String,
                 'accepted_token_id',
                 self._on_accepted_token_id,
+                internal_qos,
+            )
+            # 19단계: command_gateway 가 판정을 끝낸 뒤 내보내는 내부 신호다.
+            # 여기서는 check_state 정수 매핑(TBD-IF-001)을 알 필요가 없다 --
+            # 이 토픽에 올라온 것은 이미 거절이 아닌 현재 명령이다.
+            self.create_subscription(
+                CommandCheck,
+                'active_command',
+                self._on_active_command,
                 internal_qos,
             )
             self.create_subscription(
@@ -305,6 +320,13 @@ def create_node_class():
             except ValueError as error:
                 self.get_logger().warning(f'ignored odometry sample: {error}')
 
+        def _on_safety_state(self, message) -> None:
+            try:
+                if self._state.update_states(safety_state=message.data):
+                    self._gate.note_change()
+            except ValueError as error:
+                self.get_logger().warning(f'ignored safety state: {error}')
+
         def _on_pose(self, message) -> None:
             """Accept a finite map-frame AMCL pose and preserve its stamp.
 
@@ -328,6 +350,31 @@ def create_node_class():
                 self.get_logger().warning(f'pose marked invalid: {error}')
             if self._state.pose_valid != previous_valid:
                 self._gate.note_change()
+
+        def _on_active_command(self, message) -> None:
+            """Fill active_command_id / active_mission_id from the gateway.
+
+            Q-02 lists mission/safety/battery enum and pose_valid as the
+            fields whose change forces immediate publication. The active
+            command IDs are not enum axes, so this marks a change to be
+            picked up by the next regular publication instead of forcing
+            one -- the same treatment odometry gets.
+
+            Clearing these when a command reaches a terminal state needs
+            the mission owner (A1) that marks completion in the command
+            store. Until that exists the last accepted command stays
+            reported, which is accurate for what this robot currently
+            knows rather than a guess at a transition rule (TBD-AMR-005).
+            """
+            try:
+                self._state.update_mission_context(
+                    active_command_id=message.command_id,
+                    active_mission_id=message.mission_id,
+                )
+            except ValueError as error:
+                self.get_logger().warning(
+                    f'ignored active_command update: {error}'
+                )
 
         def _on_battery_status(self, message) -> None:
             try:
@@ -377,6 +424,7 @@ def create_node_class():
             message.docking_state = int(snapshot.docking_state)
             message.battery_state = int(snapshot.battery_state)
             message.safety_state = snapshot.safety_state
+            populate_mission_fields(message, snapshot)
 
             if snapshot.pose is not None:
                 message.pose = snapshot.pose.value
