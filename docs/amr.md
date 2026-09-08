@@ -536,6 +536,36 @@ flowchart TD
 
 검증: [단위시험](../tests/test_status_reporter.py) 16건은 필수 설정, 최초·정기 2 Hz·변경 최대 10 Hz 판정, 시간 역행 거절, status_sequence, token 필드 매핑, pose·orientation·covariance의 유한성 판정을 확인한다. [robot_status_state 단위시험](../tests/test_robot_status_state.py) 32건은 유효 pose 저장, 무효 pose 뒤 last-valid 보존과 age 계산을 포함한다. 실제 토픽 echo는 사용자 환경에서 확인해야 한다.
 
+### 7.3 patrol_report.py — 구현 대조 완료
+
+2026-09-08: 사용자 18단계 진행 요청에 따라 [patrol_report.py](../src/patrol_amr/patrol_amr/patrol_report.py)를 추가했다. 아직 mission/checkpoint 코드가 병합되지 않아 ROS publisher를 임의 콜백에 연결하지 않고, 확정된 계약만으로 최종 결과를 검증하고 불변 record를 만드는 순수 Python 모듈이다.
+
+- `PatrolResult`와 `ReasonCode`는 [PatrolReport.msg](../src/patrol_interfaces/msg/PatrolReport.msg)의 결과 3종과 reason code 29종을 그대로 옮겼다. 정의되지 않은 숫자는 거절한다.
+- `PatrolReportFactory`는 로봇·source session 하나의 report sequence를 관리한다. [interfaces.md 1.2절](interfaces.md#12-공용-식별자-규칙)에 따라 `rpt-<robot_session>-<report_sequence>`를 만들고 sequence는 최소 네 자리로 0을 채운다. persistent owner가 재시작 뒤 다음 sequence를 복원할 수 있도록 `next_sequence` 입력·조회만 제공한다.
+- command·mission ID는 비어 있는지만 확인하고 문자열을 파싱하거나 다시 만들지 않는다. MissionCommand에서 받은 값을 그대로 echo해야 한다는 계약 때문이다.
+- FAILED와 CANCELED는 `NONE`이 아닌 reason code와 비어 있지 않은 reason이 모두 필요하다. 성공·실패·취소 모두 시작·종료 시각을 보존하고 종료가 시작보다 앞서면 거절한다.
+- 같은 command ID와 완전히 같은 결과를 다시 넣으면 기존 record 객체와 report ID를 그대로 반환한다. 다른 결과로 덮으려 하면 거절하고 sequence도 소비하지 않는다.
+- 이번 단계는 영속 큐·ACK·ROS publisher를 구현하지 않는다. 미전송 report를 저장하고 재연결·재시작 뒤 재발행하려면 mission 결과 입력, 저장 위치와 수명, 수신 확인·삭제 계약이 더 필요하다. 메모리 중복 방지를 영속 완료로 오해하지 않는다.
+
+~~~mermaid
+flowchart TD
+    START[PatrolReportFactory 생성] --> CFG{robot_id / robot session / next sequence 유효?}
+    CFG -->|아니오| FAIL[ValueError / 생성 실패]
+    CFG -->|예| WAIT[terminal command 결과 대기]
+    INPUT[create: command·mission·result·reason·times] --> VALIDATE{필수 ID / enum / reason / 시각 / 배열 유효?}
+    VALIDATE -->|아니오| REJECT[ValueError / sequence 소비 안 함]
+    VALIDATE -->|예| DUP{같은 command ID가 이미 있음?}
+    DUP -->|예·payload 동일| REUSE[기존 record와 report ID 반환]
+    DUP -->|예·payload 다름| CONFLICT[충돌 거절 / 기존 report 보존]
+    DUP -->|아니오| ID[rpt-robot_session-NNNN 생성]
+    ID --> RECORD[불변 PatrolReportRecord 저장]
+    RECORD --> NEXT[next sequence 증가]
+    NEXT --> RETURN[호출자에게 record 반환]
+    RETURN --> PENDING[mission 병합 후 ROS publisher·영속 outbox 연결]
+~~~
+
+검증: [단위시험](../tests/test_patrol_report.py) 16건은 result/reason 상수 일치, report ID 형식과 sequence 복원, 필수 필드·시각 경계, 실패·취소 reason 강제, 동일 command 재요청의 ID 재사용, 충돌 거절과 sequence 비소비를 확인한다. 전체 단위시험은 `Ran 166 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 두 패키지 성공이다. ROS publisher가 없으므로 이 단계에 사용자 토픽 시험은 없다.
+
 다음 기존 안전 로그를 보존한다.
 
 ~~~text
