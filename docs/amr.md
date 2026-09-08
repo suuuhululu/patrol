@@ -254,7 +254,7 @@ flowchart TD
 
 검증: [단위시험](../tests/test_motion_guard.py) 26건은 두 조건의 AND 게이트(정상·각 단독 차단·동시 차단·세 사유 동시), STOP 값의 정확성, candidate 그대로 통과, 상태 비저장(연속 호출 간 사유 미잔존), 호출자 인자 오류를 확인한다. Q-17은 경계값 0.499·0.5·0.501초, 후보 없음과 낡음의 사유 구분, 미래 stamp 통과, 권한 게이트가 후보 유무에 영향받지 않음, `candidate`·`candidate_age` 짝 강제를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_motion_guard.py -v`다. 실제 장애물·로봇 동역학 시험은 TBD-AMR-006 해결과 로봇 실기 이후로 남는다.
 
-### 3.4 local_safety_supervisor.py — 구현 대조 완료 (축소 범위)
+### 3.4 local_safety_supervisor.py — 구현 대조 완료
 
 2026-09-07: 사용자가 6단계 진행을 요청하기 전 5단계와 같은 이유로 범위를 확인했다. [local_safety_supervisor.py](../src/patrol_amr/patrol_amr/local_safety_supervisor.py)는 3~5단계에서 만든 세 가드를 실제 ROS 노드로 묶은 첫 지점이며, [3.1](#31-drive_token_guardpy--구현-대조-완료)~[3.3절](#33-motion_guardpy--구현-대조-완료)과 달리 `battery_monitor`(5.1절)처럼 진짜 ROS 노드다.
 
@@ -266,13 +266,25 @@ flowchart TD
 - QoS: drive_token 구독은 9절의 BEST_EFFORT・VOLATILE・KEEP_LAST(3)만 요청하고 deadline은 요청하지 않는다. 처음에는 9절의 "deadline 200ms"까지 구독측에 걸었으나, 사용자 시험 중 DDS 계층에서 실제로 막히는 것을 발견했다 — RxO 호환 규칙상 미지정 offered deadline은 무한대로 취급되어, deadline을 명시하지 않는 발행자(`ros2 topic pub` 포함)의 메시지가 전혀 도달하지 않는다("Last incompatible policy: DEADLINE"). 9절의 deadline·lifespan 값은 실제 발행자(관제)가 지켜야 할 발행 주기·보관 기한 설명으로 재해석했다. 신선도(끊김 감지)는 이미 구현된 Q-01 lease 만료(`DriveTokenGuard.authority`, 애플리케이션 계층)가 담당하므로 DDS deadline 없이도 안전 방향은 유지된다. estop은 9절이 "단일 상태, 정확한 depth TBD"로 남겨, RELIABLE・TRANSIENT_LOCAL은 그대로 따르고 depth=1만 이 노드(구독측)의 로컬 선택으로 채웠다 — 공용 계약을 확정한 것이 아니다. TRANSIENT_LOCAL 요구 때문에 `ros2 topic pub`으로 시험할 때는 `--qos-durability transient_local --qos-reliability reliable`을 함께 줘야 한다(기본값은 VOLATILE이라 그냥 두면 "Last incompatible policy: DURABILITY"로 막힌다 — 의도된 동작이며, 계약과 다른 durability의 발행자를 실제로 걸러낸다). `motion_allowed`는 `battery_status`와 같은 RELIABLE・TRANSIENT_LOCAL・KEEP_LAST(1)이다.
 - `robot_id`는 필수 ROS parameter다(`--ros-args -p robot_id:=robot1` 또는 `robot6`). 기본값을 두지 않고 미지정·오지정 시 노드 시작을 막는다 — 잘못된 기본값으로 다른 로봇의 token을 조용히 받아들이는 위험을 피했다.
 
-**TBD-AMR-001·006·TBD-IF-009로 남긴 부분** — 5단계와 같은 이유다.
+**12단계 추가 — 최종 속도 출력(2026-09-08).** TBD-IF-009 확정으로 이 노드가 interfaces.md 7절의 "유일한 최종 발행자" 역할을 실제로 수행한다.
 
-- 실제 최종 속도 후보 입력이 없다. Nav2·yaw 후보 중재(TBD-AMR-001)는 `mission_supervisor`가 담당하며 이는 이 작업 범위(AMR Python 파일 7개·ROS 노드 3개)에 없다.
-- `MotionGuard.evaluate()`로 실제 후보를 게이팅해 최종 속도를 발행하는 부분이 없다. `blocked_reasons()`만 사용해 후보 없이도 차단 여부는 판정한다.
-- 최종 발행 토픽·타입(Twist/TwistStamped 등, TBD-IF-009)을 정하지 않았다. 정해지면 `motion_allowed` 대신 실제 속도 출력 발행으로 확장한다.
+- **입력** `cmd_vel_safe`(`geometry_msgs/TwistStamped`) 하나만 구독한다. Nav2 표준 체인의 `collision_monitor` 출력을 여기로 돌린 것이다. `cmd_vel_yaw`는 계약에만 예약하고 구독하지 않는다 — 두 후보 중 선택은 주행 중재(TBD-AMR-001)이고 `mission_supervisor` 담당이라 이 범위 밖이다. 후보 하나 들어오고 출력 하나 나간다.
+- **출력** `cmd_vel`(`geometry_msgs/Twist`). 구동부 `diffdrive_controller`가 `use_stamped_vel: false`이므로 stamp를 떼고 내보낸다. 후보에 stamp가 필요한 이유는 Q-17 판정뿐이다.
+- 토픽 이름은 모두 상대 이름이다. `/robot1`·`/robot6` namespace 아래에서 실행하면 architecture.md 2절이 요구하는 로봇별 토픽이 된다. launch 배선은 13단계다.
+- **두 시계를 분리해서 넘긴다.** Q-01 lease는 `time.monotonic()`(벽시계 점프에 영향받지 않음), Q-17 후보 age는 후보의 ROS stamp와 같은 `get_clock()`으로 잰다. `SafetyGate.output(monotonic_now, ros_now)`가 둘을 따로 받으므로 이 클래스는 여전히 ROS에 의존하지 않는다.
+- **발행 시점** — 후보를 수락할 때마다 발행하고(후보 자체 주기를 그대로 따라 지연을 더하지 않는다), 차단 상태에서는 0.1초 재확인 타이머가 매 주기 STOP을 다시 낸다. 정지한 로봇은 스트림이 끊기는 대신 명시적인 0을 계속 받아야 한다. 통과 중일 때는 후보 스트림이 이미 발행하므로 타이머가 중복 발행하지 않는다.
+- E-stop·token 콜백도 차단 시 즉시 발행한다. amr.md 3절의 "E-stop 활성화는 즉시 반영한다"를 재확인 타이머까지 기다리지 않고 지킨다.
+- **유한하지 않은 후보는 폐기한다.** 콜백에서 예외를 던지면 로봇을 세우고 있는 유일한 노드가 죽으므로 raise하지 않고 그 표본만 버린다. 이전 후보가 남아 Q-17로 만료되므로 실패 방향은 STOP이다.
+- QoS는 `RELIABLE`・`VOLATILE`・`KEEP_LAST(1)`이다. 속도는 최신 표본만 의미가 있어 depth 1이고, 지난 값을 늦게 받으면 위험하므로 `TRANSIENT_LOCAL`을 쓰지 않는다. drive_token에서 겪은 것과 같은 이유로 구독측에 deadline·lifespan을 요청하지 않는다. Nav2 `TwistPublisher` 기본값과 호환된다.
 
-**구현 대조 완료** — 2026-09-07 현재 코드 기준, 위 축소 범위 내에서. 패키지 실행 등록은 9단계에서 추가한다.
+`motion_allowed`는 6단계 그대로다. 권한 게이트(token·E-stop)만 반영하고 후보 유무에 흔들리지 않는다 — 후보가 없는 것은 주행 권한이 없다는 뜻이 아니다.
+
+**TBD-AMR-001·006으로 남긴 부분** — 5단계와 같은 이유다.
+
+- Nav2·yaw 후보 중재는 이 노드에 없다. 후보 토픽 하나만 구독한다.
+- 속도 상한·clamp·감속 프로파일·장애물 판정이 없다. 통과가 허용된 후보는 변형 없이 그대로 나간다.
+
+**구현 대조 완료** — 2026-09-08 현재 코드 기준. 패키지 실행 등록은 9단계에서 추가했다.
 
 ~~~mermaid
 flowchart TD
@@ -294,10 +306,38 @@ flowchart TD
     E -->|아니오| CHK
     R2 --> CHK{allowed 값이 이전과 다름?}
     CHK -->|아니오| SKIP[발행 생략]
-    CHK -->|예| OUT[motion_allowed 발행 + 로그]
+    CHK -->|예| MA[motion_allowed 발행 + 로그]
 ~~~
 
-검증: [단위시험](../tests/test_local_safety_supervisor.py)은 관측 전 기본 차단, 두 가드의 AND 결합(단독·동시 차단), drive_token lease가 새 메시지 없이 시계로 만료되는지, 만료 전 갱신 시 허용 유지, 다른 로봇 token·역순 estop의 폐기, `robot_id` 검증, 수락된 E-stop 해제 전이에만 `E_STOP_AUTO_RELEASED` 로그 이름을 선택하는지 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_local_safety_supervisor.py -v`다. 실제 `/control/drive_token`·`/control/estop` 토픽 시험과 로봇 실기는 사용자 확인 후 진행한다. [IT-16](integration.md#4-통합시험-명세) 최종 속도 경계는 실제 후보 입력·최종 발행이 없어 아직 대상이 아니다.
+최종 속도 경로는 위 권한 경로와 별개다. 12단계에서 추가한 부분이다.
+
+~~~mermaid
+flowchart TD
+    CAND[cmd_vel_safe 콜백] --> FIN{유한한 값?}
+    FIN -->|아니오| DROP[표본 폐기 / 경고 로그]
+    FIN -->|예| OC[SafetyGate.observe_candidate]
+    OC --> PO[_publish_output always=true]
+    TIMER2[0.1초 재확인 타이머] --> PO2[_publish_output always=false]
+    DT2[drive_token / estop 콜백] --> PO2
+    PO --> EV[SafetyGate.output monotonic_now, ros_now]
+    PO2 --> EV
+    EV --> GA{token GRANTED / estop 해제?}
+    GA -->|아니오| RS[권한 사유 추가]
+    GA -->|예| CA
+    RS --> CA{후보 있음?}
+    CA -->|아니오| RM[CANDIDATE_MISSING]
+    CA -->|예| AG{ros_now - stamp 가 0.5초 초과?}
+    AG -->|예| RT[CANDIDATE_STALE]
+    AG -->|아니오| DEC
+    RM --> DEC{사유 있음?}
+    RT --> DEC
+    DEC -->|예| STOPV[cmd_vel = 0,0 발행]
+    DEC -->|아니오| PASSV{always=true?}
+    PASSV -->|예| SEND[cmd_vel = 후보 그대로 발행]
+    PASSV -->|아니오| SKIPV[발행 생략 / 후보 스트림이 담당]
+~~~
+
+검증: [단위시험](../tests/test_local_safety_supervisor.py) 26건은 관측 전 기본 차단, 두 가드의 AND 결합(단독·동시 차단), drive_token lease가 새 메시지 없이 시계로 만료되는지, 만료 전 갱신 시 허용 유지, 다른 로봇 token·역순 estop의 폐기, `robot_id` 검증, 수락된 E-stop 해제 전이에만 `E_STOP_AUTO_RELEASED` 로그 이름을 선택하는지 확인한다. 12단계분은 후보 없음·통과·Q-17 만료·lease 만료·E-stop 차단·세 사유 동시, 두 시계의 독립성, 유한하지 않은 후보의 폐기와 이전 후보 보존, 그리고 `motion_allowed`가 후보 유무·신선도에 흔들리지 않는지를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_local_safety_supervisor.py -v`다. 실제 토픽 시험 순서는 [인수인계 12단계](development/amr-workspace-handoff.md)에 있다. [IT-16](integration.md#4-통합시험-명세) 최종 속도 경계는 실제 Nav2 후보와 연동하는 14단계에서 다룬다 — 12단계는 후보를 시험용으로 직접 발행해 게이트만 확인한다.
 
 ## 4. Nav2·위치·Keepout
 

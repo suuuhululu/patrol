@@ -172,6 +172,153 @@ class DiscardedObservationTests(unittest.TestCase):
         self.assertTrue(g.motion_allowed(0.0))
 
 
+class CandidateOutputTests(unittest.TestCase):
+    """12단계 최종 속도 게이트. 두 시계를 따로 넘긴다."""
+
+    def permit(self, g, monotonic_now=0.0):
+        grant_token(g, monotonic_now)
+        set_estop(g, False, sequence=1)
+
+    def test_no_candidate_blocks_even_when_permitted(self):
+        g = gate()
+        self.permit(g)
+        self.assertTrue(g.motion_allowed(0.0))
+        output, reasons = g.output(0.0, 100.0)
+        self.assertEqual(output, mg.STOP)
+        self.assertEqual(
+            reasons, frozenset({mg.MotionBlockReason.CANDIDATE_MISSING})
+        )
+
+    def test_fresh_candidate_passes_through_unchanged(self):
+        g = gate()
+        self.permit(g)
+        self.assertTrue(g.observe_candidate(0.25, -0.4, 100.0))
+        output, reasons = g.output(0.0, 100.2)
+        self.assertEqual(output, (0.25, -0.4))
+        self.assertEqual(reasons, frozenset())
+
+    def test_candidate_ages_out_under_q17(self):
+        g = gate()
+        self.permit(g)
+        g.observe_candidate(0.25, 0.0, 100.0)
+        # 0.5초 경계는 통과, 넘으면 정지.
+        self.assertEqual(g.output(0.0, 100.5)[1], frozenset())
+        output, reasons = g.output(0.0, 100.6)
+        self.assertEqual(output, mg.STOP)
+        self.assertEqual(
+            reasons, frozenset({mg.MotionBlockReason.CANDIDATE_STALE})
+        )
+
+    def test_expired_lease_stops_a_fresh_candidate(self):
+        g = gate()
+        self.permit(g, monotonic_now=0.0)
+        g.observe_candidate(0.25, 0.0, 100.0)
+        self.assertEqual(g.output(0.5, 100.0)[1], frozenset())
+        # Q-01 lease 는 monotonic 시계로만 만료된다.
+        output, reasons = g.output(LEASE + 0.1, 100.0)
+        self.assertEqual(output, mg.STOP)
+        self.assertEqual(
+            reasons,
+            frozenset({mg.MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED}),
+        )
+
+    def test_active_estop_stops_a_fresh_candidate(self):
+        g = gate()
+        self.permit(g)
+        g.observe_candidate(0.25, 0.0, 100.0)
+        set_estop(g, True, sequence=2)
+        output, reasons = g.output(0.0, 100.0)
+        self.assertEqual(output, mg.STOP)
+        self.assertEqual(
+            reasons, frozenset({mg.MotionBlockReason.ESTOP_ACTIVE})
+        )
+
+    def test_two_clocks_are_independent(self):
+        # monotonic 이 진행해도 후보 age 는 ROS 시계로만 잰다.
+        g = gate()
+        self.permit(g, monotonic_now=0.0)
+        g.observe_candidate(0.25, 0.0, 100.0)
+        output, reasons = g.output(0.9, 100.0)
+        self.assertEqual(output, (0.25, 0.0))
+        self.assertEqual(reasons, frozenset())
+
+    def test_non_finite_candidate_is_rejected_and_previous_kept(self):
+        g = gate()
+        self.permit(g)
+        g.observe_candidate(0.25, 0.0, 100.0)
+        for linear, angular, stamp in (
+            (float('nan'), 0.0, 100.1),
+            (0.0, float('inf'), 100.1),
+            (0.0, 0.0, float('nan')),
+            (True, 0.0, 100.1),
+            ('0.1', 0.0, 100.1),
+        ):
+            with self.subTest(linear=linear, angular=angular, stamp=stamp):
+                self.assertFalse(g.observe_candidate(linear, angular, stamp))
+        # 폐기된 표본은 저장되지 않아 이전 후보가 그대로 남고, 그 후보는
+        # Q-17 로 만료된다 — 실패 방향이 STOP 이다.
+        self.assertEqual(g.output(0.0, 100.2)[0], (0.25, 0.0))
+        self.assertEqual(g.output(0.0, 100.6)[0], mg.STOP)
+
+    def test_int_candidate_components_accepted(self):
+        g = gate()
+        self.permit(g)
+        self.assertTrue(g.observe_candidate(0, 0, 100))
+        self.assertEqual(g.output(0.0, 100.0)[0], (0.0, 0.0))
+
+    def test_every_reason_can_apply_at_once(self):
+        g = gate()
+        grant_token(g, 0.0)
+        set_estop(g, True, sequence=1)
+        g.observe_candidate(0.25, 0.0, 100.0)
+        _, reasons = g.output(LEASE + 0.1, 101.0)
+        self.assertEqual(
+            reasons,
+            frozenset({
+                mg.MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED,
+                mg.MotionBlockReason.ESTOP_ACTIVE,
+                mg.MotionBlockReason.CANDIDATE_STALE,
+            }),
+        )
+
+
+class PermissionGateIsolationTests(unittest.TestCase):
+    """motion_allowed 가 후보 유무에 흔들리지 않아야 한다 (6단계 회귀)."""
+
+    def test_motion_allowed_ignores_missing_candidate(self):
+        g = gate()
+        grant_token(g, 0.0)
+        set_estop(g, False, sequence=1)
+        self.assertTrue(g.motion_allowed(0.0))
+        self.assertEqual(
+            g.output(0.0, 100.0)[1],
+            frozenset({mg.MotionBlockReason.CANDIDATE_MISSING}),
+        )
+
+    def test_motion_allowed_ignores_stale_candidate(self):
+        g = gate()
+        grant_token(g, 0.0)
+        set_estop(g, False, sequence=1)
+        g.observe_candidate(0.25, 0.0, 100.0)
+        self.assertTrue(g.motion_allowed(0.0))
+        self.assertEqual(
+            g.output(0.0, 200.0)[1],
+            frozenset({mg.MotionBlockReason.CANDIDATE_STALE}),
+        )
+
+    def test_blocked_reasons_never_reports_candidate_reasons(self):
+        g = gate()
+        candidate_reasons = {
+            mg.MotionBlockReason.CANDIDATE_MISSING,
+            mg.MotionBlockReason.CANDIDATE_STALE,
+        }
+        for monotonic_now in (0.0, LEASE + 1.0):
+            with self.subTest(now=monotonic_now):
+                self.assertFalse(
+                    candidate_reasons & set(g.blocked_reasons(monotonic_now))
+                )
+
+
 class RobotIdTests(unittest.TestCase):
     def test_robot_id_property_matches_constructor(self):
         self.assertEqual(gate('robot6').robot_id, 'robot6')

@@ -19,6 +19,7 @@
 | 9 | `patrol_amr` 패키지 설정·실행 등록·통합 | 구현·회귀시험·`ros2 launch` 통합 실행 확인 완료, 사용자 검토 대기 |
 | 10 | 단일 robot AMR 로컬 ROS 통합 스모크 시험(구현된 두 경로만) | 자동시험 PASS·사용자 확인 완료(2026-09-08). 전체 시스템 IT는 미실행 |
 | 11 | `motion_guard.py` Q-17 후보 신선도 판정 | 구현·단위시험 26건 완료. 10단계 스모크 회귀 PASS, 사용자 검토 대기 |
+| 12 | `local_safety_supervisor.py` 후보 구독·최종 `cmd_vel` 발행 | 구현·단위시험 26건·헤드리스 사전 검증 완료. **사용자 ROS 토픽 시험 대기** |
 
 최종 ROS 노드는 `battery_monitor`, `local_safety_supervisor`, `status_reporter` 세 개다. guard와 state 파일은 해당 노드가 사용하는 일반 Python 모듈이다. 한 단계씩 구현하고 사용자 시험 통과 확인 전에는 다음 단계로 넘어가지 않는다.
 
@@ -886,7 +887,7 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 | 단계 | 대상 | 시험 | 착수 가능 |
 |---|---|---|---|
 | 11 | `motion_guard.py`에 Q-17 후보 신선도 판정 추가 | 단위시험 | **완료 (2026-09-08)** |
-| 12 | `local_safety_supervisor.py`에 후보 구독·최종 `cmd_vel` 발행 배선 | 단위시험 + 사용자 ROS 토픽 시험 | **지금 가능** |
+| 12 | `local_safety_supervisor.py`에 후보 구독·최종 `cmd_vel` 발행 배선 | 단위시험 + 사용자 ROS 토픽 시험 | 구현 완료, **사용자 시험 대기** |
 | 13 | launch 인자 추가와 스모크 확장 | `ros2 launch` 통합 + 확장 스모크 | **지금 가능** |
 | 14 | 실제 Nav2 후보와 연동해 IT-16 부분 실행 | 통합시험 | 관제 회신 + 박성현 launch 병합 후 |
 | 15 | AMR-11 물리 E-stop latch·수동 reset | 단위 + 사용자 ROS 토픽 시험 | TBD-IF-004 잔여 해소 후 |
@@ -914,12 +915,83 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 - 10단계 스모크 회귀 `STAGE10_PASS`. `motion_allowed`는 여전히 `false → true → false → true → false`다.
 - 사용자 ROS 시험은 불필요하다. 순수 Python 모듈이며 ROS 경로 변화가 없다.
 
-### 12단계 — `local_safety_supervisor.py` 배선
+### 12단계 — `local_safety_supervisor.py` 배선 · 구현 완료 2026-09-08, 사용자 시험 대기
 
-- 구현: `cmd_vel_safe`(TwistStamped) 구독, `cmd_vel`(Twist) 발행, `MotionGuard.evaluate()`를 실제 후보에 연결. `motion_allowed`는 시험·디버그용으로 남긴다. 기존 0.1초 신선도 타이머가 후보 stale 전이도 함께 처리한다.
-- QoS: 후보·최종 모두 `RELIABLE`·`VOLATILE`·`KEEP_LAST(1)`. 구독측에서 deadline·lifespan을 요청하지 않는다.
-- 시험: `SafetyGate` 단위시험 확장 + 사용자 ROS 토픽 시험. 터미널 순서는 ① `local_safety_supervisor` 실행 ② `cmd_vel` 연속 관찰 ③ E-stop 해제·DriveToken 입력 ④ 후보 발행·중단.
-- 통과 기준: 후보가 변형 없이 통과, token 만료 시 `(0,0)`, E-stop 활성 시 `(0,0)`, 후보 중단 0.5초 후 `(0,0)`.
+구현 상세는 [amr.md 3.4절](../amr.md#34-local_safety_supervisorpy--구현-대조-완료)에 있다. 요약이다.
+
+- 입력은 `cmd_vel_safe`(TwistStamped) 하나, 출력은 `cmd_vel`(Twist). `cmd_vel_yaw`는 계약에만 예약하고 구독하지 않는다(주행 중재는 TBD-AMR-001).
+- 토픽 이름은 상대 이름이라 `/robotN` namespace 아래에서 로봇별 토픽이 된다. launch 배선은 13단계다.
+- Q-01 lease는 `time.monotonic()`, Q-17 후보 age는 후보 stamp와 같은 `get_clock()`으로 잰다. `SafetyGate.output(monotonic_now, ros_now)`가 두 시계를 따로 받는다.
+- 후보 수락 시마다 발행하고, 차단 상태에서는 0.1초 타이머가 매 주기 STOP을 다시 낸다. E-stop·token 콜백도 차단 시 즉시 발행한다.
+- 유한하지 않은 후보는 예외를 던지지 않고 그 표본만 버린다. 콜백에서 죽으면 로봇을 세우고 있는 유일한 노드가 사라진다.
+- `motion_allowed`는 6단계 그대로다.
+
+자동 시험 결과 (2026-09-08):
+
+- `tests/test_local_safety_supervisor.py` 26건, 전체 단위시험 `Ran 114 tests` `OK`.
+- 10단계 스모크 회귀 `STAGE10_PASS`, `motion_allowed` 전이 동일.
+- 격리 도메인(126)에서 헤드리스 사전 검증 5개 시나리오 통과. 8단계 때와 같이 사용자 시험 전에 QoS 불일치가 없는지 먼저 확인한 것이다.
+
+#### 12단계 사용자 ROS 토픽 시험
+
+터미널 4개를 아래 **순서대로** 연다. 각 터미널에서 `cd ~/patrol`, `source /opt/ros/jazzy/setup.bash`, `source install/local_setup.bash`를 먼저 실행한다.
+
+**터미널 1 — 노드 실행.** 가장 먼저 띄운다.
+
+```bash
+ros2 run patrol_amr local_safety_supervisor --ros-args -p robot_id:=robot1
+```
+
+`cmd_vel: STOP blocked_reasons: ['candidate_missing']` 로그가 나오면 정상이다. 후보를 아직 못 받았으므로 정지가 맞다.
+
+**터미널 2 — 최종 속도 관찰.** 노드가 뜬 뒤에 연다.
+
+```bash
+ros2 topic echo /cmd_vel
+```
+
+`linear.x: 0.0`, `angular.z: 0.0`이 0.1초 간격으로 계속 나와야 한다. 스트림이 끊기는 것이 아니라 명시적인 0이 계속 나오는 것이 정상이다.
+
+**터미널 3 — 주행 권한 부여.** E-stop 해제와 token을 차례로 넣는다. E-stop은 QoS를 맞추지 않으면 `DURABILITY` 불일치로 전달되지 않는다.
+
+```bash
+ros2 topic pub --once --qos-durability transient_local --qos-reliability reliable /control/estop patrol_interfaces/msg/EStop "{target_robot_id: 'robot1', active: false, reason: 0, latched: false, sequence: 1}"
+```
+
+```bash
+ros2 topic pub -r 5 /control/drive_token patrol_interfaces/msg/DriveToken "{control_session_id: 'ctrl-test', token_id: 'tok-a', holder_robot_id: 'robot1', lease_duration: {sec: 8, nanosec: 0}, message_sequence: 1}"
+```
+
+터미널 1에 `motion allowed: True`가 뜬다. 터미널 2는 아직 `0.0`이다 — 권한은 생겼지만 후보가 없어서다. 이것이 권한 게이트와 출력 게이트를 나눈 이유다.
+
+**터미널 4 — 후보 발행.** 여기서부터 실제로 속도가 나간다.
+
+```bash
+ros2 topic pub -r 20 /cmd_vel_safe geometry_msgs/msg/TwistStamped "{twist: {linear: {x: 0.25}, angular: {z: -0.1}}}"
+```
+
+`ros2 topic pub`은 `header.stamp`를 채우지 않아 0으로 나간다. 그러면 age가 매우 커져 Q-17로 `candidate_stale`이 뜬다 — **의도된 동작이며 계약대로 stamp를 채우지 않는 발행자를 실제로 걸러낸다.** 통과를 보려면 stamp를 넣어 한 번씩 발행한다.
+
+```bash
+ros2 topic pub --once /cmd_vel_safe geometry_msgs/msg/TwistStamped "{header: {stamp: {sec: $(date +%s), nanosec: 0}}, twist: {linear: {x: 0.25}, angular: {z: -0.1}}}"
+```
+
+터미널 2에 `linear.x: 0.25`, `angular.z: -0.1`이 한 번 나오고, 0.5초 뒤 `0.0`으로 돌아가야 한다.
+
+**확인 항목과 통과 기준**
+
+| 순서 | 조작 | 기대 결과 |
+|---|---|---|
+| 1 | 노드만 실행 | `/cmd_vel`이 `0.0`, 사유 `candidate_missing` |
+| 2 | E-stop 해제 + token | `motion allowed: True`, `/cmd_vel`은 여전히 `0.0` |
+| 3 | stamp 있는 후보 1회 | `/cmd_vel`에 `0.25 / -0.1`이 변형 없이 나옴 |
+| 4 | 후보 중단 0.5초 경과 | `/cmd_vel`이 `0.0`, 사유 `candidate_stale` |
+| 5 | 후보 중 E-stop 활성 | 즉시 `0.0`, 사유 `estop_active` |
+| 6 | token 발행 중단 후 1초 | `0.0`, 사유에 `drive_token_not_granted` 포함 |
+
+5번은 터미널 3에서 `active: true, sequence: 2`로, 6번은 터미널 3의 token 발행을 `Ctrl+C`로 멈춰 확인한다.
+
+종료는 각 터미널에서 `Ctrl+C`다. 터미널 1을 마지막에 닫는다.
 
 ### 13단계 — launch·스모크 확장
 

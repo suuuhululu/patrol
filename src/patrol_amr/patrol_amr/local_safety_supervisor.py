@@ -1,21 +1,33 @@
-"""local_safety_supervisor ROS node: combine drive_token/estop guards.
+"""local_safety_supervisor ROS node: gate drive candidates into cmd_vel.
 
 Subscribes /control/drive_token (DriveToken) and /control/estop (EStop),
-feeds them into one DriveTokenGuard + EStopGuard per robot, and republishes
-an AMR-internal `motion_allowed` signal whenever the combined verdict
-changes -- the same "internal, not a public contract" pattern
-battery_monitor uses for `battery_status`.
+feeds them into one DriveTokenGuard + EStopGuard per robot, and owns the
+robot's final velocity output. interfaces.md 7절: "local_safety_supervisor
+는 로봇별 최종 속도 출력의 유일한 발행자다."
 
-Scope note (2026-09-07, confirmed with user before implementation): this
-node does not yet publish a final per-robot velocity output.
-interfaces.md 7절 gives local_safety_supervisor sole ownership of that
-output, but the final topic/type is TBD-IF-009, and there is no built
-candidate source -- Nav2/yaw arbitration (TBD-AMR-001) belongs to
-mission_supervisor, which is outside this AMR assignment's 7-file/3-node
-scope per the handoff. motion_guard.py's MotionGuard.evaluate() already
-implements the gate itself and is ready to receive a real candidate once
-both exist; this node exercises only the allowed/blocked-reasons side,
-which does not depend on a candidate value (MotionGuard.blocked_reasons()).
+Two outputs, deliberately separate (11단계 split the gates):
+
+* `cmd_vel` (Twist) is the *output* gate -- the arbitrated drive candidate
+  passed through unchanged, or STOP. Published on every accepted candidate
+  and on every recheck tick while blocked, so a stopped robot keeps seeing
+  explicit zeros rather than an absent stream.
+* `motion_allowed` (Bool) is the *permission* gate -- token and E-stop
+  only, published on change. It stays exactly as 6단계 verified it and
+  does not move when Nav2 candidates start or stop arriving, because
+  "no candidate right now" is not "motion is not permitted".
+
+12단계 scope (TBD-IF-009, 2026-09-08 AMR 확정):
+
+* Candidate input is `cmd_vel_safe` (TwistStamped) -- Nav2's standard
+  chain with collision_monitor's cmd_vel_out_topic pointed here.
+* `cmd_vel_yaw` is reserved in the contract but NOT subscribed: choosing
+  between two candidates is 주행 중재 (TBD-AMR-001), which belongs to
+  mission_supervisor and is outside this assignment. One candidate in,
+  one output out.
+* Topic names are relative, so a `/robot1` or `/robot6` namespace makes
+  them per-robot as architecture.md 2절 requires. 13단계 wires the launch.
+* Speed limits, deceleration profiles and obstacle judgment stay absent
+  (TBD-AMR-006). A permitted candidate passes through unshaped.
 
 Import note: 9단계 turned src/patrol_amr into an installed ament_python
 package, so the sibling guard modules below are imported as members of
@@ -23,6 +35,7 @@ patrol_amr. Run this node with `ros2 run patrol_amr local_safety_supervisor`;
 running the file directly no longer resolves those imports.
 """
 
+import math
 import time
 
 from patrol_amr import drive_token_guard as dtg
@@ -45,18 +58,27 @@ class SafetyGate:
     """Pure composition of the three guards for one robot; no ROS dependency.
 
     The ROS node's subscription callbacks extract message fields and call
-    observe_drive_token()/observe_estop(); its freshness timer calls
-    blocked_reasons(now) to catch drive_token lease expiry even when no new
-    message arrives (Q-01 lease elapses on the clock, not on message
-    receipt). EStopGuard has no such timer: it holds no lease and amr.md
+    observe_drive_token()/observe_estop()/observe_candidate(); its freshness
+    timer calls blocked_reasons(now) to catch drive_token lease expiry even
+    when no new message arrives (Q-01 lease elapses on the clock, not on
+    message receipt), and output() to catch Q-17 candidate staleness the
+    same way. EStopGuard has no such timer: it holds no lease and amr.md
     forbids adding an arbitrary local timeout for it (heartbeat/staleness
     is the separate, still-undecided TBD-IF-004).
+
+    Two clocks reach this class and they are not interchangeable, so the
+    caller passes both rather than letting this class pick one. Q-01 lease
+    is measured on the local monotonic clock (immune to wall-clock steps);
+    Q-17 candidate age is measured against the candidate's own ROS stamp,
+    so it must use the same ROS clock the publisher stamped with.
     """
 
     def __init__(self, robot_id: str):
         self._token_guard = dtg.DriveTokenGuard(robot_id)
         self._estop_guard = eg.EStopGuard(robot_id)
         self._motion_guard = mg.MotionGuard()
+        self._candidate = None
+        self._candidate_stamp = None
 
     @property
     def robot_id(self) -> str:
@@ -103,8 +125,55 @@ class SafetyGate:
             sequence,
         )
 
+    def observe_candidate(self, linear, angular, stamp_seconds) -> bool:
+        """Store one arbitrated drive candidate; False if it was rejected.
+
+        The candidate is already arbitrated upstream (TBD-AMR-001); this
+        only filters values that cannot be gated at all. A non-finite
+        component or stamp is dropped instead of raising, because these
+        arrive on a ROS callback and killing the node would remove the one
+        thing keeping the robot stopped. A dropped sample leaves the
+        previous candidate in place to age out under Q-17, so the failure
+        direction stays STOP.
+        """
+        for value in (linear, angular, stamp_seconds):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return False
+            if not math.isfinite(value):
+                return False
+        self._candidate = (float(linear), float(angular))
+        self._candidate_stamp = float(stamp_seconds)
+        return True
+
+    def output(self, monotonic_now: float, ros_now: float):
+        """Return (final (linear, angular), blocked_reasons) for cmd_vel.
+
+        `monotonic_now` drives the Q-01 lease, `ros_now` the Q-17 candidate
+        age. Empty reasons means the stored candidate passes through
+        unchanged; otherwise the output is MotionGuard.STOP.
+        """
+        drive_granted = (
+            self._token_guard.authority(monotonic_now)
+            is dtg.DriveAuthority.GRANTED
+        )
+        estop_active = self._estop_guard.stopped
+        if self._candidate is None:
+            return self._motion_guard.evaluate(
+                drive_granted, estop_active, None, None
+            )
+        return self._motion_guard.evaluate(
+            drive_granted,
+            estop_active,
+            self._candidate,
+            ros_now - self._candidate_stamp,
+        )
+
     def blocked_reasons(self, now: float):
-        """Reasons motion is blocked right now; empty means allowed."""
+        """Reasons motion is *permitted* to be blocked; empty means allowed.
+
+        Token and E-stop only -- candidate freshness is not here on
+        purpose. See motion_guard.MotionGuard.blocked_reasons().
+        """
         drive_granted = (
             self._token_guard.authority(now) is dtg.DriveAuthority.GRANTED
         )
@@ -120,11 +189,24 @@ def create_node_class():
     import rclpy
     from rclpy.node import Node
     from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+    from geometry_msgs.msg import Twist, TwistStamped
     from patrol_interfaces.msg import DriveToken, EStop
     from std_msgs.msg import Bool
 
+    def to_twist(pair):
+        """Final output is unstamped Twist: the drive base takes no stamp.
+
+        irobot_create_control 의 diffdrive_controller 는 use_stamped_vel:
+        false 다. 후보는 Q-17 신선도 판정에 stamp 가 필요해 TwistStamped
+        지만, 최종 출력은 구동부가 기대하는 형태로 되돌린다 (TBD-IF-009).
+        """
+        message = Twist()
+        message.linear.x = pair[0]
+        message.angular.z = pair[1]
+        return message
+
     class LocalSafetySupervisor(Node):
-        """Reflect /control/drive_token and /control/estop into motion_allowed."""
+        """Gate the drive candidate into cmd_vel; also report motion_allowed."""
 
         RECHECK_PERIOD_SECONDS = 0.1
 
@@ -142,6 +224,7 @@ def create_node_class():
                 )
             self._gate = SafetyGate(robot_id)
             self._last_published = None
+            self._last_output_reasons = None
 
             # 9절: drive_token은 BEST_EFFORT・VOLATILE・KEEP_LAST(3). 표의
             # "deadline 200ms, lifespan 500ms"는 실제 발행자(관제)가 지켜야
@@ -177,8 +260,25 @@ def create_node_class():
                 reliability=ReliabilityPolicy.RELIABLE,
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
             )
+            # 12단계 최종 속도 경로 (TBD-IF-009, 2026-09-08 AMR 확정).
+            # RELIABLE・VOLATILE・KEEP_LAST(1): 속도는 최신 표본만 의미가
+            # 있으므로 depth 1 이고, 지난 값을 늦게 받아 봐야 위험하므로
+            # TRANSIENT_LOCAL 을 쓰지 않는다. drive_token 에서 겪은 것과
+            # 같은 이유로 구독측에 deadline·lifespan 을 요청하지 않는다 —
+            # 그 값을 명시하지 않는 발행자와 DDS 계층에서 아예 매칭되지
+            # 않는다. Nav2 의 TwistPublisher 기본값(RELIABLE・VOLATILE)과
+            # 호환된다.
+            velocity_qos = QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=1,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.VOLATILE,
+            )
             self._publisher = self.create_publisher(
                 Bool, 'motion_allowed', output_qos
+            )
+            self._cmd_vel_publisher = self.create_publisher(
+                Twist, 'cmd_vel', velocity_qos
             )
             self.create_subscription(
                 DriveToken,
@@ -189,8 +289,14 @@ def create_node_class():
             self.create_subscription(
                 EStop, '/control/estop', self._on_estop, estop_qos
             )
+            # cmd_vel_yaw 는 계약에만 예약하고 구독하지 않는다: 두 후보
+            # 사이의 선택은 주행 중재(TBD-AMR-001)이고 이 작업 범위 밖이다.
+            self.create_subscription(
+                TwistStamped, 'cmd_vel_safe', self._on_candidate, velocity_qos
+            )
             self.create_timer(self.RECHECK_PERIOD_SECONDS, self._recheck)
             self._publish_if_changed()
+            self._publish_output(always=True)
 
         def _on_drive_token(self, message) -> None:
             now = time.monotonic()
@@ -206,6 +312,7 @@ def create_node_class():
                 now,
             )
             self._publish_if_changed()
+            self._publish_output(always=False)
 
         def _on_estop(self, message) -> None:
             previous_stopped = self._gate.estop_active
@@ -226,10 +333,32 @@ def create_node_class():
                     f'sequence={message.sequence}'
                 )
             self._publish_if_changed()
+            # E-stop 활성은 "즉시 반영"이므로 재확인 타이머를 기다리지 않고
+            # 이 콜백에서 바로 STOP 을 내보낸다 (amr.md 3절).
+            self._publish_output(always=False)
+
+        def _on_candidate(self, message) -> None:
+            accepted = self._gate.observe_candidate(
+                message.twist.linear.x,
+                message.twist.angular.z,
+                self._stamp_seconds(message.header.stamp),
+            )
+            if not accepted:
+                self.get_logger().warning(
+                    'dropped non-finite drive candidate; keeping the previous '
+                    'one to age out under Q-17'
+                )
+                return
+            self._publish_output(always=True)
 
         def _recheck(self) -> None:
-            """Catch drive_token lease expiry with no new message (Q-01)."""
+            """Catch lease expiry (Q-01) and candidate staleness (Q-17).
+
+            Both elapse on a clock rather than on message receipt, so with
+            no new message arriving nothing else would notice them.
+            """
             self._publish_if_changed()
+            self._publish_output(always=False)
 
         def _publish_if_changed(self) -> None:
             now = time.monotonic()
@@ -242,6 +371,35 @@ def create_node_class():
             self.get_logger().info(
                 f'motion allowed: {allowed} blocked_reasons: {reasons}'
             )
+
+        @staticmethod
+        def _stamp_seconds(stamp) -> float:
+            return stamp.sec + stamp.nanosec / 1e9
+
+        def _publish_output(self, always: bool) -> None:
+            """Publish the gated final velocity.
+
+            `always=True` comes from an accepted candidate: the permitted
+            stream is republished at the candidate's own rate, adding no
+            latency of its own. `always=False` comes from the recheck timer
+            and the token/E-stop callbacks, which publish only when the
+            gate blocks -- a stopped robot must keep receiving explicit
+            zeros, but a running one is already being fed by its candidate
+            stream and does not need duplicates.
+            """
+            output, reasons = self._gate.output(
+                time.monotonic(),
+                self.get_clock().now().nanoseconds / 1e9,
+            )
+            reason_values = tuple(sorted(r.value for r in reasons))
+            if reason_values != self._last_output_reasons:
+                self._last_output_reasons = reason_values
+                self.get_logger().info(
+                    f'cmd_vel: {"STOP" if reasons else "candidate"} '
+                    f'blocked_reasons: {list(reason_values)}'
+                )
+            if always or reasons:
+                self._cmd_vel_publisher.publish(to_twist(output))
 
     return LocalSafetySupervisor, rclpy
 
