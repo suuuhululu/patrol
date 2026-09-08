@@ -124,8 +124,8 @@ AMR이 확정한 내용에 대해 관제 회신이 필요한 항목이다. 회�
 
 | 단위·로봇 | 상태 | 반영 버전·근거 | 남은 작업 |
 |---|---|---|---|
-| AMR / robot1 | 계약 확정, 코드 미반영 | `feat/amr-safety-status` `9eb151f`. 현재 `motion_allowed`만 발행 | 11~13단계 구현, IT-16 |
-| AMR / robot6 | 계약 확정, 코드 미반영 | 위와 같음 | 위와 같음 |
+| AMR / robot1 | 반영 완료, 실기 미확인 | `feat/amr-safety-status` 11~13단계. `/robot1/cmd_vel` 발행 | 사용자 ROS 시험, 관제 회신 후 재확인, IT-16 |
+| AMR / robot6 | 반영 완료, 실기 미확인 | 위와 같음. launch `robot_id:=robot6`으로 `/robot6` namespace 확인 | 위와 같음 |
 | 관제 | 미반영 | | 위 5개 질의 회신, Nav2 params의 `cmd_vel_out_topic`·`enable_stamped_cmd_vel` 반영 |
 | System monitor | 변경 불필요 | 속도 토픽 비구독 | |
 | 비전 | 변경 불필요 | detecting node 속도 미발행으로 합의됨 | |
@@ -134,8 +134,8 @@ AMR이 확정한 내용에 대해 관제 회신이 필요한 항목이다. 회�
 
 - 관련 integration.md 시험 ID: [IT-16 최종 속도 경계](../integration.md#4-통합시험-명세). [IT-04 토큰 만료·회수](../integration.md#4-통합시험-명세)의 "실제 정지 조건"과 [IT-11 E-stop](../integration.md#4-통합시험-명세)도 최종 속도가 있어야 완결된다.
 - 추가 시험·기대 결과: 후보 발행 중 token 만료 시 최종 `cmd_vel`이 `(0,0)`, E-stop 활성 시 즉시 `(0,0)`, 해제·유효 token 시 후보가 변형 없이 통과, 후보 단절 시 Q-17 기준으로 `(0,0)`, `cmd_vel` 발행자가 `local_safety_supervisor` 하나뿐임을 `ros2 topic info -v`로 확인.
-- 실제 실행 결과와 증거: 없음. 현재 10단계 스모크는 `motion_allowed` 전이까지만 검증한다. 2026-09-08 08:29 KST 재실행 결과 `STAGE10_PASS`, 단위시험 `Ran 89 tests` `OK`.
-- 미실행 또는 BLOCKED 항목: IT-16 전체, IT-04의 실제 정지 확인, IT-11의 물리 latch. 관제 회신과 Nav2 launch 병합 전까지 BLOCKED다.
+- 실제 실행 결과와 증거: 2026-09-08 AMR 측 11~13단계를 구현하고 검증했다. 전체 단위시험 `Ran 114 tests` `OK`, 확장 스모크 `AMR_SMOKE_PASS`. `cmd_vel`은 `stop → candidate → stop_on_stale → stop_on_estop → candidate_after_release`로 전이했고, `/robot1/cmd_vel` 발행자는 `['local_safety_supervisor']` 하나였다. launch를 `robot_id:=robot6 candidate_topic:=/nav2/cmd_vel_out battery_state_topic:=/tb4/battery_state`로 실행해 namespace와 remap도 확인했다. **후보는 시험 스크립트가 발행한 것이며 실제 Nav2가 아니다.**
+- 미실행 또는 BLOCKED 항목: IT-16 전체(실제 Nav2 후보 필요), IT-04의 실제 정지 확인, IT-11의 물리 latch, 로봇 실기. 관제 회신과 Nav2 launch 병합 전까지 BLOCKED다. `cmd_vel_yaw`는 계약에만 예약했고 구독자가 없다.
 
 ## 검토·결정 이력
 
@@ -143,4 +143,5 @@ AMR이 확정한 내용에 대해 관제 회신이 필요한 항목이다. 회�
 |---|---|---|---|
 | 2026-09-08 08:31 | AMR | 제안 작성. 로컬 Jazzy 설치본의 Nav2 체인·TwistPublisher·Create 3 설정을 근거로 최소 변경안 제시 | 5·6단계에서 TBD-IF-009로 비워 둔 최종 출력이 IT-16과 launch 통합을 동시에 막고 있음 |
 | 2026-09-08 09:10 | AMR | 4건 확정 — collision_monitor 유지, 후보 TwistStamped·최종 Twist, Q-17 0.5초, `cmd_vel_yaw`는 토픽만 예약. namespace 질의는 architecture.md 확정 사항이라 철회 | 사용자(조정묵) 결정. 근거는 각 결정 절에 기록 |
+| 2026-09-08 | AMR | 확정 내용을 11~13단계로 구현·검증 완료. 관제 Nav2 설정은 건드리지 않았다 | 단위시험 114건 OK, 확장 스모크 `AMR_SMOKE_PASS` |
 | | 관제 | 회신 대기 | |

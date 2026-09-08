@@ -20,6 +20,7 @@
 | 10 | 단일 robot AMR 로컬 ROS 통합 스모크 시험(구현된 두 경로만) | 자동시험 PASS·사용자 확인 완료(2026-09-08). 전체 시스템 IT는 미실행 |
 | 11 | `motion_guard.py` Q-17 후보 신선도 판정 | 구현·단위시험 26건 완료. 10단계 스모크 회귀 PASS, 사용자 검토 대기 |
 | 12 | `local_safety_supervisor.py` 후보 구독·최종 `cmd_vel` 발행 | 구현·단위시험 26건·헤드리스 사전 검증 완료. **사용자 ROS 토픽 시험 대기** |
+| 13 | launch namespace·remap 인자, 스모크에 최종 속도 경로 추가 | 구현·자동시험 `AMR_SMOKE_PASS` 완료. 사용자 검토 대기 |
 
 최종 ROS 노드는 `battery_monitor`, `local_safety_supervisor`, `status_reporter` 세 개다. guard와 state 파일은 해당 노드가 사용하는 일반 Python 모듈이다. 한 단계씩 구현하고 사용자 시험 통과 확인 전에는 다음 단계로 넘어가지 않는다.
 
@@ -763,7 +764,7 @@ TBD-AMR-003은 사용자의 권장안 승인으로 AMR 코드에 반영했으며
 1. 현재 작업은 `9eb151f`까지 커밋·push가 끝났다. 새 컴퓨터에서는 2~4절 순서로 브랜치를 가져온다.
 2. `colcon build --packages-select patrol_interfaces patrol_amr`로 두 패키지를 빌드한다.
 3. 전체 회귀시험을 실행해 `Ran 89 tests`, `OK`를 확인한다.
-4. 10단계 스모크를 실행해 `STAGE10_PASS`를 확인한다(10.1절의 명령 한 줄). 9단계 확인이 필요하면 6.7절 순서를 따른다.
+4. 스모크를 실행해 `AMR_SMOKE_PASS`를 확인한다(10.1절의 명령 한 줄). 13단계에서 최종 속도 경로까지 담게 되어 이전 `STAGE10_PASS` 표시를 대체했다. 9단계 확인이 필요하면 6.7절 순서를 따른다.
 5. 아래 10.2절의 재정리된 업무 범위와 차단 요인 구분을 확인한다. **다음 작업은 코드가 아니라 TBD 결정이다.**
 6. AMR Detection은 8절의 TBD가 해소되고 별도 구현 승인을 받은 뒤 다룬다.
 
@@ -819,7 +820,7 @@ TBD-AMR-003은 사용자의 권장안 승인으로 AMR 코드에 반영했으며
 → local_safety_supervisor → /motion_allowed
 ```
 
-재현 스크립트는 `tests/integration/amr_safety_status_smoke.py`다. 실행 순서는 **두 패키지 빌드 → overlay source → 단위시험 89개 → 격리된 로컬 DDS 스모크**다.
+재현 스크립트는 `tests/integration/amr_safety_status_smoke.py`다. 실행 순서는 **두 패키지 빌드 → overlay source → 단위시험 → 격리된 로컬 DDS 스모크**다. 13단계에서 이 스크립트가 최종 속도 경로까지 담게 되어 통과 표시가 `AMR_SMOKE_PASS`로 바뀌었고 토픽이 `/robot1` namespace 아래로 이동했다.
 
 ```bash
 cd ~/patrol
@@ -827,13 +828,13 @@ source /opt/ros/jazzy/setup.bash
 colcon build --packages-select patrol_interfaces patrol_amr
 source install/local_setup.bash
 python3 -m unittest discover -s tests -p "test_*.py" -v
-PYTHONDONTWRITEBYTECODE=1 PATROL_STAGE10_DOMAIN_ID=127 \
+PYTHONDONTWRITEBYTECODE=1 PATROL_SMOKE_DOMAIN_ID=127 \
   python3 tests/integration/amr_safety_status_smoke.py
 ```
 
-`PATROL_STAGE10_DOMAIN_ID=127`은 실제 로봇 도메인과 분리하기 위한 시험 프로세스 전용 값이며 시스템 설정을 바꾸지 않는다. 스크립트는 세 노드를 launch하고 QoS에 맞는 입력을 발행한 뒤 반드시 종료한다.
+`PATROL_SMOKE_DOMAIN_ID=127`은 실제 로봇 도메인과 분리하기 위한 시험 프로세스 전용 값이며 시스템 설정을 바꾸지 않는다. 스크립트는 세 노드를 launch하고 QoS에 맞는 입력을 발행한 뒤 반드시 종료한다.
 
-2026-09-07 21:49 KST 결과: 두 패키지 빌드 성공, 단위시험 `Ran 89 tests`/`OK`, 실제 DDS 스모크 `STAGE10_PASS`. `motion_allowed`는 `false → true → false → true → false`, `battery_state`는 `0 → 2 → 0`, RobotStatus는 20건을 받았고 `status_sequence`는 `3 → 22`로 증가했다.
+2026-09-07 21:49 KST 최초 결과: 두 패키지 빌드 성공, 단위시험 `Ran 89 tests`/`OK`, 실제 DDS 스모크 `STAGE10_PASS`. `motion_allowed`는 `false → true → false → true → false`, `battery_state`는 `0 → 2 → 0`, RobotStatus는 20건을 받았고 `status_sequence`는 `3 → 22`로 증가했다. 2026-09-08 13단계 확장 후 재실행 결과는 `AMR_SMOKE_PASS`이며 11절에 적었다.
 
 이는 IT-03·04·11·13의 현재 구현 부분만 검증한 것이다. `motion_allowed`는 아직 RobotStatus의 safety/token 필드에 연결되지 않았고 최종 cmd_vel도 발행하지 않는다. heartbeat·mission·PatrolReport·pose/odom·도킹·교대·Detection·두 로봇·다중 PC 시험은 PASS로 선언하지 않는다.
 
@@ -888,7 +889,7 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 |---|---|---|---|
 | 11 | `motion_guard.py`에 Q-17 후보 신선도 판정 추가 | 단위시험 | **완료 (2026-09-08)** |
 | 12 | `local_safety_supervisor.py`에 후보 구독·최종 `cmd_vel` 발행 배선 | 단위시험 + 사용자 ROS 토픽 시험 | 구현 완료, **사용자 시험 대기** |
-| 13 | launch 인자 추가와 스모크 확장 | `ros2 launch` 통합 + 확장 스모크 | **지금 가능** |
+| 13 | launch 인자 추가와 스모크 확장 | `ros2 launch` 통합 + 확장 스모크 | **완료 (2026-09-08)** |
 | 14 | 실제 Nav2 후보와 연동해 IT-16 부분 실행 | 통합시험 | 관제 회신 + 박성현 launch 병합 후 |
 | 15 | AMR-11 물리 E-stop latch·수동 reset | 단위 + 사용자 ROS 토픽 시험 | TBD-IF-004 잔여 해소 후 |
 | 16 | AMR-18·19 `recovery_supervisor.py` | 단위 + 사용자 ROS 토픽 시험 | TBD-AMR-005 해소 + `nav2_client.py` 병합 후 |
@@ -993,11 +994,33 @@ ros2 topic pub --once /cmd_vel_safe geometry_msgs/msg/TwistStamped "{header: {st
 
 종료는 각 터미널에서 `Ctrl+C`다. 터미널 1을 마지막에 닫는다.
 
-### 13단계 — launch·스모크 확장
+### 13단계 — launch·스모크 확장 · 완료 2026-09-08
 
-- 구현: `amr_safety_status.launch.py`에 namespace·토픽 인자를 추가하고, `tests/integration/amr_safety_status_smoke.py`에 최종 `cmd_vel` 경로 검증을 넣는다.
-- 시험: `ros2 launch` 통합 실행 + 확장 스모크.
-- 통과 기준: 스모크 PASS와 함께 `ros2 topic info /robot1/cmd_vel -v`의 발행자가 `local_safety_supervisor` 하나뿐임을 확인한다. IT-16의 "최종 출력 발행권은 하나"를 로컬 범위에서 검증하는 것이며, 실제 Nav2 후보를 쓰는 IT-16 전체는 14단계다.
+**launch — namespace 적용.** 세 노드를 `/<robot_id>` namespace 아래에서 실행한다. namespace를 별도 인자로 두지 않고 `robot_id`에서 그대로 파생시켰다. architecture.md 2절이 robot1 → `/robot1`, robot6 → `/robot6`으로 매핑을 이미 고정했으므로 선택의 여지가 없고, 별도 인자면 둘이 어긋날 수 있다.
+
+`status_reporter`만 절대 이름 `/{robot_id}/robot_status`를 쓰고 나머지는 상대 이름이라, namespace를 붙여도 이름이 겹치거나 두 번 붙지 않는다. `/control/drive_token`·`/control/estop`은 절대 이름이라 공용 토픽으로 남는다.
+
+**launch — 새 인자 2개.** 저장소 밖 코드가 소유한 두 지점만 인자로 뺐다. 기본값은 확정된 계약 이름이라, 평소에는 지정하지 않아도 된다.
+
+| 인자 | 기본값 | 이유 |
+|---|---|---|
+| `battery_state_topic` | `battery_state` | 실제 배터리 드라이버 위치는 TBD-ARCH-001(장치 배치)이라 robot namespace 안에 없을 수 있다 |
+| `candidate_topic` | `cmd_vel_safe` | TBD-IF-009가 Nav2 `collision_monitor` 출력을 여기로 두지만 관제 launch가 아직 병합·확인되지 않았다 |
+
+**스모크 확장.** `amr_safety_status_smoke.py`가 최종 속도 경로를 함께 검증한다. 후보는 이 스크립트가 20 Hz(Nav2 `controller_server`와 같은 주기)로 직접 발행한다 — Nav2가 아니므로 **IT-16이 아니라 게이트 시험**이다.
+
+검증 순서는 정지 스트림 → 권한만으로는 안 움직임 → 후보 통과 → Q-17 만료 정지 → E-stop 즉시 정지 → 해제 후 재개다. 마지막에 `get_publishers_info_by_topic`으로 `/robot1/cmd_vel` 발행자가 `local_safety_supervisor` 하나뿐인지 확인한다. interfaces.md 7절의 "유일한 최종 발행자"를 로컬 범위에서 검증하는 것이다.
+
+**이름 변경.** 스크립트가 두 단계를 함께 담게 되어 통과 표시를 `STAGE10_PASS` → `AMR_SMOKE_PASS`로, 환경변수를 `PATROL_STAGE10_DOMAIN_ID` → `PATROL_SMOKE_DOMAIN_ID`로 바꿨다. 10.1절의 명령도 함께 갱신했다.
+
+시험 결과 (2026-09-08):
+
+- 확장 스모크 `AMR_SMOKE_PASS`. `namespace=/robot1`, `motion_allowed=false,true,false,true,false`, `battery_state=0,2,0`, `cmd_vel=stop,candidate,stop_on_stale,stop_on_estop,candidate_after_release`, `cmd_vel_publishers=['local_safety_supervisor']`, `status_sequence=2..26`.
+- 전체 단위시험 `Ran 114 tests` `OK`.
+- 필수 인자 누락 시 `missing required argument 'robot_id'`로 실패한다.
+- `robot_id:=robot6 candidate_topic:=/nav2/cmd_vel_out battery_state_topic:=/tb4/battery_state`로 실행해 토픽이 `/robot6/cmd_vel`·`/robot6/motion_allowed`·`/robot6/robot_status`·`/robot6/battery_status`와 remap된 `/nav2/cmd_vel_out`·`/tb4/battery_state`로 나오는 것을 확인했다.
+
+**주의 — 12단계 사용자 시험 절차의 토픽 이름.** 위 12단계 절차는 `ros2 run`으로 namespace 없이 실행하므로 `/cmd_vel`·`/cmd_vel_safe`가 맞다. `ros2 launch`로 실행하면 `/robot1/cmd_vel`·`/robot1/cmd_vel_safe`가 된다.
 
 ### 14단계 이후
 
