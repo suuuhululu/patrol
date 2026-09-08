@@ -56,11 +56,13 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 | 감지·증적 | 구현 시 기록 | 미작성 |
 | 중단·복구 대응 | 구현 시 기록 | 미작성 |
 | mission_supervisor | 구현 시 기록 | 미작성 |
+| command_store.py | [src/patrol_amr/patrol_amr/command_store.py](../src/patrol_amr/patrol_amr/command_store.py) · `CommandStore.register`·`mark_executing`·`complete`·`prune` | [2.1절](#21-command_storepy--구현-대조-완료-순수-모듈) 구현 대조 완료 (ROS 연결 대기) |
 | local_safety_supervisor | 구현 시 기록 | 미작성 |
 | drive_token_guard.py | [src/patrol_amr/patrol_amr/drive_token_guard.py](../src/patrol_amr/patrol_amr/drive_token_guard.py) · `DriveTokenGuard.observe`·`authority` | [3.1절](#31-drive_token_guardpy--구현-대조-완료) 구현 대조 완료 |
 | estop_guard.py | [src/patrol_amr/patrol_amr/estop_guard.py](../src/patrol_amr/patrol_amr/estop_guard.py) · `EStopGuard.observe`·`stopped` | [3.2절](#32-estop_guardpy--구현-대조-완료) 구현 대조 완료 |
 | motion_guard.py | [src/patrol_amr/patrol_amr/motion_guard.py](../src/patrol_amr/patrol_amr/motion_guard.py) · `MotionGuard.evaluate` | [3.3절](#33-motion_guardpy--구현-대조-완료) 구현 대조 완료 (축소 범위) |
 | local_safety_supervisor.py | [src/patrol_amr/patrol_amr/local_safety_supervisor.py](../src/patrol_amr/patrol_amr/local_safety_supervisor.py) · `SafetyGate`·`LocalSafetySupervisor` | [3.4절](#34-local_safety_supervisorpy--구현-대조-완료-축소-범위) 구현 대조 완료 (축소 범위) |
+| heartbeat_guard.py | [src/patrol_amr/patrol_amr/heartbeat_guard.py](../src/patrol_amr/patrol_amr/heartbeat_guard.py) · `HeartbeatGuard.observe`·`state` | [3.5절](#35-heartbeat_guardpy--구현-대조-완료-순수-모듈) 구현 대조 완료 (ROS 연결 대기) |
 | battery_monitor.py | [src/patrol_amr/patrol_amr/battery_monitor.py](../src/patrol_amr/patrol_amr/battery_monitor.py) · `classify_observation`·`BatteryStateModel.update` | [5.1절](#51-battery_monitorpy--구현-대조-완료) 구현 대조 완료 |
 | robot_status_state.py | [src/patrol_amr/patrol_amr/robot_status_state.py](../src/patrol_amr/patrol_amr/robot_status_state.py) · `RobotStatusState.update_states`·`observe_pose`·`observe_odometry`·`snapshot` | [7.1절](#71-robot_status_statepy--구현-대조-완료) 구현 대조 완료 |
 | status_reporter.py | [src/patrol_amr/patrol_amr/status_reporter.py](../src/patrol_amr/patrol_amr/status_reporter.py) · `PublicationGate`·`StatusReporter` | [7.2절](#72-status_reporterpy--구현-대조-완료-축소-범위) 구현 대조 완료 (축소 범위) |
@@ -105,6 +107,38 @@ flowchart TD
 START_PATROL, MOVE_TO_SAFE_ZONE, RESUME_PATROL, DOCK는 실행 목적을 구분한다. STOP과 CANCEL의 정확한 임무 보존·종료 차이, 명령 대체 우선순위, 순찰 재개 지점은 TBD-AMR-005 및 TBD-CTRL-001에서 합의한다.
 
 Operational/Mission/Docking은 별개 상태 축이다. interfaces.md의 enum을 따른다. 순찰→대피→대기→재개, 복귀→도킹→완료/실패 흐름은 기준이나 모든 상태 쌍 사이의 전이가 허용된다는 뜻은 아니다. 상세 전이표는 TBD-AMR-005다.
+
+### 2.1 command_store.py — 구현 대조 완료 (순수 모듈)
+
+2026-09-08: 사용자 업무표의 AMR-05를 100% 종단 기준으로 닫기 위한 첫 구현으로 [command_store.py](../src/patrol_amr/patrol_amr/command_store.py)를 추가했다. ROS 구독 노드가 아니라 mission adapter가 사용할 SQLite 영속 중복 제거 모듈이다.
+
+- `CommandStore.register()`는 `command_id`, `mission_id`, `robot_id`, command enum, `target_id`, target pose, `parameters_json`을 먼저 검증한 뒤 새 command를 ACCEPTED 내부 상태로 원자적으로 저장한다. DDS 수신 시각은 저장하지만 충돌 fingerprint에는 넣지 않는다.
+- 같은 command ID의 재수신은 현재 내부 상태를 `DUPLICATE_ACCEPTED`·`DUPLICATE_EXECUTING`·`DUPLICATE_COMPLETED`로 돌려준다. mission 실행을 다시 시작하지 않는다. 완료 상태에는 기존 report ID와 직렬화 payload를 함께 보존해 향후 adapter가 같은 PatrolReport를 재발행할 수 있다.
+- 같은 command ID에서 interfaces.md 2절이 지정한 충돌 필드 중 하나라도 바뀌면 `COMMAND_ID_CONFLICT`를 반환하고 기존 행은 바꾸지 않는다. target pose는 JSON-compatible payload를 정규화해 key 순서 차이만 무시한다.
+- Q-14에 따라 24시간 이내 command는 개수와 무관하게 모두 유지하고, 24시간보다 오래된 command도 최신 1,000개를 유지한다. DB 파일 경로는 호출자가 명시하며 프로세스 재시작 뒤 같은 파일을 열면 상태와 완료 report가 남아 있다.
+- command별 target 필수 여부와 `parameters_json` 상세 스키마는 TBD-IF-001이므로 추측하지 않았다. `parameters_json`은 빈 값 또는 문법상 유효한 JSON인지만 확인하고 target pose도 구조를 해석하지 않는다. 공용 CommandCheck의 `check_state` 숫자도 아직 미정이라 이 모듈의 내부 Enum을 wire 값으로 사용하지 않는다.
+
+~~~mermaid
+flowchart TD
+    OPEN[CommandStore: 명시 DB 경로·robot_id] --> DB[SQLite schema 생성 또는 기존 DB 재개]
+    RX[register: MissionCommand payload + 수신 시각] --> VALID{고정 계약 필드와 JSON 유효?}
+    VALID -->|아니오| BAD[ValueError / 저장 안 함]
+    VALID -->|예| LOOKUP{command_id 존재?}
+    LOOKUP -->|아니오·다른 robot| BADTARGET[거절 / 저장 안 함]
+    LOOKUP -->|아니오·자기 robot| SAVE[ACCEPTED 원자 저장]
+    LOOKUP -->|예| SAME{6개 충돌 필드 동일?}
+    SAME -->|아니오| CONFLICT[COMMAND_ID_CONFLICT / 기존 행 유지]
+    SAME -->|예·ACCEPTED| ACKA[DUPLICATE_ACCEPTED]
+    SAME -->|예·EXECUTING| ACKE[DUPLICATE_EXECUTING]
+    SAME -->|예·COMPLETED| REPORT[DUPLICATE_COMPLETED + 기존 report 반환]
+    SAVE --> EXEC[mark_executing]
+    EXEC --> DONE[complete: report ID + payload 영속 저장]
+    PRUNE[prune] --> KEEP[24시간 이내 전부 + 오래된 최신 1000개 유지]
+    DONE --> RESTART[프로세스 재시작]
+    RESTART --> DB
+~~~
+
+검증: [단위시험](../tests/test_command_store.py) 14건은 enum, 신규·동일·충돌, ACCEPTED→EXECUTING→COMPLETED, 상태 역행 방지, 완료 report 재전달, DB 재개, JSON/필드 검증, 다른 robot 차단, Q-14 경계와 1,000개 보존을 확인한다. 아직 없는 mission ROS adapter와 공용 CommandCheck 숫자·publisher를 붙인 뒤 IT-02를 통과해야 AMR-05 전체 완료다.
 
 ## 3. 로컬 안전과 속도 출력
 
@@ -354,6 +388,39 @@ flowchart TD
 
 검증: [단위시험](../tests/test_local_safety_supervisor.py) 31건은 관측 전 기본 차단, 두 가드의 AND 결합, drive_token lease 만료·갱신, 다른 로봇 token·역순 estop 폐기, 후보 신선도와 최종 출력, 그리고 16단계의 token 미수신·수락·만료·회수·다른 holder 상태를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_local_safety_supervisor.py -v`다. 실제 토픽 시험 순서는 [인수인계 16단계](development/amr-workspace-handoff.md)에 있다.
 
+### 3.5 heartbeat_guard.py — 구현 대조 완료 (순수 모듈)
+
+2026-09-08: 사용자 업무표의 AMR-20을 100%로 닫기 위한 확정 계약 부분을 [heartbeat_guard.py](../src/patrol_amr/patrol_amr/heartbeat_guard.py)에 구현했다. TBD-IF-004에 wire 메시지 타입이 남아 있어 ROS subscriber는 만들지 않았다.
+
+- `HeartbeatGuard.observe(control_session_id, sequence, now)`는 비어 있지 않은 관제 session과 1 이상 uint64 sequence를 검증한다. 같은 session의 중복·역순 sequence는 폐기하며 마지막 수락 시각을 갱신하지 않는다.
+- 새 control session은 sequence 하한을 다시 1부터 받을 수 있고 이전 session을 retire한다. retire된 session이 늦게 도착해도 현재 session이나 신선도를 되돌리지 않는다.
+- `state(now)`는 수락 heartbeat가 없으면 MISSING, 마지막 수락 후 1.0초 이하면 HEALTHY, **1.0초를 초과하면** EXPIRED다. 업무표 문구와 Q-16의 “1초 초과” 경계를 그대로 사용한다.
+- 경과는 AMR의 local monotonic 시각만 사용하고 시계 역행·NaN·무한대를 거절한다. header timestamp와 서로 다른 PC의 시계를 timeout 측정에 섞지 않는다.
+- heartbeat 복구만으로 mission을 재개하는 기능은 없다. 이 guard가 HEALTHY로 돌아오는 것과 재출발 허가는 별개이며, 실제 재개는 관제 command와 AMR-18·19 조건을 모두 통과해야 한다.
+
+~~~mermaid
+flowchart TD
+    INIT[HeartbeatGuard 생성] --> MISS[MISSING / 주행 허용 근거 없음]
+    HB[observe: control_session_id / sequence / monotonic now] --> VALID{필드와 시각 유효?}
+    VALID -->|아니오| ERROR[ValueError / 상태 유지]
+    VALID -->|예| RETIRED{retire된 session?}
+    RETIRED -->|예| OLD[STALE_CONTROL_SESSION / 시각 갱신 안 함]
+    RETIRED -->|아니오| SESSION{새 session?}
+    SESSION -->|예| SWITCH[기존 session retire / sequence 하한 초기화]
+    SESSION -->|아니오| SEQ
+    SWITCH --> SEQ{sequence가 직전보다 큼?}
+    SEQ -->|아니오| STALE[STALE_SEQUENCE / 시각 갱신 안 함]
+    SEQ -->|예| ACCEPT[ACCEPTED / 마지막 수신 시각 갱신]
+    TIMER[state now] --> HAVE{수락 heartbeat 있음?}
+    HAVE -->|아니오| MISS
+    HAVE -->|예| AGE{age > 1.0초?}
+    AGE -->|아니오| HEALTHY[HEALTHY]
+    AGE -->|예| EXPIRED[EXPIRED / 로컬 안전 정지 요구]
+    HEALTHY --> WAITCMD[복구만으로 자동 재출발 금지]
+~~~
+
+검증: [단위시험](../tests/test_heartbeat_guard.py) 10건은 MISSING 기본값, 1.0초 경계와 초과, 정상 갱신, 중복·역순이 timeout을 연장하지 않음, session 교체와 이전 session 재등장 차단, uint64·시각·시계 역행 검증을 확인한다. 전체 회귀는 `Ran 190 tests`/`OK`, 두 패키지 빌드는 성공했다. 메시지 타입 합의 후 `local_safety_supervisor`에 연결하고 IT-10을 통과하기 전에는 AMR-20을 100%로 표시하지 않는다.
+
 ## 4. Nav2·위치·Keepout
 
 map frame의 pose·측정 시각·covariance를 제공한다. pose가 무효이면 마지막 유효 위치를 보존하되 현재 위치로 사용하지 않는다. 참고 위치 검증과 실제 주행 재개 기준은 Q-06과 Q-05로 구분한다.
@@ -545,6 +612,7 @@ flowchart TD
 - command·mission ID는 비어 있는지만 확인하고 문자열을 파싱하거나 다시 만들지 않는다. MissionCommand에서 받은 값을 그대로 echo해야 한다는 계약 때문이다.
 - FAILED와 CANCELED는 `NONE`이 아닌 reason code와 비어 있지 않은 reason이 모두 필요하다. 성공·실패·취소 모두 시작·종료 시각을 보존하고 종료가 시작보다 앞서면 거절한다.
 - 같은 command ID와 완전히 같은 결과를 다시 넣으면 기존 record 객체와 report ID를 그대로 반환한다. 다른 결과로 덮으려 하면 거절하고 sequence도 소비하지 않는다.
+- `populate_message()`는 header 발행 시각을 호출자에게 명시적으로 받고 `PatrolReport.msg`의 모든 payload 필드를 채운다. `publish_record()`는 호출자가 소유한 publisher와 message type을 사용해 한 번 발행한다. publisher QoS helper는 계약 그대로 RELIABLE·VOLATILE·KEEP_LAST(20)이다.
 - 이번 단계는 영속 큐·ACK·ROS publisher를 구현하지 않는다. 미전송 report를 저장하고 재연결·재시작 뒤 재발행하려면 mission 결과 입력, 저장 위치와 수명, 수신 확인·삭제 계약이 더 필요하다. 메모리 중복 방지를 영속 완료로 오해하지 않는다.
 
 ~~~mermaid
@@ -561,10 +629,13 @@ flowchart TD
     ID --> RECORD[불변 PatrolReportRecord 저장]
     RECORD --> NEXT[next sequence 증가]
     NEXT --> RETURN[호출자에게 record 반환]
-    RETURN --> PENDING[mission 병합 후 ROS publisher·영속 outbox 연결]
+    RETURN --> MAP[populate_message: header 시각 + 전체 wire 필드]
+    MAP --> EMIT[publish_record: caller-owned publisher로 1회 발행]
+    EMIT --> QOS[RELIABLE / VOLATILE / KEEP_LAST 20]
+    QOS --> PENDING[mission 병합 후 ROS publisher·영속 outbox 연결]
 ~~~
 
-검증: [단위시험](../tests/test_patrol_report.py) 16건은 result/reason 상수 일치, report ID 형식과 sequence 복원, 필수 필드·시각 경계, 실패·취소 reason 강제, 동일 command 재요청의 ID 재사용, 충돌 거절과 sequence 비소비를 확인한다. 전체 단위시험은 `Ran 166 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 두 패키지 성공이다. ROS publisher가 없으므로 이 단계에 사용자 토픽 시험은 없다.
+검증: [단위시험](../tests/test_patrol_report.py) 22건은 result/reason 상수 일치, report ID 형식과 sequence 복원, 필수 필드·시각 경계, 실패·취소 reason 강제, 동일 command 재요청의 ID 재사용, 충돌 거절과 sequence 비소비, 전체 wire 필드 변환, event ID 복사, 1회 발행 helper와 QoS depth를 확인한다. 전체 단위시험은 `Ran 196 tests`/`OK`, `colcon build --packages-select patrol_interfaces patrol_amr`는 두 패키지 성공이다. ROS 환경에서 QoS 객체가 `20 RELIABLE VOLATILE KEEP_LAST`인 것도 확인했다. mission 입력 subscriber가 없으므로 아직 사용자 종단 토픽 시험 대상은 아니다.
 
 다음 기존 안전 로그를 보존한다.
 

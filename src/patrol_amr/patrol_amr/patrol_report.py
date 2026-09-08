@@ -22,12 +22,14 @@ deletion policy.
 
 from dataclasses import dataclass
 from enum import IntEnum
+import json
 import re
 from typing import Iterable, Optional, Tuple
 
 
 ROBOT_IDS = ('robot1', 'robot6')
 UINT64_MAX = 0xFFFFFFFFFFFFFFFF
+PATROL_REPORT_QOS_DEPTH = 20
 _SOURCE_SESSION_RE = re.compile(
     r'^(robot1|robot6)-[0-9]{8}T[0-9]{6}(?:-[a-z0-9]+)*$'
 )
@@ -114,6 +116,145 @@ def format_report_id(source_session_id: str, sequence: int) -> str:
     _validate_source_session(source_session_id)
     _validate_sequence(sequence)
     return f'rpt-{source_session_id}-{sequence:04d}'
+
+
+def populate_message(
+    message,
+    record: PatrolReportRecord,
+    published_at: ReportTime,
+):
+    """Populate a PatrolReport-compatible message without importing ROS.
+
+    ``published_at`` is explicit because the contract does not say that the
+    header stamp is identical to either terminal timestamp.  The ROS owner
+    supplies its current clock value for first publication or retransmission.
+    """
+    if not isinstance(record, PatrolReportRecord):
+        raise ValueError('record must be a PatrolReportRecord')
+    if not isinstance(published_at, ReportTime):
+        raise ValueError('published_at must be a ReportTime')
+
+    message.header.stamp.sec = published_at.sec
+    message.header.stamp.nanosec = published_at.nanosec
+    message.report_id = record.report_id
+    message.robot_id = record.robot_id
+    message.source_session_id = record.source_session_id
+    message.command_id = record.command_id
+    message.mission_id = record.mission_id
+    message.result = int(record.result)
+    message.reason_code = int(record.reason_code)
+    message.reason = record.reason
+    message.started_at.sec = record.started_at.sec
+    message.started_at.nanosec = record.started_at.nanosec
+    message.finished_at.sec = record.finished_at.sec
+    message.finished_at.nanosec = record.finished_at.nanosec
+    message.final_waypoint_id = record.final_waypoint_id
+    message.related_event_ids = list(record.related_event_ids)
+    return message
+
+
+def publish_record(
+    publisher,
+    message_type,
+    record: PatrolReportRecord,
+    published_at: ReportTime,
+):
+    """Create and publish one message through a caller-owned ROS publisher."""
+    if not callable(message_type):
+        raise ValueError('message_type must be callable')
+    if not hasattr(publisher, 'publish') or not callable(publisher.publish):
+        raise ValueError('publisher must provide publish(message)')
+    message = populate_message(message_type(), record, published_at)
+    publisher.publish(message)
+    return message
+
+
+def patrol_report_qos():
+    """Return the fixed RELIABLE/VOLATILE/KEEP_LAST(20) ROS QoS profile."""
+    from rclpy.qos import (
+        DurabilityPolicy,
+        HistoryPolicy,
+        QoSProfile,
+        ReliabilityPolicy,
+    )
+
+    return QoSProfile(
+        history=HistoryPolicy.KEEP_LAST,
+        depth=PATROL_REPORT_QOS_DEPTH,
+        reliability=ReliabilityPolicy.RELIABLE,
+        durability=DurabilityPolicy.VOLATILE,
+    )
+
+
+def record_to_json(record: PatrolReportRecord) -> str:
+    """Serialize the immutable terminal payload for persistent replay."""
+    if not isinstance(record, PatrolReportRecord):
+        raise ValueError('record must be a PatrolReportRecord')
+    return json.dumps(
+        {
+            'report_id': record.report_id,
+            'robot_id': record.robot_id,
+            'source_session_id': record.source_session_id,
+            'command_id': record.command_id,
+            'mission_id': record.mission_id,
+            'result': int(record.result),
+            'reason_code': int(record.reason_code),
+            'reason': record.reason,
+            'started_at': {
+                'sec': record.started_at.sec,
+                'nanosec': record.started_at.nanosec,
+            },
+            'finished_at': {
+                'sec': record.finished_at.sec,
+                'nanosec': record.finished_at.nanosec,
+            },
+            'final_waypoint_id': record.final_waypoint_id,
+            'related_event_ids': list(record.related_event_ids),
+        },
+        sort_keys=True,
+        separators=(',', ':'),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+
+
+def record_from_json(value: str) -> PatrolReportRecord:
+    """Validate and restore one payload written by ``record_to_json``."""
+    if not isinstance(value, str) or not value:
+        raise ValueError('record JSON must be a non-empty str')
+    try:
+        payload = json.loads(value)
+        if not isinstance(payload, dict):
+            raise ValueError
+        report_id = payload['report_id']
+        robot_id = payload['robot_id']
+        source_session_id = payload['source_session_id']
+        prefix = f'rpt-{source_session_id}-'
+        if not isinstance(report_id, str) or not report_id.startswith(prefix):
+            raise ValueError
+        sequence_text = report_id[len(prefix):]
+        if len(sequence_text) < 4 or not sequence_text.isdigit():
+            raise ValueError
+        sequence = int(sequence_text)
+        factory = PatrolReportFactory(
+            robot_id, source_session_id, next_sequence=sequence
+        )
+        restored = factory.create(
+            command_id=payload['command_id'],
+            mission_id=payload['mission_id'],
+            result=payload['result'],
+            reason_code=payload['reason_code'],
+            reason=payload['reason'],
+            started_at=_time_from_json(payload['started_at']),
+            finished_at=_time_from_json(payload['finished_at']),
+            final_waypoint_id=payload['final_waypoint_id'],
+            related_event_ids=payload['related_event_ids'],
+        )
+        if restored.report_id != report_id:
+            raise ValueError
+        return restored
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError('invalid PatrolReportRecord JSON') from error
 
 
 class PatrolReportFactory:
@@ -274,3 +415,9 @@ def _event_ids(values) -> Tuple[str, ...]:
     for value in values:
         _nonempty_string(value, 'related_event_id')
     return values
+
+
+def _time_from_json(value) -> ReportTime:
+    if not isinstance(value, dict) or set(value) != {'sec', 'nanosec'}:
+        raise ValueError
+    return ReportTime(value['sec'], value['nanosec'])
