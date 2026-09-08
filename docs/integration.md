@@ -55,15 +55,17 @@ AMR의 Battery 상태 보고 → 관제의 도킹/교대 판단 → AMR의 도�
 
 ### W-04 통신 단절과 복구
 
-token 미수신/만료 또는 heartbeat 1초 미수신 → AMR 로컬 안전 정지. heartbeat는 관제가 5 Hz로 발행한다. RobotStatus 미수신 → 관제 STALE, 신규 임무·token 갱신 중단. 임무 결과가 없으면 UNREPORTED 유지.
+token 미수신/만료 또는 `ControlHeartbeat` 1초 미수신 → AMR 로컬 안전 정지. heartbeat는 관제가 5 Hz로 발행한다. RobotStatus 미수신 → 관제 STALE, 신규 임무·token 갱신 중단. 임무 결과가 없으면 UNREPORTED 유지.
 
 복구 후 Q-04 정상 수신, Q-05 현재 pose, E-stop 해제·Keepout·배터리 확인 및 유효 token을 확보한 뒤 재개한다. 단순 연결 복구나 token 재수신만으로 자동 출발하지 않는다. 단절 중 완료된 결과의 전달은 TBD-IF-003이다.
 
 ### W-05 E-stop과 해제
 
-안전 원인 발생 → Safety Arbiter 단일 E-stop 발행 → AMR 로컬 안전 반영 → 활성 로그 기록. 물리 원인은 수동 reset까지 latch한다. 그 외 원인은 제거 후 Q-10을 충족하면 관제가 해제를 결정한다. 조건이 다시 깨지면 해제 조건 취소를 기록한다. E-stop 해제 부저는 없다.
+안전 원인 또는 관제 API를 통한 UI 정지 요청 → Safety Arbiter 단일 E-stop 발행 → AMR 로컬 안전 반영 → 활성 로그 기록 순서다. 하드웨어·물리 E-stop과 수동 reset은 시험 범위에 없다. UI는 직접 발행하지 않으며, 해제 요청 뒤에도 모든 활성 원인이 제거된 상태가 Q-10을 충족할 때만 관제가 해제를 결정한다. 조건이 다시 깨지면 해제 계수를 초기화하고 기록한다. E-stop 해제 부저는 없다.
 
 해제가 곧바로 이동 명령을 뜻하지 않는다. 재개를 위한 상태·token·임무 조건을 별도로 확인한다. 정확한 요청/응답·원인 범위는 TBD-IF-004다.
+
+정상 Ctrl+C/SIGINT 종료는 `CONTROL_SHUTDOWN` 운영 이벤트를 기록하고 가능한 token 회수를 best-effort로 보낸 뒤 token·heartbeat를 중단한다. 재기동은 새 control session → 이전 token 폐기 → 정상 RobotStatus 5초와 pose·배터리·permit·Keepout·E-stop 게이트 → 새 token → 별도 START_PATROL/RESUME_PATROL 순서다. 비정상 종료 안전은 AMR token lease·heartbeat timeout으로 확인한다.
 
 ### W-06 확정 이벤트·증적·화재 부저
 
@@ -84,7 +86,7 @@ DOCKED 완료 센서와 CHARGING 상태가 2초 연속이면 도킹 성공과 �
 | ID | 사전 조건·수행 절차 | 개발 단위별 기대 결과·통과 기준 | 관련 기준 |
 |---|---|---|---|
 | IT-01 Discovery·식별 | 기존 Onboard 유지, PC 3 서버 준비 후 각 Client와 TB4 연결; 로봇별 상태 송수신 | 두 로봇의 올바른 토픽 발견 및 데이터 수신, 식별 혼선 없음; 로컬 통신 확인 | architecture, TBD-ARCH-001 |
-| IT-02 명령 확인·중복 | ACCEPTED/REJECTED 정상 응답, 각 5초 Check timeout, 동일 ID·payload 재전송, 동일 ID·다른 payload, 완료 뒤 재전송, 재시작 뒤 기록 검사 | ACCEPTED/EXECUTING/REJECTED와 최종 report 연결; timeout마다 동일 ID로 최대 2회 재전송; 중복 실행 없음; ID 충돌 거절; 완료 뒤 기존 report 재전달 | Q-14·15, TBD-IF-001 |
+| IT-02 명령 확인·중복 | check_state 0~3과 미정의 값, 정상 ACCEPTED→EXECUTING, ACCEPTED 누락 EXECUTING, 역방향 전이, 각 5초 Check timeout, 동일 ID·payload 재전송, 동일 ID·다른 payload, 중간 Check가 누락된 최종 report를 검사 | 미정의·역방향 폐기; ID 3개가 같은 ACCEPTED 누락 EXECUTING만 수락하고 ACCEPTED_MISSING 기록; timeout마다 동일 ID로 최대 2회 재전송; 중복 실행 없음; ID 충돌 거절; 유효 최종 report 수락 | Q-14·15, TBD-IF-001·011 |
 | IT-03 토큰 검증 | 유효 token 이후 낮은/동일 message sequence·오래된 메시지·다른 holder·새 control session을 각각 주입 | AMR이 잘못된 권한을 수락하지 않고 lease가 부당 연장되지 않음; 새 control session에서 이전 token 폐기 | Q-01, TBD-IF-002 |
 | IT-04 토큰 만료·회수 | 활성 mission에서 갱신 중단, 이전 holder를 지정한 빈 token ID 회수, 실제 정지 조건 경계 시험 | 만료/회수 시 AMR 안전 정지·신규 주행 차단; 새 token만으로 자동 출발 없음; odometry 정지 조건 전 신규 holder 금지 | Q-01, TBD-AMR-006·INT-001 |
 | IT-05 CCTV 정상·중복 | gate_cam·center_cam별 구조화 event ID와 source session·sequence, enum 0~4, 허용 상태를 검사한다. ENTERING·EXITED·EXITING은 0.2초 직전·경계·직후, 중간 조건 이탈·미검출을 주입한다. PARKED는 5초 체류와 confidence 계산 구간을 검사한다. 동일 ID 반복과 topic별 금지 enum도 발행한다. | `patrol_interfaces/msg/CameraState`, camera_id `gate_cam`·`center_cam`, 상태별 enum과 ID가 요청 계약에 일치한다. 0.2초 미만 또는 중간 단절에서는 이벤트가 없고 조건을 연속 충족한 경우에만 1회 발행한다. confidence는 일반 상태의 유효 0.2초 평균, PARKED의 마지막 유효 0.2초 평균이다. 중복은 1회만 처리하고 금지 enum은 폐기·기록한다. | [비전 P0 요청](change_requests/CR-관제_09-07_17-53_비전_CameraState와_permit_반영.md), Q-13, TBD-IF-005 |
@@ -92,8 +94,8 @@ DOCKED 완료 센서와 CHARGING 상태가 2초 연속이면 도킹 성공과 �
 | IT-07 대피·재개 | 순찰 중 permit false, 대피 완료 후 true | 관제·AMR W-02 순서 일치, 대피 중 token 유지, 도착 후 회수 | Q-08, TBD-INT-002·003 |
 | IT-08 Keepout 실패 | global/local 일부 적용 실패와 rollback 실패를 각각 주입 | 전체 snapshot 복구 또는 UNKNOWN·Safety Arbiter 정지 요청; 부분 성공을 commit하지 않음 | Q-07, TBD-CTRL-002 |
 | IT-09 안전구역 없음 | 후보 조건 불충족 지도/동선, 별도로 Keepout 탈출 불가 조건 | AMR 현 위치 정지, SAFE_ZONE_NOT_FOUND; 불가능 경로 주행 방지 확인 | Q-08, TBD-INT-003 |
-| IT-10 상태·복구 | RobotStatus 중단 후 복구; heartbeat 1초 timeout; 각 재개 조건을 하나씩 실패시킴 | 관제 Q-03 STALE·갱신 중단, AMR heartbeat 안전 정지, Q-04·05 통과 전 자동 재개 없음; 모니터는 관제가 제공한 상태 표시 | Q-03~06·16, TBD-CTRL-003 |
-| IT-11 E-stop | 물리/비물리 원인, 해제 조건 유지·중단을 각각 시험 | 단일 발행, 물리 latch, 즉시 활성, 조건 시작/취소/해제 로그; 해제 후 새 token·command 전 이동 없음; 해제 부저 없음 | Q-10, TBD-IF-004 |
+| IT-10 상태·복구 | RobotStatus 중단 후 복구, ControlHeartbeat 1초 timeout, Ctrl+C 정상 종료와 비정상 종료, 새 control session 이후 각 재개 조건을 하나씩 실패시킴 | 관제 Q-03 STALE·갱신 중단, AMR heartbeat·token lease 안전 정지, CONTROL_SHUTDOWN 기록은 정상 종료에서만 best-effort, 이전 token 폐기, Q-04·05와 전체 게이트·새 token·별도 command 전 자동 재개 없음 | Q-03~06·16, TBD-CTRL-003, TBD-IF-011 |
+| IT-11 E-stop | UI OPERATOR 정지·해제, robot1·robot6·all, 각 비물리 reason의 동시 활성, 대표 reason, 3초 해제 조건 유지·중단을 시험 | UI 직접 발행 없음; Safety Arbiter 단일 발행·즉시 활성; 전체 원인 집합과 대표 reason 일치; 조건 시작·초기화·해제 로그; 해제 후 새 token·command 전 이동 없음; 물리/manual reset 경로 없음 | Q-10, TBD-IF-004·TBD-CTRL-004 |
 | IT-12 pose·보고 | 무효 pose, snapshot/pose 시각 차이, 결과 전 단절, 복구 후 같은 report ID 재전달 | 마지막 유효 pose와 age 구분; UNREPORTED 유지·대필 없음; command·mission·report ID 연결과 중복 제거 | TBD-IF-003 |
 | IT-13 배터리·도킹·교대 | SOC 경계, LOW mission 완료, LOW→CRITICAL, UNKNOWN, DOCKED·CHARGING 2초 경계, 도킹 timeout | enum·Q-11 일치; LOW는 현재 mission 도킹까지 완료; CRITICAL은 즉시 전환; Q-09 성공 조건; 실제 정지 뒤 교대 token | Q-09·11, TBD-INT-001 |
 | IT-14 Detection·정렬·화재 | 비전팀 detecting node를 robot1·robot6 AMR PC에서 각각 실행한다. 후보 발생 후 AMR yaw 정렬, 정지 확인, 같은 candidate의 정렬 완료 통지, 정렬 상태 1초 연속 탐지를 순서대로 시험한다. 1초 도중 탐지 단절·정렬 상태 해제·일반 명령·permit 반전·새 후보를 각각 주입하고, 별도로 token 만료·E-stop·장애물 차단을 주입한다. 화재 확정 뒤 현재 mission·도킹 흐름도 시험한다. | detecting node는 속도를 발행하지 않고 AMR만 yaw를 수행한다. 정지 확인 전에는 정렬 완료나 DetectionEvent가 없으며, 정렬 완료 후 같은 대상이 1초 연속 유효할 때 한 번만 확정한다. 일반 명령·permit·새 후보로 정렬을 교체하지 않는다. 안전 원인은 즉시 정렬 중단·정지하며 자동 재개하지 않는다. DetectionEvent에 severity enum·필드가 없고 event_type은 비전팀 제시 후 합의된 값과 일치한다. 화재 확정 후 부저·mission·token·도킹 결과는 기존 정책과 일치한다. | [Detection 정렬 요청](change_requests/CR-관제_09-07_20-26_AMR_비전_Detection_정렬_계약.md), Q-12, TBD-AMR-001·004, TBD-IF-006, TBD-INT-004 |
