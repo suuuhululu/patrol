@@ -1178,7 +1178,7 @@ ros2 run patrol_amr status_reporter --ros-args -p robot_id:=robot1 -p source_ses
 ros2 topic echo /robot1/robot_status --field motion_stopped
 ```
 
-- **터미널 2**: `false`가 0.5초 간격(Q-02 2 Hz)으로 계속 나온다. odometry가 없으니 정지라고 말하지 않는 것이 정상이다.
+- **터미널 2**: `False`가 0.5초 간격(Q-02 2 Hz)으로 계속 나온다. odometry가 없으니 정지라고 말하지 않는 것이 정상이다. 값과 `---` 구분선이 번갈아 나온다.
 
 속도 값도 같이 보려면 별도 터미널에서 아래를 쓴다.
 
@@ -1186,7 +1186,7 @@ ros2 topic echo /robot1/robot_status --field motion_stopped
 ros2 topic echo /robot1/robot_status --field linear_velocity
 ```
 
-- **터미널**: `.nan` — 미수신을 0으로 오해하지 않도록 NaN이다.
+- **터미널**: `nan` — 미수신을 0으로 오해하지 않도록 NaN이다.
 
 **터미널 3 — 정지 상태 odometry 발행.** `ros2 topic pub`의 `-r`은 `header.stamp`를 채우지 않으므로 age가 무한대가 되어 항상 stale이다. 12단계 후보와 같은 이유로 스크립트를 쓴다.
 
@@ -1195,7 +1195,7 @@ python3 tests/integration/publish_odometry.py --linear 0.0 --angular 0.0
 ```
 
 - **터미널 3**: `publishing linear=0.0 angular=0.0 on /odom at 20.0 Hz`
-- **터미널 2**: `false`가 몇 줄 더 나온 뒤 `true`로 바뀐다. 2026-09-08 확인 시 `false` 4줄 뒤 `true`였다.
+- **터미널 2**: `False`가 몇 줄 더 나온 뒤 `True`로 바뀐다. 2026-09-08 확인 시 `False` 4줄 뒤 `True`였다.
 
 **터미널 2의 echo를 터미널 3보다 먼저 띄워야 한다.** `ros2 topic echo --once`는 붙는 데만 1초 넘게 걸려 0.5초 유지 창이 이미 지난 뒤를 읽는다. 전이를 보려면 echo가 계속 떠 있어야 한다.
 
@@ -1205,7 +1205,7 @@ python3 tests/integration/publish_odometry.py --linear 0.0 --angular 0.0
 python3 tests/integration/publish_odometry.py --linear 0.3
 ```
 
-- **터미널 2**: 즉시 `true` → `false`. 한 표본만 한도를 벗어나도 창이 닫힌다.
+- **터미널 2**: 즉시 `True` → `False`. 한 표본만 한도를 벗어나도 창이 닫힌다.
 - **속도 필드**: `0.3`
 
 **시험 B — 한도 경계.** 정확히 한도값은 정지로 본다(`≤` 이므로).
@@ -1214,12 +1214,12 @@ python3 tests/integration/publish_odometry.py --linear 0.3
 python3 tests/integration/publish_odometry.py --linear 0.05 --angular 0.1
 ```
 
-- **터미널 2**: 0.5초 뒤 `true`
+- **터미널 2**: 0.5초 뒤 `True`
 
 **시험 C — 관측이 끊기면 정지 주장을 거둔다.** 터미널 3을 `Ctrl+C`한다.
 
-- **터미널 2**: 0.5초 뒤 `true` → `false`
-- **속도 필드**: `.nan`으로 돌아간다
+- **터미널 2**: 0.5초 뒤 `True` → `False`
+- **속도 필드**: `nan`으로 돌아간다
 
 마지막 항목이 중요하다. 마지막으로 본 속도를 계속 보고하지 않는다.
 
@@ -1227,14 +1227,14 @@ python3 tests/integration/publish_odometry.py --linear 0.05 --angular 0.1
 
 | # | 조작 | 터미널 2 `motion_stopped` | 속도 필드 |
 |---|---|---|---|
-| 1 | status_reporter만 실행 | `false` | `.nan` |
-| 2 | 정지 odometry 발행 직후 | `false` 몇 줄 유지 | `0.0` |
-| 3 | 정지 odometry 0.5초 경과 | `true` | `0.0` |
-| 4 | `--linear 0.3`으로 전환 | 즉시 `false` | `0.3` |
-| 5 | `--linear 0.05 --angular 0.1` 0.5초 | `true` | `0.05` |
-| 6 | 발행 중단 0.5초 경과 | `false` | `.nan` |
+| 1 | status_reporter만 실행 | `False` | `nan` |
+| 2 | 정지 odometry 발행 직후 | `False` 몇 줄 유지 | `0.0` |
+| 3 | 정지 odometry 0.5초 경과 | `True` | `0.0` |
+| 4 | `--linear 0.3`으로 전환 | 즉시 `False` | `0.3` |
+| 5 | `--linear 0.05 --angular 0.1` 0.5초 | `True` | `0.05` |
+| 6 | 발행 중단 0.5초 경과 | `False` | `nan` |
 
-2번과 3번의 차이, 6번의 `.nan` 복귀가 이 단계의 핵심이다.
+2번과 3번의 차이, 6번의 `nan` 복귀가 이 단계의 핵심이다.
 
 종료는 터미널 3 → 2 → 1 순서로 `Ctrl+C`다.
 
