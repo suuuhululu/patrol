@@ -9,6 +9,8 @@ This intentionally verifies only the connections implemented by
 * EStop + DriveToken -> local_safety_supervisor -> motion_allowed  (10단계)
 * cmd_vel_safe + the two gates above -> local_safety_supervisor
   -> cmd_vel                                                      (13단계)
+* Odometry -> status_reporter -> RobotStatus velocity/motion_stopped
+                                                                  (14단계)
 
 All topics live under the robot namespace the launch file now applies.
 
@@ -47,6 +49,7 @@ from rclpy.qos import (
     qos_profile_sensor_data,
 )
 from geometry_msgs.msg import Twist, TwistStamped
+from nav_msgs.msg import Odometry
 from patrol_interfaces.msg import DriveToken, EStop, RobotStatus
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import Bool
@@ -58,6 +61,9 @@ NS = f"/{ROBOT_ID}"
 # 12단계에서 확정한 Q-17 값. motion_guard.CANDIDATE_MAX_AGE_SECONDS 와 같다.
 CANDIDATE_MAX_AGE_SECONDS = 0.5
 CANDIDATE = (0.25, -0.1)
+# 14단계: interfaces.md 3절 실제 정지 판정.
+STOP_HOLD_SECONDS = 0.5
+MOVING_LINEAR = 0.3
 
 
 def _qos(depth, reliability, durability):
@@ -128,6 +134,9 @@ class SmokeProbe(Node):
         )
         self.candidate_publisher = self.create_publisher(
             TwistStamped, f"{NS}/cmd_vel_safe", velocity_qos
+        )
+        self.odometry_publisher = self.create_publisher(
+            Odometry, f"{NS}/odom", qos_profile_sensor_data
         )
 
     def _on_motion_allowed(self, message):
@@ -409,6 +418,64 @@ def _check_velocity_path(node, launch_process, log_path):
         raise AssertionError("released E-stop did not resume the candidate")
 
 
+def _publish_odometry(node, linear, angular):
+    message = Odometry()
+    message.header.stamp = node.get_clock().now().to_msg()
+    message.twist.twist.linear.x = linear
+    message.twist.twist.angular.z = angular
+    node.odometry_publisher.publish(message)
+
+
+def _stream_odometry(node, seconds, linear, angular, period=0.05):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        _publish_odometry(node, linear, angular)
+        rclpy.spin_once(node, timeout_sec=period)
+
+
+def _check_odometry_path(node, launch_process, log_path):
+    """14단계: measured velocity and the motion_stopped judgment."""
+    if any(status.motion_stopped for status in node.status_observations):
+        raise AssertionError(
+            "motion_stopped must stay false before any odometry arrives"
+        )
+
+    # 움직이는 표본은 정지가 아니고, 측정값이 그대로 보고된다.
+    start = len(node.status_observations)
+    _stream_odometry(node, STOP_HOLD_SECONDS + 0.4, MOVING_LINEAR, 0.0)
+    moving = [
+        status
+        for status in node.status_observations[start:]
+        if math.isclose(status.linear_velocity, MOVING_LINEAR, abs_tol=1e-6)
+    ]
+    if not moving:
+        raise AssertionError("measured linear velocity was not reported")
+    if any(status.motion_stopped for status in moving):
+        raise AssertionError("a moving robot must not report motion_stopped")
+
+    # 한도 안의 표본이 0.5초 연속 유지되면 정지로 본다.
+    _stream_odometry(node, STOP_HOLD_SECONDS + 0.4, 0.0, 0.0)
+    _wait_for(
+        node,
+        launch_process,
+        lambda: node.status_observations[-1].motion_stopped,
+        3.0,
+        "motion_stopped after the odometry hold window",
+        log_path,
+    )
+
+    # 관측이 끊기면 정지 주장을 거두고 속도를 NaN 으로 되돌린다.
+    _wait_for(
+        node,
+        launch_process,
+        lambda: not node.status_observations[-1].motion_stopped
+        and math.isnan(node.status_observations[-1].linear_velocity),
+        3.0,
+        "stale odometry returns to NaN and not-stopped",
+        log_path,
+    )
+
+
 def _check_single_velocity_publisher(node):
     """interfaces.md 7절: local_safety_supervisor is the sole publisher."""
     publishers = node.get_publishers_info_by_topic(f"{NS}/cmd_vel")
@@ -459,6 +526,7 @@ def main():
             _check_safety_path(node, launch_process, launch_log.name)
             _check_battery_path(node, launch_process, launch_log.name)
             _check_velocity_path(node, launch_process, launch_log.name)
+            _check_odometry_path(node, launch_process, launch_log.name)
             velocity_publishers = _check_single_velocity_publisher(node)
             sequences = _check_status_sequence(node)
 
@@ -470,6 +538,7 @@ def main():
                 "cmd_vel=stop,candidate,stop_on_stale,stop_on_estop,"
                 "candidate_after_release"
             )
+            print("motion_stopped=false,moving_false,held_true,stale_false")
             print(f"cmd_vel_publishers={velocity_publishers}")
             print(
                 f"status_messages={len(sequences)} "

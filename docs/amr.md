@@ -62,7 +62,7 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 | motion_guard.py | [src/patrol_amr/patrol_amr/motion_guard.py](../src/patrol_amr/patrol_amr/motion_guard.py) · `MotionGuard.evaluate` | [3.3절](#33-motion_guardpy--구현-대조-완료) 구현 대조 완료 (축소 범위) |
 | local_safety_supervisor.py | [src/patrol_amr/patrol_amr/local_safety_supervisor.py](../src/patrol_amr/patrol_amr/local_safety_supervisor.py) · `SafetyGate`·`LocalSafetySupervisor` | [3.4절](#34-local_safety_supervisorpy--구현-대조-완료-축소-범위) 구현 대조 완료 (축소 범위) |
 | battery_monitor.py | [src/patrol_amr/patrol_amr/battery_monitor.py](../src/patrol_amr/patrol_amr/battery_monitor.py) · `classify_observation`·`BatteryStateModel.update` | [5.1절](#51-battery_monitorpy--구현-대조-완료) 구현 대조 완료 |
-| robot_status_state.py | [src/patrol_amr/patrol_amr/robot_status_state.py](../src/patrol_amr/patrol_amr/robot_status_state.py) · `RobotStatusState.update_states`·`observe_pose`·`snapshot` | [7.1절](#71-robot_status_statepy--구현-대조-완료) 구현 대조 완료 |
+| robot_status_state.py | [src/patrol_amr/patrol_amr/robot_status_state.py](../src/patrol_amr/patrol_amr/robot_status_state.py) · `RobotStatusState.update_states`·`observe_pose`·`observe_odometry`·`snapshot` | [7.1절](#71-robot_status_statepy--구현-대조-완료) 구현 대조 완료 |
 | status_reporter.py | [src/patrol_amr/patrol_amr/status_reporter.py](../src/patrol_amr/patrol_amr/status_reporter.py) · `PublicationGate`·`StatusReporter` | [7.2절](#72-status_reporterpy--구현-대조-완료-축소-범위) 구현 대조 완료 (축소 범위) |
 | 공통 Nav2 연결·위치·결과 발행 | 실제 코드 파일·모듈별 행으로 분리하여 기록 | 미작성 |
 
@@ -460,16 +460,32 @@ flowchart TD
     AGE --> COPY[독립 복사본 반환]
 ~~~
 
-검증: [단위시험](../tests/test_robot_status_state.py)은 안전한 초기값, 독립 상태 축, 원자적 검증, 미합의 safety 숫자의 불투명 처리, 유효 pose 저장, 무효 pose 뒤 마지막 유효 pose 보존, age 계산, 입력·snapshot 복사, 잘못된 frame·시각 거절을 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_robot_status_state.py -v`다. 실제 RobotStatus 토픽 발행 시험은 8단계 범위다.
+**14단계 추가 — odometry 축과 `motion_stopped`(2026-09-08).** [interfaces.md 3절](../interfaces.md)이 판정에 필요한 네 값을 모두 확정해 두었으므로 이 모듈이 정한 숫자는 없다.
 
-### 7.2 status_reporter.py — 구현 대조 완료 (축소 범위)
+```text
+선속도 절댓값 ≤ 0.05 m/s  AND  각속도 절댓값 ≤ 0.1 rad/s
+  가 0.5초 연속 유지  AND  측정 age ≤ 0.5초   →  motion_stopped = true
+```
+
+- `observe_odometry(linear, angular, measured_at)`가 관측을 받고, 신선도 판정은 snapshot 시각에 달려 있으므로 `snapshot()`에서 완성한다. `STOP_LINEAR_LIMIT`·`STOP_ANGULAR_LIMIT`·`STOP_HOLD_SECONDS`·`ODOMETRY_MAX_AGE_SECONDS` 네 상수가 위 문장을 그대로 옮긴 것이다.
+- **명령한 속도가 아니라 odometry다.** `local_safety_supervisor`가 `cmd_vel`에 0을 낸 것은 게이트가 닫혔다는 뜻이지 바퀴가 실제로 멈췄다는 뜻이 아니다. 이 구분이 [IT-04](integration.md#4-통합시험-명세)의 "실제 정지 확인"과 교대(TBD-INT-001)의 전제다.
+- 한도를 벗어난 표본은 연속 유지 창을 닫는다. **관측이 끊긴 구간도 창을 닫는다** — 표본 간격이 신선도 한도를 넘으면 그 사이를 "연속 유지"로 주장할 수 없다. 정지 선언이 어려워지는 방향이라 관제가 근거 없이 새 token을 발급하지 않는다.
+- 미수신·stale 상태의 선속도·각속도는 0이 아니라 `NaN`이다. 8단계 SOC와 같은 이유로, 측정하지 않은 값을 "측정했더니 0"으로 읽히게 두지 않는다.
+- 미래 stamp(음수 age)는 낡음으로 보지 않는다. Q-17과 같은 판단이다 — 같은 ROS 시계이고 허용 역행 폭을 정한 문서가 없다.
+- 시각이 역행하는 표본과 유한하지 않은 값은 거절한다.
+
+검증: [단위시험](../tests/test_robot_status_state.py) 32건은 안전한 초기값, 독립 상태 축, 원자적 검증, 미합의 safety 숫자의 불투명 처리, 유효 pose 저장, 무효 pose 뒤 마지막 유효 pose 보존, age 계산, 입력·snapshot 복사, 잘못된 frame·시각 거절을 확인한다. 14단계분은 네 상수가 interfaces.md 값과 일치하는지, 유지 창 경계, 한도 포함 여부와 초과, 신선도 경계, 관측 단절 시 창 재개, 미수신·stale의 NaN, 시각 역행·비유한 값 거절, 그리고 관측 없이는 정지라고 말하지 않는지를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_robot_status_state.py -v`다.
+
+### 7.2 status_reporter.py — 구현 대조 완료
 
 2026-09-07: 사용자 8단계 진행 요청에 따라 [status_reporter.py](../src/patrol_amr/patrol_amr/status_reporter.py)를 추가했다. `/{robot}/robot_status`를 새 `RobotStatus.msg` 이름으로 발행하며 Q-02의 정기 2 Hz와 상태 변경 발행 최대 10 Hz를 `PublicationGate`가 관리한다. `StatusSequence`는 프로세스 세션 안에서 1부터 증가하고, `source_session_id`는 실행 시 필수 parameter로 받는다.
 
 - 입력 연결: 현재 구현된 상대 내부 토픽 `battery_status`를 구독해 `battery_state`를 갱신한다. 원본 `battery_state`도 읽어 유효한 SOC와 센서 측정 시각을 `battery_soc`·`battery_timestamp`로 보존한다. enum 변경은 최대 10 Hz 제한 안에서 즉시 발행 대상으로 표시한다.
 - 필수 설정: `robot_id`, `source_session_id`, `safety_state`를 모두 명시해야 시작한다. `safety_state`는 TBD-IF-003 때문에 기본 숫자를 만들 수 없어, 통합 주체가 합의된 uint8 값을 넣도록 강제했다. 현재 단계의 `safety_state:=0`은 전송 시험값일 뿐 의미 확정이 아니다.
-- 안전한 미연결 값: mission supervisor, 위치 유효성 판정, odometry, accepted token을 전달할 내부 계약이 아직 없다. 따라서 operational은 `OP_UNKNOWN`, mission은 `MISSION_NONE`, docking은 `DOCK_UNKNOWN`, pose_valid·motion_stopped·token_valid는 false, ID는 빈 문자열로 둔다. 선속도·각속도·SOC 미수신은 0으로 오해하지 않도록 NaN으로 낸다.
-- pose 보존 로직은 7단계에 구현됐지만 입력 토픽·유효성 판정 계약이 없어 ROS callback에는 연결하지 않았다. `/amcl_pose` 같은 이름을 임의로 정하지 않았다. 실제 위치·속도·token·mission 연결과 safety enum 자동 산출은 해당 계약 확정 후 추가한다.
+- **14단계 odometry 연결(2026-09-08):** 상대 토픽 `odom`(`nav_msgs/Odometry`)을 구독해 `linear_velocity`·`angular_velocity`·`motion_stopped`를 채운다. 판정은 7.1절의 `RobotStatusState`가 하고 이 노드는 ROS 변환만 한다. `odom`은 로봇 드라이버가 내는 표준 토픽이며 interfaces.md TBD 표에 없다 — 미정 항목이 아니다. launch의 `odom_topic` 인자로 드라이버 위치를 바꿀 수 있다(TBD-ARCH-001).
+- odometry 수신은 **즉시 발행 대상이 아니다.** Q-02가 즉시 발행을 요구하는 것은 mission·safety·battery enum과 `pose_valid`이고 속도는 그 목록에 없다. 속도는 매 표본마다 바뀌므로 변경 트리거로 다루면 이유 없이 10 Hz 제한을 넘긴다.
+- 남은 안전한 미연결 값: mission supervisor, 위치 유효성 판정, accepted token을 전달할 내부 계약이 아직 없다. 따라서 operational은 `OP_UNKNOWN`, mission은 `MISSION_NONE`, docking은 `DOCK_UNKNOWN`, pose_valid·token_valid는 false, ID는 빈 문자열로 둔다. SOC 미수신은 0으로 오해하지 않도록 NaN으로 낸다.
+- pose 보존 로직은 7단계에 구현됐지만 입력 토픽·유효성 판정 계약이 없어 ROS callback에는 연결하지 않았다. `/amcl_pose` 같은 이름을 임의로 정하지 않았다. 실제 위치·token·mission 연결과 safety enum 자동 산출은 해당 계약 확정 후 추가한다.
 
 ~~~mermaid
 flowchart TD

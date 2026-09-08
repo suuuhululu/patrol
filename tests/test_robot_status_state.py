@@ -1,6 +1,7 @@
 """Deterministic RobotStatus state tests; no ROS graph required."""
 
 import importlib.util
+import math
 from pathlib import Path
 import unittest
 
@@ -197,6 +198,143 @@ class PoseTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     state.snapshot(value)
+
+
+class OdometryAxisTests(unittest.TestCase):
+    """14단계. 네 상수 모두 interfaces.md 3절이 확정한 값이다."""
+
+    LIN = MODULE.STOP_LINEAR_LIMIT
+    ANG = MODULE.STOP_ANGULAR_LIMIT
+    HOLD = MODULE.STOP_HOLD_SECONDS
+    AGE = MODULE.ODOMETRY_MAX_AGE_SECONDS
+
+    def state(self):
+        return MODULE.RobotStatusState('robot1')
+
+    def hold_still(self, state, start=0.0, until=None, step=0.1):
+        """Feed in-limit samples from `start` through `until` inclusive."""
+        until = self.HOLD if until is None else until
+        t = start
+        while t <= until + 1e-9:
+            state.observe_odometry(0.0, 0.0, t)
+            t = round(t + step, 6)
+        return t - step
+
+    def test_contract_values_match_interfaces_md(self):
+        self.assertEqual(self.LIN, 0.05)
+        self.assertEqual(self.ANG, 0.1)
+        self.assertEqual(self.HOLD, 0.5)
+        self.assertEqual(self.AGE, 0.5)
+
+    def test_no_odometry_reports_nan_not_zero(self):
+        snapshot = self.state().snapshot(0.0)
+        self.assertTrue(math.isnan(snapshot.linear_velocity))
+        self.assertTrue(math.isnan(snapshot.angular_velocity))
+        self.assertFalse(snapshot.motion_stopped)
+
+    def test_measured_velocity_is_reported(self):
+        state = self.state()
+        state.observe_odometry(0.4, -0.2, 1.0)
+        snapshot = state.snapshot(1.1)
+        self.assertAlmostEqual(snapshot.linear_velocity, 0.4)
+        self.assertAlmostEqual(snapshot.angular_velocity, -0.2)
+        self.assertFalse(snapshot.motion_stopped)
+
+    def test_stop_requires_the_full_hold_window(self):
+        state = self.state()
+        self.hold_still(state, 0.0, self.HOLD - 0.1)
+        self.assertFalse(state.snapshot(self.HOLD).motion_stopped)
+        state.observe_odometry(0.0, 0.0, self.HOLD)
+        self.assertTrue(state.snapshot(self.HOLD).motion_stopped)
+
+    def test_moving_sample_reopens_the_hold_window(self):
+        state = self.state()
+        self.hold_still(state, 0.0, self.HOLD)
+        self.assertTrue(state.snapshot(self.HOLD).motion_stopped)
+        state.observe_odometry(0.3, 0.0, self.HOLD + 0.1)
+        self.assertFalse(state.snapshot(self.HOLD + 0.1).motion_stopped)
+        state.observe_odometry(0.0, 0.0, self.HOLD + 0.2)
+        self.assertFalse(state.snapshot(self.HOLD + 0.2).motion_stopped)
+
+    def test_limits_are_inclusive(self):
+        state = self.state()
+        for t in (0.0, 0.2, 0.4, 0.5):
+            state.observe_odometry(self.LIN, self.ANG, t)
+        self.assertTrue(state.snapshot(0.5).motion_stopped)
+
+    def test_just_over_either_limit_is_not_stopped(self):
+        for linear, angular in (
+            (self.LIN + 0.001, 0.0),
+            (0.0, self.ANG + 0.001),
+            (-self.LIN - 0.001, 0.0),
+            (0.0, -self.ANG - 0.001),
+        ):
+            with self.subTest(linear=linear, angular=angular):
+                state = self.state()
+                for t in (0.0, 0.2, 0.4, 0.5):
+                    state.observe_odometry(linear, angular, t)
+                self.assertFalse(state.snapshot(0.5).motion_stopped)
+
+    def test_stale_odometry_is_not_stopped_and_reports_nan(self):
+        state = self.state()
+        self.hold_still(state, 0.0, self.HOLD)
+        self.assertTrue(state.snapshot(self.HOLD).motion_stopped)
+        snapshot = state.snapshot(self.HOLD + self.AGE + 0.001)
+        self.assertFalse(snapshot.motion_stopped)
+        self.assertTrue(math.isnan(snapshot.linear_velocity))
+        self.assertTrue(math.isnan(snapshot.angular_velocity))
+
+    def test_age_boundary_is_inclusive(self):
+        state = self.state()
+        self.hold_still(state, 0.0, self.HOLD)
+        self.assertTrue(state.snapshot(self.HOLD + self.AGE).motion_stopped)
+
+    def test_gap_larger_than_max_age_reopens_the_hold_window(self):
+        # 관측이 끊긴 구간은 연속 유지로 주장할 수 없다.
+        state = self.state()
+        state.observe_odometry(0.0, 0.0, 0.0)
+        state.observe_odometry(0.0, 0.0, 10.0)
+        self.assertFalse(state.snapshot(10.0).motion_stopped)
+        self.hold_still(state, 10.1, 10.0 + self.HOLD + 0.1)
+        self.assertTrue(state.snapshot(10.0 + self.HOLD + 0.1).motion_stopped)
+
+    def test_backwards_timestamp_is_rejected(self):
+        state = self.state()
+        state.observe_odometry(0.0, 0.0, 5.0)
+        with self.assertRaises(ValueError):
+            state.observe_odometry(0.0, 0.0, 4.9)
+
+    def test_non_finite_or_non_numeric_samples_rejected(self):
+        state = self.state()
+        bad = [
+            (float('nan'), 0.0, 0.0),
+            (0.0, float('inf'), 0.0),
+            (True, 0.0, 0.0),
+            (0.0, '0.1', 0.0),
+            (0.0, 0.0, float('nan')),
+            (0.0, 0.0, None),
+        ]
+        for linear, angular, measured_at in bad:
+            with self.subTest(sample=(linear, angular, measured_at)):
+                with self.assertRaises(ValueError):
+                    state.observe_odometry(linear, angular, measured_at)
+
+    def test_repeated_identical_sample_reports_no_change(self):
+        state = self.state()
+        self.assertTrue(state.observe_odometry(0.1, 0.0, 1.0))
+        self.assertFalse(state.observe_odometry(0.1, 0.0, 1.0))
+
+    def test_future_stamp_is_treated_as_fresh(self):
+        # Q-17 과 같은 판단: 같은 시계이고 허용 역행 폭이 미정이다.
+        state = self.state()
+        self.hold_still(state, 0.0, self.HOLD)
+        self.assertTrue(state.snapshot(self.HOLD - 0.2).motion_stopped)
+
+    def test_commanded_stop_is_not_odometry_stop(self):
+        # cmd_vel 이 0 인 것과 실제로 멈춘 것은 다르다. 이 모듈은 odometry
+        # 만 본다 -- 관측이 없으면 정지라고 말하지 않는다.
+        state = self.state()
+        self.assertFalse(state.snapshot(100.0).motion_stopped)
 
 
 if __name__ == '__main__':

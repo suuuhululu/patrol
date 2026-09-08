@@ -25,6 +25,8 @@ contract name and can be pointed elsewhere without editing this file:
   namespace.
 * ``candidate_topic`` -- TBD-IF-009 puts Nav2's collision_monitor output on
   ``cmd_vel_safe``, but 관제's launch has not been merged and confirmed yet.
+* ``odom_topic`` -- the drive base publishes odometry, and like the battery
+  driver its placement is part of TBD-ARCH-001.
 """
 
 from launch import LaunchDescription
@@ -40,6 +42,7 @@ def generate_launch_description():
     safety_state = LaunchConfiguration('safety_state')
     battery_state_topic = LaunchConfiguration('battery_state_topic')
     candidate_topic = LaunchConfiguration('candidate_topic')
+    odom_topic = LaunchConfiguration('odom_topic')
 
     # 노드 namespace 는 robot_id 그대로다. 별도 인자로 두면 둘이 어긋날 수
     # 있고, architecture.md 가 매핑을 이미 고정해 두어 선택의 여지가 없다.
@@ -73,6 +76,15 @@ def generate_launch_description():
             description=(
                 'Arbitrated drive candidate input (TwistStamped). TBD-IF-009 '
                 'points Nav2 collision_monitor cmd_vel_out_topic here.'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'odom_topic',
+            default_value='odom',
+            description=(
+                'Where the drive base publishes nav_msgs/Odometry. '
+                'status_reporter uses it for linear/angular_velocity and the '
+                'motion_stopped judgment of interfaces.md 3절.'
             ),
         ),
         Node(
@@ -109,6 +121,9 @@ def generate_launch_description():
                     safety_state, value_type=int
                 ),
             }],
-            remappings=[('battery_state', battery_state_topic)],
+            remappings=[
+                ('battery_state', battery_state_topic),
+                ('odom', odom_topic),
+            ],
         ),
     ])

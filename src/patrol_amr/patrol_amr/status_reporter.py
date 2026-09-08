@@ -20,6 +20,11 @@ from patrol_amr import robot_status_state as rss
 UINT64_MAX = 0xFFFFFFFFFFFFFFFF
 
 
+def stamp_to_seconds(stamp) -> float:
+    """builtin_interfaces/Time to the float seconds the state model uses."""
+    return stamp.sec + stamp.nanosec / 1e9
+
+
 def validate_configuration(robot_id, source_session_id, safety_state):
     """Validate values that must be explicit before a status can be emitted."""
     if robot_id not in rss.ROBOT_IDS:
@@ -97,6 +102,7 @@ def create_node_class():
         qos_profile_sensor_data,
     )
     from builtin_interfaces.msg import Time
+    from nav_msgs.msg import Odometry
     from patrol_interfaces.msg import RobotStatus
     from sensor_msgs.msg import BatteryState
     from std_msgs.msg import UInt8
@@ -150,11 +156,34 @@ def create_node_class():
                 self._on_battery_observation,
                 qos_profile_sensor_data,
             )
+            # 14단계: odometry 는 로봇 드라이버가 내는 센서 스트림이므로
+            # battery_state 와 같은 sensor data QoS 를 쓴다.
+            self.create_subscription(
+                Odometry, 'odom', self._on_odometry, qos_profile_sensor_data
+            )
             self.create_timer(self.TICK_SECONDS, self._tick)
             self.get_logger().info(
                 f'status reporter ready: robot_id={robot_id} '
                 f'source_session_id={source_session_id!r}'
             )
+
+        def _on_odometry(self, message) -> None:
+            """Feed measured velocity into the motion_stopped judgment.
+
+            This deliberately does NOT call note_change(). Q-02 lists the
+            enum axes and pose_valid as the fields whose change forces an
+            immediate publication; velocity is not among them, and it moves
+            on every sample, so treating it as a change trigger would push
+            the reporter past the 10 Hz change limit for no benefit.
+            """
+            try:
+                self._state.observe_odometry(
+                    message.twist.twist.linear.x,
+                    message.twist.twist.angular.z,
+                    stamp_to_seconds(message.header.stamp),
+                )
+            except ValueError as error:
+                self.get_logger().warning(f'ignored odometry sample: {error}')
 
         def _on_battery_status(self, message) -> None:
             try:
@@ -206,10 +235,11 @@ def create_node_class():
             if snapshot.last_valid_pose is not None:
                 message.last_valid_pose = snapshot.last_valid_pose.value
 
-            # No agreed odometry/token/mission source is connected yet.
-            message.linear_velocity = float('nan')
-            message.angular_velocity = float('nan')
-            message.motion_stopped = False
+            message.linear_velocity = snapshot.linear_velocity
+            message.angular_velocity = snapshot.angular_velocity
+            message.motion_stopped = snapshot.motion_stopped
+
+            # No agreed token/mission source is connected yet.
             message.accepted_token_id = ''
             message.token_valid = False
             message.battery_soc = self._battery_soc
