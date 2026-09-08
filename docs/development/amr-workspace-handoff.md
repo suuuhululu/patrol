@@ -1,6 +1,6 @@
 # AMR 개발 워크스페이스 인수인계
 
-작성일: 2026-09-07 · 최종 갱신: 2026-09-08 10:54 KST · 작업 브랜치: `feat/amr-safety-status`
+작성일: 2026-09-07 · 최종 갱신: 2026-09-08 11:00 KST · 작업 브랜치: `feat/amr-safety-status`
 
 ## 1. 작업 범위와 현재 상태
 
@@ -23,7 +23,7 @@
 | 13 | launch namespace·remap 인자, 스모크에 최종 속도 경로 추가 | 구현·자동시험 `AMR_SMOKE_PASS` 완료. 사용자 검토 대기 |
 | 14 | odometry 연결: `linear_velocity`·`angular_velocity`·`motion_stopped` | 구현·단위시험 32건·스모크 완료. **사용자 ROS 토픽 시험 대기** |
 | 15 | AMR-11 물리 E-stop 로컬 latch | 구현·단위시험 19건·스모크 완료. 사용자 검토 대기 |
-| 16 | AMR-06 token 상태 연결 | 구현·단위시험·빌드 완료. 사용자 ROS 토픽 시험 대기 |
+| 16 | AMR-06 token 상태 연결 | 구현·단위시험·빌드·사용자 ROS 토픽 시험 완료 |
 | 17 | AMR-06 pose 연결 | 구현·단위시험·빌드 완료. 사용자 ROS 토픽 시험 대기 |
 
 11~13단계로 TBD-IF-009 확정분의 AMR 측 구현이 끝났다. 14단계는 관제 회신을 기다리는 동안 진행한 것으로, interfaces.md 3절이 판정 숫자를 이미 확정해 둬 차단 요인이 없었다. 15단계부터는 전부 TBD 해소 또는 타 담당자 코드 병합이 선행되어야 한다.
@@ -42,7 +42,7 @@
 - 회신 반영 중 통합 위험 두 개를 확인했다. namespace 중복은 launch `push_namespace` 인자로 대응했고, 최종 `cmd_vel` 타입은 관제 확인이 필요하다. 10.4절에 적었다.
 - 2026-09-08 사용자 요청으로 **AMR-05·06·07·11 우선**으로 순서를 바꿨다. 재조사 결과 AMR-11의 로컬 latch는 계약이 이미 문장으로 확정돼 있어 15단계로 구현했다. 상세는 11절과 13절이다.
 - 최종 검증: 단위시험 `Ran 138 tests`/`OK`, 확장 스모크 `AMR_SMOKE_PASS`(경로 5종 + 발행자 단일성).
-- 2026-09-08 16단계 구현: `local_safety_supervisor`의 Q-01 판정을 내부 `accepted_token_id` 토픽으로 전달하고 `status_reporter`가 RobotStatus의 `accepted_token_id`·`token_valid`를 함께 채운다. 단위시험 `Ran 146 tests`/`OK`, 두 패키지 빌드 성공. 사용자 ROS 토픽 시험 대기.
+- 2026-09-08 16단계 완료: `local_safety_supervisor`의 Q-01 판정을 내부 `accepted_token_id` 토픽으로 전달하고 `status_reporter`가 RobotStatus의 `accepted_token_id`·`token_valid`를 함께 채운다. 단위시험 `Ran 146 tests`/`OK`, 두 패키지 빌드 성공, 사용자 ROS 토픽 시험 통과.
 - 2026-09-08 17단계 구현: `status_reporter`가 상대 `amcl_pose`를 구독해 현재·last-valid pose와 `pose_valid`를 채운다. 로컬 pose timeout은 추가하지 않았다. 단위시험 `Ran 150 tests`/`OK`, 두 패키지 빌드 성공. 사용자 ROS 토픽 시험 대기.
 - 실제 Nav2 후보 연동은 성현님 launch 병합이 선행된다. 그 전까지 AMR 자체 항목을 먼저 채운다.
 - 아래 이력 항목의 `0efa7fa` 언급은 당시 기록이며 현재 HEAD가 아니다.
@@ -932,7 +932,7 @@ namespace 질의는 철회했다. [architecture.md 2절](../architecture.md)이 
 | 13 | launch 인자 추가와 스모크 확장 | `ros2 launch` 통합 + 확장 스모크 | **완료 (2026-09-08)** |
 | 14 | odometry 연결: `linear_velocity`·`angular_velocity`·`motion_stopped` | 단위 + 사용자 ROS 토픽 시험 | **구현 완료 (2026-09-08), 사용자 시험 대기** |
 | 15 | AMR-11 물리 E-stop 로컬 latch | 단위 + 스모크 | **완료 (2026-09-08)** |
-| 16 | AMR-06 token 상태 연결 (`accepted_token_id`·`token_valid`) | 단위 + 사용자 ROS 토픽 시험 | **구현 완료 (2026-09-08), 사용자 시험 대기** |
+| 16 | AMR-06 token 상태 연결 (`accepted_token_id`·`token_valid`) | 단위 + 사용자 ROS 토픽 시험 | **완료 (2026-09-08)** |
 | 17 | AMR-06 pose 연결 (`pose`·`pose_valid`·`last_valid_pose`) | 단위 + 사용자 ROS 토픽 시험 | **구현 완료 (2026-09-08), 사용자 시험 대기** |
 | 18 | AMR-07 `PatrolReport` 발행 모듈 | 단위시험 | 모듈까지 착수 가능, 입력 연결은 병합 대기 |
 | 19 | 실제 Nav2 후보와 연동해 IT-16 부분 실행 | 통합시험 | 박성현 launch 병합 후 |
@@ -1280,7 +1280,7 @@ python3 tests/integration/publish_odometry.py --linear 0.05 --angular 0.1
 
 미수신·lease 만료·회수·다른 holder는 모두 빈 값이다. 0.1초 재확인 타이머가 새 DriveToken 없이도 lease 만료를 반영한다. Q-02가 token 변경을 즉시 발행 항목으로 정하지 않았으므로 RobotStatus에는 다음 정기 2 Hz 발행 때 반영한다.
 
-자동 검증은 `local_safety_supervisor` 31건, `status_reporter` 12건, 전체 `Ran 146 tests`/`OK`, `colcon build` 두 패키지 성공이다. 확장 스모크에는 수락 token과 만료 후 빈 값 확인을 추가했다. 사용자 ROS 토픽 시험은 대기 중이다.
+자동 검증은 `local_safety_supervisor` 31건, `status_reporter` 12건, 전체 `Ran 146 tests`/`OK`, `colcon build` 두 패키지 성공이다. 확장 스모크에는 수락 token과 만료 후 빈 값 확인을 추가했다. 2026-09-08 사용자가 ROS 토픽 시험 통과를 확인했다.
 
 ### 17단계 — AMR-06 pose 연결 · 구현 완료 2026-09-08
 
@@ -1375,7 +1375,7 @@ ROS에 의존하지 않으며 위 노드들이 import해서 쓴다.
 | 13 | `launch/amr_safety_status.launch.py`, `tests/integration/amr_safety_status_smoke.py` | launch 인자 추가, 스모크에 최종 속도 경로 검증 |
 | 14 | `robot_status_state.py` → `status_reporter.py` | odometry 연결, `motion_stopped` 판정 |
 | 15 | `estop_guard.py` | 물리 E-stop 로컬 latch |
-| 16 | `local_safety_supervisor.py` → `status_reporter.py` | token 상태 내부 토픽 (**구현 완료, 사용자 시험 대기**) |
+| 16 | `local_safety_supervisor.py` → `status_reporter.py` | token 상태 내부 토픽 (**완료**) |
 | 17 | `robot_status_state.py` → `status_reporter.py` | `amcl_pose` 구독, pose 연결 (**구현 완료, 사용자 시험 대기**) |
 | 18 | `patrol_report.py` (신규) | `PatrolReport` 구성·발행 모듈 |
 | 19 | (변경 없음) | 실제 Nav2 후보로 IT-16 부분 실행 |
