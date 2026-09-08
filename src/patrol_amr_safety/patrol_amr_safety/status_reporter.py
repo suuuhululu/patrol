@@ -5,9 +5,8 @@ accepted drive token) with the mission snapshot persisted by
 ``mission_supervisor``. Terminal mission results are drained from a persistent
 local outbox into the fixed public ``PatrolReport`` contract.
 
-``safety_state`` is a required parameter because TBD-IF-003 has not assigned
-its enum numbers. The node transports the explicitly supplied uint8 but does
-not attach an invented meaning to it.
+The internal ``safety_state`` topic carries the fixed public safety enum from
+the local safety supervisor into the status snapshot.
 """
 
 import math
@@ -42,16 +41,12 @@ def stamp_to_seconds(stamp) -> float:
     return stamp.sec + stamp.nanosec / 1e9
 
 
-def validate_configuration(robot_id, source_session_id, safety_state):
+def validate_configuration(robot_id, source_session_id):
     """Validate values that must be explicit before a status can be emitted."""
     if robot_id not in rss.ROBOT_IDS:
         raise ValueError(f'robot_id must be one of {rss.ROBOT_IDS}')
     if not isinstance(source_session_id, str) or not source_session_id:
         raise ValueError('source_session_id must be a non-empty str')
-    if isinstance(safety_state, bool) or not isinstance(safety_state, int):
-        raise ValueError('safety_state must be an int')
-    if not 0 <= safety_state <= rss.UINT8_MAX:
-        raise ValueError('safety_state must fit in uint8')
 
 
 def accepted_token_fields(value: str):
@@ -177,14 +172,12 @@ def create_node_class():
             super().__init__('status_reporter')
             self.declare_parameter('robot_id', '')
             self.declare_parameter('source_session_id', '')
-            self.declare_parameter('safety_state', -1)
             self.declare_parameter('mission_status_path', '')
             self.declare_parameter('report_outbox_path', '')
 
             robot_id = self.get_parameter('robot_id').value
             source_session_id = self.get_parameter('source_session_id').value
-            safety_state = self.get_parameter('safety_state').value
-            validate_configuration(robot_id, source_session_id, safety_state)
+            validate_configuration(robot_id, source_session_id)
             mission_status_path = runtime_file(
                 robot_id,
                 self.get_parameter('mission_status_path').value,
@@ -198,7 +191,6 @@ def create_node_class():
 
             self._source_session_id = source_session_id
             self._state = rss.RobotStatusState(robot_id)
-            self._state.update_states(safety_state=safety_state)
             self._gate = PublicationGate()
             self._sequence = StatusSequence()
             self._battery_soc = float('nan')
@@ -241,6 +233,9 @@ def create_node_class():
             )
             self.create_subscription(
                 UInt8, 'battery_status', self._on_battery_status, internal_qos
+            )
+            self.create_subscription(
+                UInt8, 'safety_state', self._on_safety_state, internal_qos
             )
             self.create_subscription(
                 String,
@@ -324,6 +319,13 @@ def create_node_class():
                 )
             except ValueError as error:
                 self.get_logger().warning(f'ignored odometry sample: {error}')
+
+        def _on_safety_state(self, message) -> None:
+            try:
+                if self._state.update_states(safety_state=message.data):
+                    self._gate.note_change()
+            except ValueError as error:
+                self.get_logger().warning(f'ignored safety state: {error}')
 
         def _on_pose(self, message) -> None:
             """Accept a finite map-frame AMCL pose and preserve its stamp.

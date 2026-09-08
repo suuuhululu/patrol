@@ -48,7 +48,6 @@ class MissionRequest:
     target_id: str = ''
     target_pose: PoseTarget | None = None
     issued_by: str = ''
-    parameters_json: str = ''
 
     def fingerprint(self) -> str:
         """Return stable content identity, excluding transport timestamps."""
@@ -63,7 +62,6 @@ class MissionRequest:
                 'y': self.target_pose.y,
                 'yaw_deg': self.target_pose.yaw_deg,
             },
-            'parameters_json': self.parameters_json,
         }
         canonical = json.dumps(payload, sort_keys=True, separators=(',', ':'))
         return hashlib.sha256(canonical.encode('utf-8')).hexdigest()

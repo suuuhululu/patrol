@@ -203,13 +203,11 @@ flowchart TD
     A[MissionCommand callback] --> B[MissionCommandParser.parse]
     B --> C{구조화 command·mission ID<br/>robot_id·enum 유효}
     C -->|아니오| R[거부 로그]
-    C -->|예| D{parameters_json이 빈 값 또는 유효 JSON}
+    C -->|예| D{명령별 target_id 계약 일치}
     D -->|아니오| R
-    D -->|예| E{MOVE_TO_SAFE_ZONE인가}
-    E -->|예| F{유한한 map pose·유효 quaternion}
-    F -->|아니오| R
-    F -->|예| G[MissionRequest]
-    E -->|아니오| G
+    D -->|예| E{target_pose가 기본값인가}
+    E -->|아니오| R
+    E -->|예| G[MissionRequest]
     G --> H[MissionArbiter.submit]
     H -->|허용| I[즉시 callback 종료]
     H -->|busy·safety 미준비·종료 중| R

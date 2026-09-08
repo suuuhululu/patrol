@@ -81,7 +81,8 @@ class MissionSupervisor(Node):
         self._arbiter.set_external_stop(True)
         self._motion_permission = MotionPermission(
             self._synchronize_motion_authority)
-        parser = MissionCommandParser(self._config.robot_id)
+        parser = MissionCommandParser(
+            self._config.robot_id, self._config.patrol_plan_id)
         self._mission_command_callback = MissionCommandCallback(
             parser,
             self._arbiter,

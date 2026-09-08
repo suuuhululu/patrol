@@ -1,7 +1,12 @@
 # AMR -> 관제. MissionCommand 수락·실행 여부 확인.
 # 토픽: /{robot}/command_check
 # QoS: RELIABLE / VOLATILE / KEEP_LAST(10)
-# check_state 정수 매핑은 TBD-IF-001이므로 상수를 임의로 정의하지 않는다.
+# check_state 정수 매핑 (TBD-IF-001, 2026-09-08 확정).
+
+uint8 CHECK_UNKNOWN=0
+uint8 CHECK_ACCEPTED=1
+uint8 CHECK_EXECUTING=2
+uint8 CHECK_REJECTED=3
 
 std_msgs/Header header
 string command_id

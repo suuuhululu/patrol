@@ -14,7 +14,7 @@ Not implemented here:
 
 * Allowed/forbidden transitions between state-axis combinations
   (TBD-AMR-005).
-* A SafetyState enum or scan/waypoint details (remaining TBD-IF-003).
+* Scan/waypoint details (remaining TBD-IF-003).
 * RobotStatus publication cadence, QoS, session ID, or wire-message mapping;
   those belong to the stage-8 status_reporter ROS node.
 
@@ -86,6 +86,15 @@ class BatteryState(IntEnum):
     FULL = 6
 
 
+class SafetyState(IntEnum):
+    SAFETY_UNKNOWN = 0
+    SAFETY_NORMAL = 1
+    SAFETY_STOPPING = 2
+    SAFETY_STOPPED = 3
+    SAFETY_ESTOPPED = 4
+    SAFETY_ERROR = 5
+
+
 class PoseSample(NamedTuple):
     """One pose observation; value contains the pose and covariance payload."""
 
@@ -144,9 +153,7 @@ class RobotStatusState:
         self._docking_state = DockingState.DOCK_UNKNOWN
         self._battery_state = BatteryState.UNKNOWN
 
-        # The field exists, but its enum numbers are still TBD-IF-003.  None
-        # means "not supplied by an agreed mapping"; zero is not guessed here.
-        self._safety_state = None
+        self._safety_state = SafetyState.SAFETY_UNKNOWN
 
         self._active_command_id = ''
         self._active_mission_id = ''
@@ -212,8 +219,8 @@ class RobotStatusState:
                 BatteryState, battery_state, 'battery_state'
             )
         if safety_state is not _UNCHANGED:
-            updates['_safety_state'] = self._uint8(
-                safety_state, 'safety_state'
+            updates['_safety_state'] = self._enum_value(
+                SafetyState, safety_state, 'safety_state'
             )
 
         changed = any(

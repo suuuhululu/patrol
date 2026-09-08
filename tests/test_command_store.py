@@ -1,6 +1,7 @@
 """AMR-05 persistent MissionCommand deduplication tests."""
 
 from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -31,7 +32,6 @@ def command_args(index=1, **overrides):
             'header': {'frame_id': 'map', 'stamp': [100, 5]},
             'pose': {'x': 1.0, 'y': 2.0, 'yaw': 0.5},
         },
-        'parameters_json': '{"route":"P1-P7"}',
         'received_at': 1000.0 + index,
     }
     values.update(overrides)
@@ -80,7 +80,6 @@ class PersistenceTests(unittest.TestCase):
             {'command': C.CANCEL},
             {'target_id': 'P2'},
             {'target_pose': {'pose': {'x': 9.0}}},
-            {'parameters_json': '{"route":"P2"}'},
         )
         for change in changes:
             with self.subTest(change=change):
@@ -255,7 +254,6 @@ class PersistenceTests(unittest.TestCase):
             {'command': True},
             {'target_id': None},
             {'target_pose': float('nan')},
-            {'parameters_json': '{bad'},
             {'received_at': float('nan')},
         )
         with self.store() as store:
@@ -265,6 +263,49 @@ class PersistenceTests(unittest.TestCase):
                 ):
                     store.register(**command_args(**change))
             self.assertEqual(store.count(), 0)
+
+    def test_legacy_parameters_column_is_removed_without_losing_records(self):
+        connection = sqlite3.connect(self.path)
+        connection.execute(
+            '''
+            CREATE TABLE mission_commands (
+                command_id TEXT PRIMARY KEY,
+                mission_id TEXT NOT NULL,
+                robot_id TEXT NOT NULL,
+                command INTEGER NOT NULL,
+                target_id TEXT NOT NULL,
+                target_pose_json TEXT NOT NULL,
+                parameters_json TEXT NOT NULL,
+                received_at REAL NOT NULL,
+                state TEXT NOT NULL,
+                report_id TEXT,
+                report_payload_json TEXT
+            )
+            '''
+        )
+        args = command_args()
+        connection.execute(
+            '''
+            INSERT INTO mission_commands VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                args['command_id'], args['mission_id'], args['robot_id'],
+                int(args['command']), args['target_id'],
+                MODULE._canonical_json(args['target_pose'], 'target_pose'),
+                '{"legacy":true}', args['received_at'], 'accepted', None, None,
+            ),
+        )
+        connection.commit()
+        connection.close()
+
+        with self.store() as store:
+            columns = {
+                row['name'] for row in store._connection.execute(
+                    'PRAGMA table_info(mission_commands)')
+            }
+            self.assertNotIn('parameters_json', columns)
+            self.assertIs(
+                store.register(**args).verdict, V.DUPLICATE_ACCEPTED)
 
     def test_unknown_command_lookup_fails(self):
         with self.store() as store:

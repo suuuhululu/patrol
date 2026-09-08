@@ -15,6 +15,7 @@ PATROL_AMR_PACKAGE_ROOT = (
     Path(__file__).resolve().parents[1] / 'src/patrol_amr_safety'
 )
 sys.path.insert(0, str(PATROL_AMR_PACKAGE_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/patrol_amr'))
 
 from patrol_amr_safety import (  # noqa: E402 (sys.path 설정 후 import)
     drive_token_guard as dtg,
@@ -40,6 +41,7 @@ def grant_token(
     holder=None,
     control_session_id=SESSION,
 ):
+    g.observe_heartbeat(control_session_id, message_sequence, now)
     return g.observe_drive_token(
         control_session_id,
         token_id,
@@ -50,10 +52,8 @@ def grant_token(
     )
 
 
-def set_estop(g, active, sequence, reason=17, target=None):
-    return g.observe_estop(
-        target or g.robot_id, active, reason, False, sequence
-    )
+def set_estop(g, active, sequence, reason=1, target=None):
+    return g.observe_estop(target or g.robot_id, active, reason, sequence)
 
 
 class DefaultStateTests(unittest.TestCase):
@@ -63,6 +63,7 @@ class DefaultStateTests(unittest.TestCase):
         reasons = g.blocked_reasons(0.0)
         self.assertIn(mg.MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED, reasons)
         self.assertIn(mg.MotionBlockReason.ESTOP_ACTIVE, reasons)
+        self.assertIn(mg.MotionBlockReason.HEARTBEAT_NOT_HEALTHY, reasons)
         self.assertFalse(g.motion_allowed(0.0))
 
 
@@ -113,11 +114,25 @@ class CombinationTests(unittest.TestCase):
 
     def test_missing_token_alone_blocks_even_without_estop(self):
         g = gate()
+        g.observe_heartbeat(SESSION, 1, 0.0)
         set_estop(g, False, sequence=1)
         self.assertEqual(
             g.blocked_reasons(0.0),
             frozenset({mg.MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED}),
         )
+
+    def test_heartbeat_timeout_blocks_and_new_session_revokes_token(self):
+        g = gate()
+        grant_token(g, 0.0)
+        set_estop(g, False, sequence=1)
+        self.assertTrue(g.motion_allowed(0.5))
+        self.assertFalse(g.motion_allowed(1.1))
+        self.assertIn(
+            mg.MotionBlockReason.HEARTBEAT_NOT_HEALTHY,
+            g.blocked_reasons(1.1),
+        )
+        g.observe_heartbeat('ctrl-20260907T120100', 1, 1.2)
+        self.assertEqual(g.token_status(1.2), lss.TokenStatus('', False))
 
 
 class DriveTokenLeaseTests(unittest.TestCase):
@@ -251,7 +266,10 @@ class CandidateOutputTests(unittest.TestCase):
         self.assertEqual(output, mg.STOP)
         self.assertEqual(
             reasons,
-            frozenset({mg.MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED}),
+            frozenset({
+                mg.MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED,
+                mg.MotionBlockReason.HEARTBEAT_NOT_HEALTHY,
+            }),
         )
 
     def test_active_estop_stops_a_fresh_candidate(self):
@@ -309,6 +327,7 @@ class CandidateOutputTests(unittest.TestCase):
             frozenset({
                 mg.MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED,
                 mg.MotionBlockReason.ESTOP_ACTIVE,
+                mg.MotionBlockReason.HEARTBEAT_NOT_HEALTHY,
                 mg.MotionBlockReason.CANDIDATE_STALE,
             }),
         )

@@ -11,7 +11,7 @@ This intentionally verifies only the connections implemented by
   -> cmd_vel                                                      (13단계)
 * Odometry -> status_reporter -> RobotStatus velocity/motion_stopped
                                                                   (14단계)
-* A latched EStop -> local_safety_supervisor stays stopped         (15단계)
+* EStop active/release -> local_safety_supervisor stops/releases
 * Accepted/expired DriveToken -> RobotStatus token fields          (16단계)
 * AMCL pose -> RobotStatus current/last-valid pose                 (17단계)
 
@@ -183,12 +183,11 @@ def _wait_for(node, launch_process, predicate, timeout, description, log_path):
     )
 
 
-def _publish_estop(node, sequence, active, latched=False):
+def _publish_estop(node, sequence, active):
     message = EStop()
     message.target_robot_id = ROBOT_ID
     message.active = active
     message.reason = 2 if active else 0
-    message.latched = latched
     message.sequence = sequence
     node.estop_publisher.publish(message)
 
@@ -578,34 +577,6 @@ def _check_pose_path(node, launch_process, log_path):
         )
 
 
-def _check_local_latch(node, launch_process, log_path):
-    """15단계: a latched E-stop must survive the arbiter clearing it.
-
-    Runs last on purpose. Once the local latch engages, nothing this script
-    can publish releases it -- that is the point -- so no later check could
-    observe motion.
-    """
-    _stream_candidate(node, 0.4, *CANDIDATE)
-    if node.velocity_observations[-1] != CANDIDATE:
-        raise AssertionError("candidate was not flowing before the latch step")
-
-    _publish_estop(node, 20, True, latched=True)
-    node.velocity_observations.clear()
-    _stream_candidate(node, 0.4, *CANDIDATE)
-    if set(node.velocity_observations) != {(0.0, 0.0)}:
-        raise AssertionError("a latched E-stop must stop the output")
-
-    # 관제가 active·latched 를 모두 내려도 로컬 latch 는 남는다.
-    _publish_estop(node, 21, False, latched=False)
-    node.velocity_observations.clear()
-    _stream_candidate(node, 0.8, *CANDIDATE)
-    if set(node.velocity_observations) != {(0.0, 0.0)}:
-        raise AssertionError(
-            "the arbiter clearing latched must not release the local latch: "
-            f"{sorted(set(node.velocity_observations))!r}"
-        )
-
-
 def _status_stamps(node, since_index):
     """RobotStatus publication times from this robot's own snapshot stamps."""
     return [
@@ -721,7 +692,6 @@ def main():
             _check_battery_path(node, launch_process, launch_log.name)
             _check_velocity_path(node, launch_process, launch_log.name)
             _check_odometry_path(node, launch_process, launch_log.name)
-            _check_local_latch(node, launch_process, launch_log.name)
             change_count, fastest = _check_publication_rate(
                 node, launch_process, launch_log.name
             )
@@ -739,7 +709,6 @@ def main():
             )
             print("motion_stopped=false,moving_false,held_true,stale_false")
             print("pose=initial_invalid,valid_map_pose,held_without_timeout")
-            print("local_latch=engaged_on_latched,held_after_arbiter_cleared")
             print(f"cmd_vel_publishers={velocity_publishers}")
             print(
                 f"publication_rate=regular_2hz,change_capped_10hz "

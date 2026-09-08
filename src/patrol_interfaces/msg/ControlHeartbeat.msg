@@ -1,5 +1,3 @@
 std_msgs/Header header
-string message_id
-string source_id
-string boot_id
-uint32 sequence
+string control_session_id
+uint64 sequence

@@ -25,6 +25,7 @@
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>builtin_interfaces</exec_depend>
   <exec_depend>patrol_interfaces</exec_depend>
+  <exec_depend>patrol_amr</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 

@@ -46,16 +46,8 @@ The gateway prunes once at startup and then on a slow timer.
 Answering the arbiter correctly and never running the same command twice
 is a separable job, and it is the half whose contract is already fixed.
 
-Undecided values are parameters rather than guesses:
-
-* ``check_state`` integers are the open half of TBD-IF-001, so
-  ``check_state_accepted``/``_executing``/``_rejected`` must be supplied.
-* The rejection reason codes for an invalid payload and a command_id
-  conflict are not fixed by PatrolReport's reason enum, so
-  ``invalid_reason_code``/``conflict_reason_code`` are supplied too.
-
-The node refuses to start when any of them is missing, the same way
-status_reporter refuses to invent ``safety_state``.
+CommandCheck values and the command-ID conflict code follow the fixed
+2026-09-08 interface contract rather than launch-time parameters.
 """
 
 import os
@@ -83,11 +75,6 @@ def default_database_path(robot_id: str) -> str:
 def validate_configuration(
     robot_id,
     source_session_id,
-    accepted,
-    executing,
-    rejected,
-    invalid_reason_code,
-    conflict_reason_code,
 ):
     """Raise unless every value the wire contract needs was supplied."""
     if robot_id not in ROBOT_IDS:
@@ -112,29 +99,7 @@ def validate_configuration(
             f'source_session_id must start with {robot_id!r}, '
             f'got {source_session_id!r}'
         )
-    for name, value in (
-        ('check_state_accepted', accepted),
-        ('check_state_executing', executing),
-        ('check_state_rejected', rejected),
-    ):
-        if value < 0:
-            raise ValueError(
-                f'{name} parameter is required: the check_state integers are '
-                'the open half of TBD-IF-001 and are not invented here'
-            )
-    for name, value in (
-        ('invalid_reason_code', invalid_reason_code),
-        ('conflict_reason_code', conflict_reason_code),
-    ):
-        if value < 0:
-            raise ValueError(
-                f'{name} parameter is required: no agreed reason enum covers '
-                'it, so a number is not guessed here'
-            )
-    # CheckStateMapping enforces uint8 range and distinctness.
-    return cc.CheckStateMapping(
-        accepted=accepted, executing=executing, rejected=rejected
-    )
+    return cc.CheckStateMapping()
 
 
 def create_node_class():
@@ -162,11 +127,6 @@ def create_node_class():
             super().__init__('command_gateway')
             self.declare_parameter('robot_id', '')
             self.declare_parameter('source_session_id', '')
-            self.declare_parameter('check_state_accepted', -1)
-            self.declare_parameter('check_state_executing', -1)
-            self.declare_parameter('check_state_rejected', -1)
-            self.declare_parameter('invalid_reason_code', -1)
-            self.declare_parameter('conflict_reason_code', -1)
             self.declare_parameter('database_path', '')
 
             robot_id = self.get_parameter('robot_id').value
@@ -174,11 +134,6 @@ def create_node_class():
             mapping = validate_configuration(
                 robot_id,
                 source_session_id,
-                self.get_parameter('check_state_accepted').value,
-                self.get_parameter('check_state_executing').value,
-                self.get_parameter('check_state_rejected').value,
-                self.get_parameter('invalid_reason_code').value,
-                self.get_parameter('conflict_reason_code').value,
             )
 
             database_path = (
@@ -187,15 +142,7 @@ def create_node_class():
             )
             os.makedirs(os.path.dirname(database_path), exist_ok=True)
             self._store = cs.CommandStore(database_path, robot_id)
-            self._ingress = mi.MissionIngress(
-                self._store,
-                invalid_reason_code=self.get_parameter(
-                    'invalid_reason_code'
-                ).value,
-                conflict_reason_code=self.get_parameter(
-                    'conflict_reason_code'
-                ).value,
-            )
+            self._ingress = mi.MissionIngress(self._store)
             self._checks = cc.CommandCheckFactory(
                 robot_id, source_session_id, mapping
             )

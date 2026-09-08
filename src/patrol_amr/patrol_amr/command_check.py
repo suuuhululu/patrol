@@ -1,9 +1,4 @@
-"""Build CommandCheck messages without inventing TBD-IF-001 numbers.
-
-The meanings ACCEPTED, EXECUTING, and REJECTED are fixed, but their uint8
-wire values are not.  A caller must supply three distinct values from the
-approved integration contract before this factory can be constructed.
-"""
+"""Build CommandCheck messages using the 2026-09-08 wire contract."""
 
 from dataclasses import dataclass
 from enum import Enum
@@ -17,6 +12,10 @@ UINT8_MAX = 0xFF
 UINT32_MAX = 0xFFFFFFFF
 UINT64_MAX = 0xFFFFFFFFFFFFFFFF
 COMMAND_CHECK_QOS_DEPTH = 10
+CHECK_UNKNOWN = 0
+CHECK_ACCEPTED = 1
+CHECK_EXECUTING = 2
+CHECK_REJECTED = 3
 
 
 class CheckMeaning(Enum):
@@ -27,9 +26,9 @@ class CheckMeaning(Enum):
 
 @dataclass(frozen=True)
 class CheckStateMapping:
-    accepted: int
-    executing: int
-    rejected: int
+    accepted: int = CHECK_ACCEPTED
+    executing: int = CHECK_EXECUTING
+    rejected: int = CHECK_REJECTED
 
     def __post_init__(self):
         values = (self.accepted, self.executing, self.rejected)

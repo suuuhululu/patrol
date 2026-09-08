@@ -140,15 +140,17 @@ class MissionWorker:
                 f'command execution failed; motion disabled: {exc!r}')
 
         finished_at_ns = self._now_ns()
-        report_error = self._report_completion(
-            request,
-            outcome,
-            reason,
-            reason_code,
-            started_at_ns,
-            finished_at_ns,
-            self._final_waypoint_id(),
-        )
+        report_error = None
+        if outcome != 'PAUSED':
+            report_error = self._report_completion(
+                request,
+                outcome,
+                reason,
+                reason_code,
+                started_at_ns,
+                finished_at_ns,
+                self._final_waypoint_id(),
+            )
         command_store_error = None
         try:
             self._store.finish(request.command_id, outcome, reason)
@@ -159,7 +161,17 @@ class MissionWorker:
                 f'command durability failed; motion disabled: {exc}')
 
         state_store_error = None
-        if not interrupt:
+        if outcome == 'PAUSED':
+            self._state.pause()
+            try:
+                self._persist_state()
+            except Exception as exc:
+                state_store_error = exc
+                self._arbiter.disable_motion('STATUS_DURABILITY_FAILED')
+                self._logger.fatal(
+                    'mission status durability failed; motion disabled: '
+                    f'{exc}')
+        elif outcome == 'CANCELED' or not interrupt:
             self._state.command_finished(outcome, reason, reason_code)
             try:
                 self._persist_state()

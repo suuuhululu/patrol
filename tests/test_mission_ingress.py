@@ -25,7 +25,6 @@ def args(**overrides):
         'command': STORE.MissionCommand.START_PATROL,
         'target_id': 'P1',
         'target_pose': {'frame_id': 'map', 'x': 1.0},
-        'parameters_json': '{}',
         'received_at': 10.0,
     }
     values.update(overrides)
@@ -108,7 +107,6 @@ class WireCopyTests(unittest.TestCase):
         message = SimpleNamespace(
             command_id='cmd-1', mission_id='msn-1', robot_id='robot1',
             command=1, target_id='P1', target_pose=pose,
-            parameters_json='{}',
         )
         fields = MODULE.mission_command_fields(message, received_at=9.0)
         self.assertEqual(fields['target_pose']['header']['frame_id'], 'map')

@@ -142,7 +142,7 @@ ros2 topic pub --once \
   --qos-durability transient_local \
   /control/estop \
   patrol_interfaces/msg/EStop \
-  "{target_robot_id: 'robot6', active: false, reason: 0, latched: false, sequence: 1}"
+  "{target_robot_id: 'robot6', active: false, reason: 0, sequence: 1}"
 ```
 
 ### 터미널 3: 시험용 DriveToken 갱신 — 계속 켜 둠
@@ -189,9 +189,8 @@ ros2 topic pub --once \
     mission_id: '${MISSION_ID}',
     robot_id: 'robot6',
     command: 1,
-    target_id: '',
-    issued_by: 'amr-hardware-test',
-    parameters_json: '{}'}"
+    target_id: 'robot6_default',
+    issued_by: 'amr-hardware-test'}"
 ```
 
 START_PATROL은 dock 상태를 확인해 필요할 때 Undock Action을 실행하고,
@@ -214,8 +213,7 @@ ros2 topic pub --once \
     mission_id: '${MISSION_ID}',
     robot_id: 'robot6',
     command: 0,
-    issued_by: 'amr-hardware-test',
-    parameters_json: '{}'}"
+    issued_by: 'amr-hardware-test'}"
 ```
 
 즉시 안전 차단하려면 DriveToken 터미널을 `Ctrl+C`로 종료한다. 최대 1초

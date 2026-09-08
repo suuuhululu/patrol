@@ -51,6 +51,14 @@ uint8 CHARGING=4
 uint8 PATROL_READY=5
 uint8 FULL=6
 
+# ---- safety : [계약] interfaces.md 4절 -----------------------------------
+uint8 SAFETY_UNKNOWN=0
+uint8 SAFETY_NORMAL=1
+uint8 SAFETY_STOPPING=2
+uint8 SAFETY_STOPPED=3
+uint8 SAFETY_ESTOPPED=4
+uint8 SAFETY_ERROR=5
+
 std_msgs/Header header
 string robot_id
 string source_session_id
@@ -61,7 +69,7 @@ uint8 operational_state                                  # OP_*
 uint8 mission_state                                      # MISSION_*
 uint8 docking_state                                      # DOCK_*
 uint8 battery_state                                      # UNKNOWN..FULL
-uint8 safety_state                                       # enum TBD-IF-003
+uint8 safety_state                                       # SAFETY_*
 
 string active_command_id
 string active_mission_id

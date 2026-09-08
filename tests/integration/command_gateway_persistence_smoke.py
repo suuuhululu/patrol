@@ -82,9 +82,7 @@ class Probe(Node):
         message.mission_id = mission_id
         message.robot_id = ROBOT_ID
         message.command = 1
-        message.target_id = "P1"
-        message.target_pose.header.frame_id = "map"
-        message.parameters_json = "{}"
+        message.target_id = "robot1_default"
         self.publisher.publish(message)
 
 
@@ -101,11 +99,6 @@ def start_gateway(database_path, log_file):
             "-r", f"__ns:={NS}",
             "-p", f"robot_id:={ROBOT_ID}",
             "-p", f"source_session_id:={SOURCE_SESSION_ID}",
-            "-p", f"check_state_accepted:={ACCEPTED}",
-            "-p", f"check_state_executing:={EXECUTING}",
-            "-p", f"check_state_rejected:={REJECTED}",
-            "-p", "invalid_reason_code:=200",
-            "-p", "conflict_reason_code:=101",
             "-p", f"database_path:={database_path}",
         ],
         stdout=log_file,

@@ -9,7 +9,7 @@
 uint8 STOP=0              # 정지. 임무 보존, mission_state=MISSION_PAUSED. PatrolReport 없음
 uint8 START_PATROL=1
 uint8 MOVE_TO_SAFE_ZONE=2
-uint8 RESUME_PATROL=3     # last_completed_waypoint 다음부터. parameters_json 지정이 우선 (CR-002)
+uint8 RESUME_PATROL=3     # last_completed_waypoint 다음부터
 uint8 DOCK=4
 uint8 CANCEL=5            # 임무 종료. PatrolReport result=CANCELED 발행 (CR-002)
 
@@ -27,11 +27,8 @@ string robot_id
 
 uint8 command
 
-# command 별 target 필수 여부와 parameters_json 스키마는 TBD-IF-001이다.
+# command 별 target 필수 여부는 interfaces.md 2절을 따른다.
 string target_id
 geometry_msgs/PoseStamped target_pose
 
 string issued_by
-
-# 스키마는 TBD-IF-001. RESUME_PATROL 의 재개 지점 키 이름·타입도 여기에 포함된다 (CR-002).
-string parameters_json

@@ -32,8 +32,8 @@ class MissionIngress:
         self,
         store: command_store.CommandStore,
         *,
-        invalid_reason_code: int,
-        conflict_reason_code: int,
+        invalid_reason_code: int = 205,
+        conflict_reason_code: int = 203,
     ):
         if not isinstance(store, command_store.CommandStore):
             raise ValueError('store must be a CommandStore')
@@ -138,7 +138,6 @@ def mission_command_fields(message, *, received_at: float) -> dict:
             'command': message.command,
             'target_id': message.target_id,
             'target_pose': pose_stamped_payload(message.target_pose),
-            'parameters_json': message.parameters_json,
             'received_at': received_at,
         }
     except AttributeError as error:

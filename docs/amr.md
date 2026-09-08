@@ -116,13 +116,13 @@ Operational/Mission/Docking은 별개 상태 축이다. interfaces.md의 enum을
 
 2026-09-08: 사용자 업무표의 AMR-05를 100% 종단 기준으로 닫기 위한 첫 구현으로 [command_store.py](../src/patrol_amr/patrol_amr/command_store.py)를 추가했다. ROS 구독 노드가 아니라 mission adapter가 사용할 SQLite 영속 중복 제거 모듈이다.
 
-- `CommandStore.register()`는 `command_id`, `mission_id`, `robot_id`, command enum, `target_id`, target pose, `parameters_json`을 먼저 검증한 뒤 새 command를 ACCEPTED 내부 상태로 원자적으로 저장한다. DDS 수신 시각은 저장하지만 충돌 fingerprint에는 넣지 않는다.
+- `CommandStore.register()`는 `command_id`, `mission_id`, `robot_id`, command enum, `target_id`, target pose를 먼저 검증한 뒤 새 command를 ACCEPTED 내부 상태로 원자적으로 저장한다. DDS 수신 시각은 저장하지만 충돌 fingerprint에는 넣지 않는다. 삭제한 `parameters_json` legacy 컬럼은 기존 행을 보존하는 transaction migration으로 제거한다.
 - 같은 command ID의 재수신은 현재 내부 상태를 `DUPLICATE_ACCEPTED`·`DUPLICATE_EXECUTING`·`DUPLICATE_COMPLETED`로 돌려준다. mission 실행을 다시 시작하지 않는다. 완료 상태에는 기존 report ID와 직렬화 payload를 함께 보존해 향후 adapter가 같은 PatrolReport를 재발행할 수 있다.
 - 같은 command ID에서 interfaces.md 2절이 지정한 충돌 필드 중 하나라도 바뀌면 `COMMAND_ID_CONFLICT`를 반환하고 기존 행은 바꾸지 않는다. target pose는 JSON-compatible payload를 정규화해 key 순서 차이만 무시한다.
 - Q-14에 따라 24시간 이내 command는 개수와 무관하게 모두 유지하고, 24시간보다 오래된 command도 최신 1,000개를 유지한다. DB 파일 경로는 호출자가 명시하며 프로세스 재시작 뒤 같은 파일을 열면 상태와 완료 report가 남아 있다.
 - `complete_report()`는 검증된 `PatrolReportRecord`의 command ID와 robot ID가 저장된 command와 일치할 때만 canonical JSON으로 저장한다. `completed_report()`는 프로세스 재시작 뒤에도 이를 다시 검증해 같은 record로 복원한다. 다른 command·robot의 report가 연결되는 것을 막는다.
 - `completed_reports()`는 Q-14 보존 범위의 완료 report 전체를 command 수신 순서로 복원한다. report ACK 계약이 없으므로 전송 완료로 표시하거나 삭제하지 않는다.
-- command별 target 필수 여부와 `parameters_json` 상세 스키마는 TBD-IF-001이므로 추측하지 않았다. `parameters_json`은 빈 값 또는 문법상 유효한 JSON인지만 확인하고 target pose도 구조를 해석하지 않는다. 공용 CommandCheck의 `check_state` 숫자도 아직 미정이라 이 모듈의 내부 Enum을 wire 값으로 사용하지 않는다.
+- command별 target 계약은 확정했다. START_PATROL은 robot별 default plan ID, DOCK은 robot별 dock ID를 요구하고 나머지는 빈 target ID를 요구한다. `target_pose`는 wire 호환을 위해 유지하지만 모든 명령에서 기본값만 허용한다. CommandCheck는 확정된 0~3 값을 사용한다.
 
 ~~~mermaid
 flowchart TD
@@ -157,9 +157,9 @@ flowchart TD
 
 ~~~mermaid
 flowchart TD
-    CFG[robot/source session + check_state 3값 주입] --> VALID{서로 다른 uint8?}
+    CFG[robot/source session] --> VALID{구조화 session ID 유효?}
     VALID -->|아니오| FAIL[생성 거절]
-    VALID -->|예| FACTORY[CommandCheckFactory]
+    VALID -->|예| FACTORY[고정 check_state 0~3 CommandCheckFactory]
     INPUT[command/mission ID + 의미 + reason] --> FACTORY
     FACTORY --> RECORD[CommandCheckRecord + sequence]
     RECORD --> MAP[전체 wire 필드 변환]
@@ -193,9 +193,9 @@ local_safety_supervisor가 `/{robot}/cmd_vel`의 최종 속도 발행권을 가�
 - 유효하지 않은 token은 주행에 사용하지 않는다. 만료·회수 시 신규 주행을 막고 안전 정지한다.
 - token의 `control_session_id`·`token_id`·`holder_robot_id`·`message_sequence`를 확인한다. 로컬 lease 경과는 Q-01을 따른다.
 - 새 token만 수신했다고 임무를 자동 시작하지 않는다.
-- E-stop 활성화는 즉시 반영한다. 물리 E-stop latch는 수동 reset 전까지 유지한다.
-- token·heartbeat·장애물 원인이 사라진 뒤의 해제 결정은 관제가 한다. 해제 조건 유지 시간은 Q-10이다.
-- heartbeat 상세 계약은 TBD-IF-004다. 임의 timeout을 추가하지 않는다.
+- E-stop 활성화는 즉시 반영한다. AMR은 관제가 발행한 대상별 대표 원인을 소비하며 별도 latch/reset을 두지 않는다.
+- heartbeat는 5 Hz 입력을 받아 1초 초과 미수신 시 로컬 안전 정지한다. 새 control session이면 이전 token을 폐기한다.
+- heartbeat·E-stop이 복구되어도 token과 별도 MissionCommand 없이 자동 재출발하지 않는다.
 
 정지 감속 방식·허용 정지 거리·센서 장애에 대한 속도 출력 규칙은 TBD-AMR-006이다. 안전 정지 요청과 실제 정지 관측을 구분한다.
 
@@ -249,17 +249,12 @@ flowchart TD
 
 2026-09-07: 사용자 4단계 진행 요청에 따라 [estop_guard.py](../src/patrol_amr/patrol_amr/estop_guard.py)에 `/control/estop`의 반영 규칙을 구현했다. [3.1절](#31-drive_token_guardpy--구현-대조-완료)의 `drive_token_guard.py`와 같이 ROS 노드가 아니라 6단계 `local_safety_supervisor`가 사용하는 일반 Python 모듈이며 속도를 발행하지 않는다.
 
-- `EStopGuard(robot_id)`는 어느 로봇의 상태인지 명시한다. `observe(target_robot_id, active, reason, latched, sequence)`는 새 [인터페이스 3.1절](interfaces.md#31-heartbeat와-e-stop)의 필드명을 그대로 사용하고 `ACCEPTED`·`OTHER_TARGET`·`STALE_SEQUENCE`를 반환한다.
-- `active`는 즉시 반영하고 `stopped`는 `active or latched`다. 따라서 물리 latch가 남아 있으면 active=false가 와도 정지를 유지한다. 자동 해제 조건 3초 연속 판정은 관제(Safety Arbiter)가 하므로 이 모듈은 로컬 해제 타이머를 두지 않는다.
+- `EStopGuard(robot_id)`는 어느 로봇의 상태인지 명시한다. `observe(target_robot_id, active, reason, sequence)`는 [인터페이스 3.1절](interfaces.md#31-heartbeat와-e-stop)의 필드명을 그대로 사용하고 `ACCEPTED`·`OTHER_TARGET`·`STALE_SEQUENCE`를 반환한다.
+- `active`는 즉시 반영한다. 자동 해제 조건 3초 연속 판정과 활성 원인 집합·대표 원인 선택은 관제(Safety Arbiter)가 담당하므로 AMR은 로컬 해제 타이머나 별도 latch를 두지 않는다.
 - 관측 전 기본 상태는 정지(`stopped=True`)다. `battery_monitor`의 초기 UNKNOWN, `DriveTokenGuard`의 초기 MISSING과 같은 안전 기본값이다.
-- `reason` enum 숫자는 TBD-IF-004이므로 뜻을 붙이지 않고 uint8 원값으로 저장한다. `latched`도 관제 값을 반영한다.
-- 공통 토픽에서 다른 로봇을 대상으로 한 메시지는 sequence 하한만 갱신하고 상태에는 적용하지 않는다. 전체 대상 문자열은 아직 TBD이므로 임의의 `all` 값을 만들지 않는다. 알 수 없는 대상은 `OTHER_TARGET`이며 기본 정지를 해제하지 않는다.
+- `reason`은 확정된 0~6만 수락하고 관제가 선택한 대표 원인 하나를 저장한다.
+- 공통 토픽에서 `robot1`, `robot6`, `all` 중 자신의 대상과 `all`만 상태에 적용한다. 다른 대상은 sequence 하한만 갱신하고 `OTHER_TARGET`을 반환한다.
 - `observe()`는 로그 이름을 반환하지 않는다. 호출자가 호출 전후로 `.stopped`를 비교해 상태 전이를 판정한다. 모듈은 `EVENT_ACTIVATED`·`EVENT_AUTO_RELEASED` 문자열만 정의해 둔다.
-
-**미구현으로 남긴 부분**
-
-- E-stop `reason` 정수 매핑과 전체 대상 문자열. TBD-IF-004가 정해지면 상수와 전체 대상 처리를 추가한다.
-- 물리 E-stop의 로컬 방어적 latch/reset API. 현재 `latched`는 Safety Arbiter 결과를 반영하며 수동 reset 요청 경로는 TBD-IF-004다.
 
 **구현 대조 완료** — 2026-09-07 현재 코드 기준. 패키지 실행 등록은 9단계에서 추가한다.
 
@@ -268,25 +263,17 @@ flowchart TD
     MSG[estop 관측 / observe] --> SEQ{sequence 가 마지막 수락 값 초과 또는 최초?}
     SEQ -->|아니오| STL[STALE_SEQUENCE 폐기 / 상태 불변]
     SEQ -->|예| SET[공통 stream sequence 하한 갱신]
-    SET --> TARGET{target_robot_id 가 자신?}
+    SET --> TARGET{target_robot_id 가 자신 또는 all?}
     TARGET -->|아니오| OTHER[OTHER_TARGET / 상태 불변]
-    TARGET -->|예| ACC[active·reason·latched 반영 / ACCEPTED]
-    ACC --> STOPPED[stopped = active OR latched]
+    TARGET -->|예| ACC[active·대표 reason 반영 / ACCEPTED]
+    ACC --> STOPPED[stopped = active]
     Q[호출자: observe 전후 stopped 비교] --> T1{False → True?}
     T1 -->|예| EA[EVENT_ACTIVATED 로그]
     T1 -->|아니오| T2{True → False?}
     T2 -->|예| ER[EVENT_AUTO_RELEASED 로그]
 ~~~
 
-**15단계 추가 — 물리 E-stop 로컬 latch(2026-09-08).** [Q-10](interfaces.md#9-qos와-공통-시간거리-기준)과 [interfaces.md 3.1절](interfaces.md)이 "물리 E-stop은 수동 reset까지 latch"를 문장으로 확정해 두었다. 관제가 보낸 `latched`를 그대로 비추기만 하면 이 문장을 지킬 수 없다 — 관제가 나중에 `latched=false`를 보내거나 발행을 멈추면, 아무도 버튼을 만지지 않았는데 로봇이 다시 움직인다.
-
-- 수락된 `latched=true` 관측이 이 가드가 소유한 latch를 건다. **들어오는 메시지로는 내려가지 않는다.** `reset_local_latch()`만 내린다.
-- `stopped`는 `active` 또는 arbiter의 `latched` 또는 로컬 latch 중 하나라도 참이면 참이다. 셋을 분리해 두었으므로 reset은 로컬 latch만 내리고 활성 E-stop이나 arbiter의 주장을 덮어쓰지 않는다.
-- 다른 로봇 대상 메시지와 역순 sequence 메시지는 latch를 걸지 않는다. 기존 폐기 규칙을 그대로 통과한 관측만 반영한다.
-
-**남긴 부분 — reset을 호출할 경로.** TBD-IF-004의 잔여 항목에 수동 reset 요청 계약(토픽인지 서비스인지, 누가 보낼 수 있는지, 무엇이 승인하는지)이 남아 있다. 임의로 만들면 물리 E-stop을 푸는 수단을 추측으로 시스템에 넣는 셈이다. 그래서 `reset_local_latch()`는 ROS 호출자가 없는 메서드로 두었고, **그 결과 latch가 걸린 로봇은 노드를 재시작해야 풀린다.** 안전한 방향이며, TBD-IF-004를 닫아야 할 이유이지 추측할 이유가 아니다.
-
-검증: [단위시험](../tests/test_estop_guard.py) 19건은 관측 전 안전 기본값, 자기 대상 active·reason·latched 반영, 다른 로봇 대상 미적용, 공통 sequence 하한, 역순·중복 폐기, uint64 경계와 호출자 오류를 확인한다. 15단계분은 들어오는 메시지가 로컬 latch를 못 내리는 것, reset만이 내리는 것, reset이 활성 E-stop이나 arbiter의 `latched`를 덮지 않는 것, 다른 로봇·역순 메시지가 latch를 걸지 않는 것, 재latch를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_estop_guard.py -v`다. [IT-11](integration.md#4-통합시험-명세)의 로컬 반영 부분이며 관제 연동과 물리 버튼 실기 시험은 미실행이다.
+검증: [단위시험](../tests/test_estop_guard.py)은 관측 전 안전 기본값, 자기 대상과 `all`의 active·대표 reason 반영, 다른 로봇 대상 미적용, sequence 역행·중복 폐기, reason 0~6과 uint64 경계를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_estop_guard.py -v`다. [IT-11](integration.md#4-통합시험-명세)의 로컬 반영 부분이며 관제 연동과 물리 버튼 실기 시험은 미실행이다.
 
 ### 3.3 motion_guard.py — 구현 대조 완료
 
@@ -346,11 +333,11 @@ flowchart TD
 
 2026-09-07: 사용자가 6단계 진행을 요청하기 전 5단계와 같은 이유로 범위를 확인했다. [local_safety_supervisor.py](../src/patrol_amr/patrol_amr/local_safety_supervisor.py)는 3~5단계에서 만든 세 가드를 실제 ROS 노드로 묶은 첫 지점이며, [3.1](#31-drive_token_guardpy--구현-대조-완료)~[3.3절](#33-motion_guardpy--구현-대조-완료)과 달리 `battery_monitor`(5.1절)처럼 진짜 ROS 노드다.
 
-**구현한 것** — `/control/drive_token`·`/control/estop`을 실제로 구독해 `DriveTokenGuard`·`EStopGuard`에 반영하고, 결합 결과를 AMR 내부 신호 `motion_allowed`(`std_msgs/Bool`)로 발행한다. `battery_status`(5.1절)와 같은 성격의 내부 연결이며 공용 인터페이스를 추가한 것이 아니다.
+**구현한 것** — `/control/drive_token`·`/control/heartbeat`·`/control/estop`을 실제로 구독해 세 가드에 반영하고, 결합 결과를 AMR 내부 신호 `motion_allowed`(`std_msgs/Bool`)와 `safety_state`(`std_msgs/UInt8`)로 발행한다. `battery_status`(5.1절)와 같은 성격의 내부 연결이며 공용 인터페이스를 추가한 것이 아니다.
 
-- `SafetyGate`: ROS에 의존하지 않는 순수 조합 클래스. `robot_id` 하나로 `DriveTokenGuard`·`EStopGuard`·`MotionGuard`를 묶는다. `observe_drive_token`·`observe_estop`이 각 가드의 `observe()`를 그대로 위임하고, `blocked_reasons(now)`/`motion_allowed(now)`가 `MotionGuard.blocked_reasons()`([3.3절](#33-motion_guardpy--구현-대조-완료) 참고)로 결합 판정을 낸다. 노드 클래스와 분리해 둬 ROS 없이도 단위시험이 가능하다.
+- `SafetyGate`: ROS에 의존하지 않는 순수 조합 클래스. `DriveTokenGuard`·`HeartbeatGuard`·`EStopGuard`·`MotionGuard`를 묶는다. heartbeat가 새 control session을 수락하면 이전 token을 폐기하며, `blocked_reasons(now)`/`motion_allowed(now)`가 세 권한 조건을 결합한다.
 - `estop_transition_event(previous_stopped, current_stopped, verdict)`: 수락된 E-stop 관측이 활성에서 해제로 전이했을 때 기존 안전 로그 이름 `E_STOP_AUTO_RELEASED`를 선택한다. `local_safety_supervisor._on_estop()`은 `robot_id`·`target_robot_id`·`sequence`와 함께 이 로그를 남긴다. 최종 `motion_allowed`가 token 부재 때문에 계속 `false`여도 E-stop 해제 반영 자체를 확인할 수 있다.
-- 신선도 재확인 타이머(0.1초, `battery_monitor`의 `_check_freshness`와 같은 간격)가 새 메시지 없이도 매 주기 `blocked_reasons(now)`를 다시 계산한다. drive_token의 Q-01 lease는 메시지 수신이 아니라 시계로 만료되므로, 메시지가 끊기면 이 타이머가 만료를 감지해 `motion_allowed`를 다시 발행한다. E-stop에는 이런 타이머가 없다 — lease 개념이 없고, heartbeat·신선도 timeout은 TBD-IF-004라 amr.md 3절의 임의 timeout 금지를 그대로 따른다.
+- 신선도 재확인 타이머(0.1초)가 새 메시지 없이도 drive token lease와 heartbeat 1초 timeout을 다시 계산해 `motion_allowed`·`safety_state`·최종 속도를 갱신한다. E-stop은 lease 없이 마지막 관제 상태를 유지한다.
 - QoS: drive_token 구독은 9절의 BEST_EFFORT・VOLATILE・KEEP_LAST(3)만 요청하고 deadline은 요청하지 않는다. 처음에는 9절의 "deadline 200ms"까지 구독측에 걸었으나, 사용자 시험 중 DDS 계층에서 실제로 막히는 것을 발견했다 — RxO 호환 규칙상 미지정 offered deadline은 무한대로 취급되어, deadline을 명시하지 않는 발행자(`ros2 topic pub` 포함)의 메시지가 전혀 도달하지 않는다("Last incompatible policy: DEADLINE"). 9절의 deadline·lifespan 값은 실제 발행자(관제)가 지켜야 할 발행 주기·보관 기한 설명으로 재해석했다. 신선도(끊김 감지)는 이미 구현된 Q-01 lease 만료(`DriveTokenGuard.authority`, 애플리케이션 계층)가 담당하므로 DDS deadline 없이도 안전 방향은 유지된다. estop은 9절이 "단일 상태, 정확한 depth TBD"로 남겨, RELIABLE・TRANSIENT_LOCAL은 그대로 따르고 depth=1만 이 노드(구독측)의 로컬 선택으로 채웠다 — 공용 계약을 확정한 것이 아니다. TRANSIENT_LOCAL 요구 때문에 `ros2 topic pub`으로 시험할 때는 `--qos-durability transient_local --qos-reliability reliable`을 함께 줘야 한다(기본값은 VOLATILE이라 그냥 두면 "Last incompatible policy: DURABILITY"로 막힌다 — 의도된 동작이며, 계약과 다른 durability의 발행자를 실제로 걸러낸다). `motion_allowed`는 `battery_status`와 같은 RELIABLE・TRANSIENT_LOCAL・KEEP_LAST(1)이다.
 - `robot_id`는 필수 ROS parameter다(`--ros-args -p robot_id:=robot1` 또는 `robot6`). 기본값을 두지 않고 미지정·오지정 시 노드 시작을 막는다 — 잘못된 기본값으로 다른 로봇의 token을 조용히 받아들이는 위험을 피했다.
 
@@ -379,6 +366,7 @@ flowchart TD
 ~~~mermaid
 flowchart TD
     DT[/control/drive_token 콜백] --> OT[SafetyGate.observe_drive_token]
+    HB[/control/heartbeat 콜백] --> OH[SafetyGate.observe_heartbeat]
     ES[/control/estop 콜백] --> PRE[이전 estop stopped 저장]
     PRE --> OE[SafetyGate.observe_estop]
     OE --> REL{ACCEPTED이고 True → False?}
@@ -387,13 +375,18 @@ flowchart TD
     RLOG --> PUB
     TIMER[0.1초 재확인 타이머] --> PUB
     OT --> PUB[_publish_if_changed]
+    OH --> PUB
     OT --> TOK[SafetyGate.token_status now]
+    OH --> TOK
     TIMER --> TOK
     TOK --> TV{accepted token ID가 바뀜?}
     TV -->|예| TP[accepted_token_id 내부 토픽 발행]
     TV -->|아니오| TSKIP[발행 생략]
     PUB --> BR[SafetyGate.blocked_reasons now]
-    BR --> D{drive_token GRANTED?}
+    BR --> H{heartbeat HEALTHY?}
+    H -->|아니오| RH[HEARTBEAT_NOT_HEALTHY]
+    H -->|예| D{drive_token GRANTED?}
+    RH --> D
     D -->|아니오| R1[DRIVE_TOKEN_NOT_GRANTED]
     D -->|예| E
     R1 --> E{estop stopped?}
@@ -401,7 +394,7 @@ flowchart TD
     E -->|아니오| CHK
     R2 --> CHK{allowed 값이 이전과 다름?}
     CHK -->|아니오| SKIP[발행 생략]
-    CHK -->|예| MA[motion_allowed 발행 + 로그]
+    CHK -->|예| MA[motion_allowed·safety_state 발행 + 로그]
 ~~~
 
 최종 속도 경로는 위 권한 경로와 별개다. 12단계에서 추가한 부분이다.
@@ -413,10 +406,10 @@ flowchart TD
     FIN -->|예| OC[SafetyGate.observe_candidate]
     OC --> PO[_publish_output always=true]
     TIMER2[0.1초 재확인 타이머] --> PO2[_publish_output always=false]
-    DT2[drive_token / estop 콜백] --> PO2
+    DT2[drive_token / heartbeat / estop 콜백] --> PO2
     PO --> EV[SafetyGate.output monotonic_now, ros_now]
     PO2 --> EV
-    EV --> GA{token GRANTED / estop 해제?}
+    EV --> GA{heartbeat HEALTHY / token GRANTED / estop 해제?}
     GA -->|아니오| RS[권한 사유 추가]
     GA -->|예| CA
     RS --> CA{후보 있음?}
@@ -436,7 +429,7 @@ flowchart TD
 
 ### 3.5 heartbeat_guard.py — 구현 대조 완료 (순수 모듈)
 
-2026-09-08: 사용자 업무표의 AMR-20을 100%로 닫기 위한 확정 계약 부분을 [heartbeat_guard.py](../src/patrol_amr/patrol_amr/heartbeat_guard.py)에 구현했다. TBD-IF-004에 wire 메시지 타입이 남아 있어 ROS subscriber는 만들지 않았다.
+2026-09-08: [heartbeat_guard.py](../src/patrol_amr/patrol_amr/heartbeat_guard.py)에 확정 계약을 구현하고 `local_safety_supervisor`의 `/control/heartbeat` subscriber와 최종 속도 게이트에 연결했다.
 
 - `HeartbeatGuard.observe(control_session_id, sequence, now)`는 비어 있지 않은 관제 session과 1 이상 uint64 sequence를 검증한다. 같은 session의 중복·역순 sequence는 폐기하며 마지막 수락 시각을 갱신하지 않는다.
 - 새 control session은 sequence 하한을 다시 1부터 받을 수 있고 이전 session을 retire한다. retire된 session이 늦게 도착해도 현재 session이나 신선도를 되돌리지 않는다.
@@ -465,7 +458,7 @@ flowchart TD
     HEALTHY --> WAITCMD[복구만으로 자동 재출발 금지]
 ~~~
 
-검증 기록: main 구현 당시 로컬 단위시험 10건으로 MISSING 기본값, 1.0초 경계와 초과, 정상 갱신, 중복·역순이 timeout을 연장하지 않음, session 교체와 이전 session 재등장 차단, uint64·시각·시계 역행 검증을 확인했다. 전체 회귀는 `Ran 190 tests`/`OK`, 두 패키지 빌드는 성공했다. 메시지 타입 합의 후 `local_safety_supervisor`에 연결하고 IT-10을 통과하기 전에는 AMR-20을 100%로 표시하지 않는다.
+검증 기록: 단위시험은 MISSING 기본값, 1.0초 경계와 초과, 정상 갱신, 중복·역순이 timeout을 연장하지 않음, session 교체·이전 token 폐기, uint64·시각·시계 역행을 확인한다. 실제 관제 연동 IT-10은 배포 환경에서 수행한다.
 
 ## 4. Nav2·위치·Keepout
 
@@ -705,12 +698,12 @@ RobotStatus의 발행·변경 rate는 Q-02다. PatrolReport는 명령과 연결�
 
 - `OperationalState`, `MissionState`, `DockingState`, `BatteryState`: [인터페이스 4·8절](interfaces.md#4-robotstatus)에 확정된 숫자만 `IntEnum`으로 정의했다. 네 축은 독립적으로 갱신한다. 축 조합별 허용 전이는 TBD-AMR-005이므로 이 파일에서 임의로 막지 않는다.
 - `RobotStatusState.update_states(...)`: 전달된 축의 값을 모두 먼저 검증한 뒤 한꺼번에 반영한다. 하나라도 잘못되면 어느 축도 바뀌지 않는다. 실제 변경이 있을 때만 내부 `revision`을 1 증가시킨다. 이 revision은 8단계의 변경 감지용 로컬 값이며 공용 `status_sequence`가 아니다.
-- `safety_state`: 필드 이름은 사용하지만 enum 숫자는 TBD-IF-003이므로 `SafetyState` enum과 기본 숫자를 만들지 않았다. 합의된 값이 호출자에게서 들어오면 uint8 범위만 검증해 보관한다. 초기 `None`은 “계약 매핑이 아직 공급되지 않음”이라는 내부 상태이고 ROS 메시지 값이 아니다.
+- `safety_state`: 확정된 `SafetyState` 0~5 enum만 수락한다. 초기값은 `SAFETY_UNKNOWN(0)`이다.
 - `RobotStatusState.observe_pose(...)`: 유효 위치는 payload, `map` frame, 측정 시각이 모두 있어야 한다. `pose_valid=false`가 들어오면 현재 pose는 무효로 표시하되 마지막 유효 pose는 지우지 않는다. pose payload에는 8단계에서 ROS pose와 covariance가 함께 들어온다.
 - `RobotStatusState.snapshot(snapshot_at)`: 현재 상태의 복사본을 만들고 같은 ROS clock의 snapshot 시각에서 마지막 유효 pose 측정 시각을 빼 `last_valid_pose_age`를 계산한다. token lease처럼 로컬 monotonic 시간을 쓰는 곳과 섞지 않는다.
 - `RobotStatusState.update_mission_context(...)`: active command/mission ID, current waypoint, scan state, reason code/detail을 모두 먼저 검증한 뒤 한 번에 갱신한다. ID와 문자열은 mission 입력을 그대로 보존하며 waypoint·scan 의미는 TBD-IF-003이라 해석하지 않는다. reason code는 공용 필드 타입인 uint32 범위만 검증한다.
 
-새 [interfaces.md](interfaces.md#4-robotstatus)는 상태 필드 이름을 `operational_state`, `mission_state`, `docking_state`, `battery_state`, `safety_state`로 명확히 했으므로 내부 모델도 이 이름을 사용한다. 2026-09-07 사용자 요청으로 [RobotStatus.msg](../src/patrol_interfaces/msg/RobotStatus.msg)도 같은 이름과 의미 필드로 동기화했다. safety enum 숫자와 waypoint·scan 상세 동작은 여전히 TBD-IF-003이다.
+새 [interfaces.md](interfaces.md#4-robotstatus)는 상태 필드 이름을 `operational_state`, `mission_state`, `docking_state`, `battery_state`, `safety_state`로 명확히 했으므로 내부 모델도 이 이름을 사용한다. [RobotStatus.msg](../src/patrol_interfaces/msg/RobotStatus.msg)도 같은 이름과 확정된 safety enum으로 동기화했다. waypoint·scan 상세 동작은 여전히 TBD-IF-003이다.
 
 ~~~mermaid
 flowchart TD
@@ -756,7 +749,7 @@ flowchart TD
 2026-09-07: 사용자 8단계 진행 요청에 따라 [status_reporter.py](../src/patrol_amr/patrol_amr/status_reporter.py)를 추가했다. `/{robot}/robot_status`를 새 `RobotStatus.msg` 이름으로 발행하며 Q-02의 정기 2 Hz와 상태 변경 발행 최대 10 Hz를 `PublicationGate`가 관리한다. `StatusSequence`는 프로세스 세션 안에서 1부터 증가하고, `source_session_id`는 실행 시 필수 parameter로 받는다.
 
 - 입력 연결: 현재 구현된 상대 내부 토픽 `battery_status`를 구독해 `battery_state`를 갱신한다. 원본 `battery_state`도 읽어 유효한 SOC와 센서 측정 시각을 `battery_soc`·`battery_timestamp`로 보존한다. enum 변경은 최대 10 Hz 제한 안에서 즉시 발행 대상으로 표시한다.
-- 필수 설정: `robot_id`, `source_session_id`, `safety_state`를 모두 명시해야 시작한다. `safety_state`는 TBD-IF-003 때문에 기본 숫자를 만들 수 없어, 통합 주체가 합의된 uint8 값을 넣도록 강제했다. 현재 단계의 `safety_state:=0`은 전송 시험값일 뿐 의미 확정이 아니다.
+- 필수 설정은 `robot_id`, `source_session_id`다. `safety_state`는 파라미터가 아니라 `local_safety_supervisor`의 내부 transient-local 상태 토픽을 구독해 갱신한다.
 - **14단계 odometry 연결(2026-09-08):** 상대 토픽 `odom`(`nav_msgs/Odometry`)을 구독해 `linear_velocity`·`angular_velocity`·`motion_stopped`를 채운다. 판정은 7.1절의 `RobotStatusState`가 하고 이 노드는 ROS 변환만 한다. `odom`은 로봇 드라이버가 내는 표준 토픽이며 interfaces.md TBD 표에 없다 — 미정 항목이 아니다. launch의 `odom_topic` 인자로 드라이버 위치를 바꿀 수 있다(TBD-ARCH-001).
 - **16단계 token 연결(2026-09-08):** 상대 내부 토픽 `accepted_token_id`(`std_msgs/String`)를 구독한다. 값이 비어 있지 않으면 같은 값을 `accepted_token_id`에 쓰고 `token_valid=true`, 빈 값이면 `''`·`false`로 한 snapshot에서 함께 쓴다. Q-02의 즉시 발행 목록에는 token이 없으므로 다음 정기 2 Hz snapshot에 반영한다.
 - **17단계 pose 연결(2026-09-08):** Nav2 AMCL 표준 상대 토픽 `amcl_pose`(`geometry_msgs/PoseWithCovarianceStamped`)를 구독한다. `map` frame이고 pose·covariance 전부가 유한한 메시지는 현재 pose와 last-valid pose에 함께 보존한다. frame·수치가 무효면 `pose_valid=false`로 바꾸되 last-valid pose는 지우지 않는다. `pose_valid` 전이만 Q-02의 변경 발행 대상으로 표시하고 일반 위치 이동은 정기 2 Hz snapshot에 반영한다.
@@ -769,7 +762,7 @@ flowchart TD
 
 ~~~mermaid
 flowchart TD
-    START[StatusReporter 생성] --> CFG{robot_id / source_session_id / safety_state 유효?}
+    START[StatusReporter 생성] --> CFG{robot_id / source_session_id 유효?}
     CFG -->|아니오| FAIL[시작 실패]
     CFG -->|예| MODEL[RobotStatusState 안전 초기값 생성]
     BS[battery_status 콜백] --> BVAL{BatteryState enum 유효?}

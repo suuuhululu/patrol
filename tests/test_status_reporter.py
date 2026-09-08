@@ -62,17 +62,12 @@ class AcceptedTokenFieldTests(unittest.TestCase):
 
 class ConfigurationTests(unittest.TestCase):
     def test_valid_explicit_configuration(self):
-        MODULE.validate_configuration(
-            'robot1', 'robot1-20260907T120000', 200
-        )
+        MODULE.validate_configuration('robot1', 'robot1-20260907T120000')
 
     def test_invalid_configuration_is_rejected(self):
         cases = (
-            ('robot2', 'robot1-20260907T120000', 0),
-            ('robot1', '', 0),
-            ('robot1', 'session', -1),
-            ('robot1', 'session', 256),
-            ('robot1', 'session', True),
+            ('robot2', 'robot1-20260907T120000'),
+            ('robot1', ''),
         )
         for args in cases:
             with self.subTest(args=args):
