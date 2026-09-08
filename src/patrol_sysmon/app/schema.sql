@@ -28,6 +28,13 @@ CREATE TABLE IF NOT EXISTS robot_latest_status (
     pose_valid INTEGER NOT NULL DEFAULT 1 CHECK (pose_valid IN (0, 1)),
     last_valid_pose_at TEXT,
     mission_status TEXT NOT NULL,
+    -- [안전 상태] RobotStatus.safety_state(계약 4절). ESTOPPED만으로 실제 정지를 단정하지 않으므로
+    -- motion_stopped와 원인 코드를 따로 보존한다.
+    safety_state TEXT NOT NULL DEFAULT 'UNKNOWN'
+        CHECK (safety_state IN ('UNKNOWN', 'NORMAL', 'STOPPING', 'STOPPED', 'ESTOPPED', 'ERROR')),
+    motion_stopped INTEGER NOT NULL DEFAULT 0 CHECK (motion_stopped IN (0, 1)),
+    safety_reason_code INTEGER NOT NULL DEFAULT 0,
+    safety_reason TEXT NOT NULL DEFAULT '',
     connection_status TEXT NOT NULL CHECK (connection_status IN ('ONLINE', 'OFFLINE', 'UNKNOWN')),
     observed_at TEXT NOT NULL,
     received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
@@ -47,6 +54,13 @@ CREATE TABLE IF NOT EXISTS robot_status_history (
     pose_valid INTEGER NOT NULL DEFAULT 1 CHECK (pose_valid IN (0, 1)),
     last_valid_pose_at TEXT,
     mission_status TEXT NOT NULL,
+    -- [안전 상태] RobotStatus.safety_state(계약 4절). ESTOPPED만으로 실제 정지를 단정하지 않으므로
+    -- motion_stopped와 원인 코드를 따로 보존한다.
+    safety_state TEXT NOT NULL DEFAULT 'UNKNOWN'
+        CHECK (safety_state IN ('UNKNOWN', 'NORMAL', 'STOPPING', 'STOPPED', 'ESTOPPED', 'ERROR')),
+    motion_stopped INTEGER NOT NULL DEFAULT 0 CHECK (motion_stopped IN (0, 1)),
+    safety_reason_code INTEGER NOT NULL DEFAULT 0,
+    safety_reason TEXT NOT NULL DEFAULT '',
     connection_status TEXT NOT NULL CHECK (connection_status IN ('ONLINE', 'OFFLINE', 'UNKNOWN')),
     observed_at TEXT NOT NULL,
     received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
@@ -281,31 +295,24 @@ CREATE TABLE IF NOT EXISTS keepout_latest (
     received_at TEXT NOT NULL
 );
 
--- [20단계: E-stop 최신] Safety Arbiter가 보낸 마지막 상태 한 행이다.
+-- [20단계: E-stop 최신] Safety Arbiter가 대상(robot1·robot6·all)별로 보낸 마지막 상태다.
+-- interfaces.md 3.1절(2026-09-08): 물리 E-stop·수동 reset은 구현 범위 밖이라 latched 계열 열이 없다.
 CREATE TABLE IF NOT EXISTS estop_latest (
-    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    estop_id TEXT NOT NULL,
-    message_id TEXT NOT NULL,
+    target_robot_id TEXT PRIMARY KEY NOT NULL CHECK (target_robot_id IN ('robot1', 'robot6', 'all')),
     active INTEGER NOT NULL CHECK (active IN (0, 1)),
-    reason_code INTEGER NOT NULL DEFAULT 0,
-    reason TEXT NOT NULL DEFAULT '',
-    manual_reset_required INTEGER NOT NULL CHECK (manual_reset_required IN (0, 1)),
-    source_id TEXT NOT NULL DEFAULT '',
+    -- 대표 원인 하나(0~6). 전체 활성 원인 집합은 관제가 별도 계약(TBD-IF-011)으로 준다.
+    reason INTEGER NOT NULL DEFAULT 0 CHECK (reason BETWEEN 0 AND 6),
     sequence INTEGER NOT NULL,
     observed_at TEXT NOT NULL,
     received_at TEXT NOT NULL
 );
 
--- [20단계: E-stop 이력] 2 Hz 반복 수신은 최신 행만 갱신하고 활성·해제가 바뀐 시점만 남긴다.
+-- [20단계: E-stop 이력] 반복 수신은 최신 행만 갱신하고 활성·해제·대표 원인이 바뀐 시점만 남긴다.
 CREATE TABLE IF NOT EXISTS estop_history (
     id INTEGER PRIMARY KEY,
-    message_id TEXT NOT NULL UNIQUE,
-    estop_id TEXT NOT NULL,
+    target_robot_id TEXT NOT NULL CHECK (target_robot_id IN ('robot1', 'robot6', 'all')),
     active INTEGER NOT NULL CHECK (active IN (0, 1)),
-    reason_code INTEGER NOT NULL DEFAULT 0,
-    reason TEXT NOT NULL DEFAULT '',
-    manual_reset_required INTEGER NOT NULL CHECK (manual_reset_required IN (0, 1)),
-    source_id TEXT NOT NULL DEFAULT '',
+    reason INTEGER NOT NULL DEFAULT 0 CHECK (reason BETWEEN 0 AND 6),
     sequence INTEGER NOT NULL,
     observed_at TEXT NOT NULL,
     received_at TEXT NOT NULL

@@ -12,9 +12,10 @@ from .registry import (
     CAMERA_IDS_BY_TOPIC, CAMERA_STATE_SOURCES_BY_TOPIC, CAMERA_STATE_TYPES,
     COSTMAP_SOURCES_BY_TOPIC, DETECTION_EVENT_TYPES, DETECTION_RISK_LEVELS,
     DETECTION_SOURCES_BY_TOPIC, EVIDENCE_SOURCES_BY_TOPIC, KEEPOUT_SOURCES_BY_TOPIC,
+    ESTOP_REASONS, ESTOP_TARGETS,
     KEEPOUT_STATES, MISSION_STATES, PATROL_REPORT_RESULTS,
     PATROL_REPORT_SOURCES_BY_TOPIC, PATROL_VISIT_RESULTS,
-    PATROL_VISIT_SOURCES_BY_TOPIC, ROBOT_DISPLAY_IDS,
+    PATROL_VISIT_SOURCES_BY_TOPIC, ROBOT_DISPLAY_IDS, SAFETY_STATES,
 )
 
 
@@ -140,6 +141,11 @@ def robot_status_payload(message):
     battery_soc = _finite_number(getattr(message, "battery_soc", None), "battery_soc")
     if not 0.0 <= battery_soc <= 1.0:
         raise RosMessageMappingError("battery_soc는 0.0에서 1.0 사이여야 합니다.")
+    # [안전 상태] 수치는 계약(2026-09-08)으로 고정됐다. 표 밖의 값은 임의 해석하지 않고 UNKNOWN으로 남긴다.
+    safety_state = SAFETY_STATES.get(getattr(message, "safety_state", 0), "UNKNOWN")
+    motion_stopped = getattr(message, "motion_stopped", False)
+    if not isinstance(motion_stopped, bool):
+        raise RosMessageMappingError("RobotStatus motion_stopped는 Bool이어야 합니다.")
     try:
         position = _position_of(message.pose, "RobotStatus")
         header = message.header
@@ -163,6 +169,10 @@ def robot_status_payload(message):
         "pose_valid": pose_valid,
         "last_valid_pose_at": last_valid_pose_at,
         "mission_status": MISSION_STATES[mission_state],
+        "safety_state": safety_state,
+        "motion_stopped": motion_stopped,
+        "safety_reason_code": int(getattr(message, "reason_code", 0) or 0),
+        "safety_reason": str(getattr(message, "reason", "") or ""),
         # 토픽을 현재 수신한 사실만 ONLINE으로 변환하며, 이후 단절은 기존 수신 시각으로 판정한다.
         "connection_status": "ONLINE",
         "observed_at": _stamp_iso(header.stamp),
@@ -441,23 +451,29 @@ def keepout_status_payload(topic, message):
 
 
 def estop_payload(message):
-    """EStopState를 안전 상태 저장 입력으로 바꾼다."""
+    """계약 EStop(/control/estop)을 안전 상태 저장 입력으로 바꾼다.
+
+    interfaces.md 3.1절(2026-09-08): header·target_robot_id·active·reason·sequence만 쓴다.
+    아직 공용 .msg에 남아 있는 latched는 계약에서 제거됐으므로 읽지 않는다.
+    """
     try:
         observed_at = _stamp_iso(message.header.stamp)
     except AttributeError as exc:
-        raise RosMessageMappingError("EStopState header가 올바르지 않습니다.") from exc
+        raise RosMessageMappingError("EStop header가 올바르지 않습니다.") from exc
+    target = getattr(message, "target_robot_id", "")
+    if target not in ESTOP_TARGETS:
+        raise RosMessageMappingError("EStop target_robot_id는 robot1, robot6, all 중 하나여야 합니다.")
     active = getattr(message, "active", None)
-    manual_reset = getattr(message, "manual_reset_required", None)
-    if not isinstance(active, bool) or not isinstance(manual_reset, bool):
-        raise RosMessageMappingError("EStopState active·manual_reset_required는 Bool이어야 합니다.")
+    if not isinstance(active, bool):
+        raise RosMessageMappingError("EStop active는 Bool이어야 합니다.")
+    reason = getattr(message, "reason", 0)
+    if isinstance(reason, bool) or not isinstance(reason, int):
+        raise RosMessageMappingError("EStop reason은 정수여야 합니다.")
     return {
-        "estop_id": getattr(message, "estop_id", ""),
-        "message_id": getattr(message, "message_id", ""),
+        "target_robot_id": target,
         "active": active,
-        "reason_code": int(getattr(message, "reason_code", 0)),
-        "reason": getattr(message, "reason", ""),
-        "manual_reset_required": manual_reset,
-        "source_id": getattr(message, "source_id", ""),
+        # 정의되지 않은 원인 수치는 버리지 않고 UNKNOWN으로 표시해 활성 사실을 잃지 않는다.
+        "reason": reason if reason in ESTOP_REASONS else 0,
         "sequence": int(getattr(message, "sequence", 0)),
         "observed_at": observed_at,
     }

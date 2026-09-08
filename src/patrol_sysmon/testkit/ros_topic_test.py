@@ -166,7 +166,7 @@ def build_virtual_publisher(config):
     """선택한 단계의 계약 타입·QoS로 가상 토픽을 발행하는 노드를 만든다."""
     from nav_msgs.msg import OccupancyGrid
     from patrol_interfaces.msg import (
-        CameraState, DetectionEvent, EStopState, EvidenceChunk, IngestionAck,
+        CameraState, DetectionEvent, EStop, EvidenceChunk, IngestionAck,
         KeepoutStatus, PatrolReport, PatrolVisit, RobotStatus,
     )
 
@@ -266,7 +266,7 @@ def build_virtual_publisher(config):
                 ) for robot_id in ("robot1", "robot6")
             } if config.safety_hz > 0 else {}
             self._estop_publisher = (
-                self.create_publisher(EStopState, "/control/estop", qos["estop"])
+                self.create_publisher(EStop, "/control/estop", qos["estop"])
                 if config.safety_hz > 0 else None
             )
             # [실행 구분] 같은 patrol_id가 다음 실행에서 다른 결과로 재사용되면
@@ -515,19 +515,18 @@ def build_virtual_publisher(config):
                 self.published_counts[f"/{robot_id}/keepout/status"] += 1
 
             if self._estop_publisher is not None:
+                # 계약 EStop: 대상별 활성·대표 원인·순번. all은 두 로봇 모두를 뜻한다.
                 active = self._safety_sequence % 2 == 1
-                estop = EStopState()
+                estop = EStop()
                 estop.header.stamp = stamp
                 estop.header.frame_id = ""
-                estop.message_id = str(uuid.uuid4())
-                estop.estop_id = str(uuid.uuid4())
-                estop.boot_id = str(uuid.uuid4())
+                estop.target_robot_id = ("robot1", "robot6", "all")[self._safety_sequence % 3]
                 estop.active = active
-                estop.reason_code = 101 if active else 0
-                estop.reason = "가상 안전 시험" if active else ""
-                estop.manual_reset_required = False
-                estop.source_id = "virtual_safety_arbiter"
+                estop.reason = 4 if active else 0
                 estop.sequence = self._safety_sequence
+                if hasattr(estop, "latched"):
+                    # 공용 .msg에 아직 남은 필드다. 계약에서 제거됐으므로 의미 없는 기본값만 둔다.
+                    estop.latched = False
                 self._estop_publisher.publish(estop)
                 self.published_counts["/control/estop"] += 1
 
@@ -753,8 +752,10 @@ def _storage_report(app):
                 "SELECT robot_id, state FROM keepout_latest ORDER BY robot_id"
             )
         ]
+        # 계약 EStop은 대상(robot1·robot6·all)별 한 행이다. 가장 최근 수신 행을 대표로 적는다.
         estop_latest = db.execute(
-            "SELECT active, reason_code FROM estop_latest WHERE singleton = 1"
+            "SELECT target_robot_id, active, reason FROM estop_latest "
+            "ORDER BY received_at DESC LIMIT 1"
         ).fetchone()
         estop_changes = db.execute("SELECT COUNT(*) FROM estop_history").fetchone()[0]
         chunk_payloads = db.execute(
@@ -794,7 +795,8 @@ def _storage_report(app):
         "patrol_reports": patrol_reports,
         "keepout_states": keepout_states,
         "estop_latest": (
-            {"active": bool(estop_latest[0]), "reason_code": estop_latest[1]}
+            {"target_robot_id": estop_latest[0], "active": bool(estop_latest[1]),
+             "reason": estop_latest[2]}
             if estop_latest is not None else None
         ),
         "estop_changes": estop_changes,
