@@ -145,7 +145,7 @@ cd /home/hun/finalpjtdb/finalproject/sysmon
 - [x] 17단계: AMR1·AMR2 global/local costmap 4개 수신·최신 저장·API·분리 표시
 - [x] 18단계: DetectionEvent·EvidenceChunk 독립 수신·재조립·저장·IngestionAck 회신
 - [x] 19단계: CCTV CameraState·순찰 허용 조건 수신·저장·표시와 통합 이력 연결
-- [x] 20단계: PatrolVisit·PatrolReport·KeepoutStatus·EStopState 수신·저장·표시와 통합 이력 연결
+- [x] 20단계: PatrolVisit·PatrolReport·KeepoutStatus·EStop 수신·저장·표시와 통합 이력 연결
 - [ ] 21단계 이후: PC 1·2·3·4 통합시험, 실부하·장시간 운용·최종 판정
 
 ## 12단계 ROS adapter 기본 틀

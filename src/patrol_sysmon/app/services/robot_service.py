@@ -24,6 +24,13 @@ MISSION_LABELS = {
     "CANCELED": "취소",
 }
 CONNECTION_LABELS = {"ONLINE": "온라인", "OFFLINE": "오프라인", "UNKNOWN": "확인 불가"}
+# [계약 매핑] RobotStatus.safety_state(interfaces.md 4절, 2026-09-08). NORMAL은 이동 권한이 아니고
+# ESTOPPED는 속도 0을 보장하지 않으므로 실제 정지 여부는 motion_stopped로 따로 붙인다.
+SAFETY_LABELS = {
+    "UNKNOWN": "확인 안 됨", "NORMAL": "정상", "STOPPING": "정지 중",
+    "STOPPED": "정지 확인", "ESTOPPED": "E-stop 활성", "ERROR": "안전 계층 오류",
+}
+SAFETY_WARNING_STATES = {"ESTOPPED", "ERROR"}
 MESSAGE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 FRAME_ID_PATTERN = re.compile(r"^[A-Za-z0-9_./-]{1,64}$")
 
@@ -95,6 +102,19 @@ def validate_status(payload, now=None):
     connection_status = _required_text(payload, "connection_status").upper()
     if connection_status not in CONNECTION_LABELS:
         raise StatusValidationError("connection_status는 ONLINE, OFFLINE, UNKNOWN 중 하나여야 합니다.")
+    # [안전 상태] 임시 HTTP 경로는 값을 안 보낼 수 있으므로 UNKNOWN을 기본으로 둔다.
+    safety_state = str(payload.get("safety_state") or "UNKNOWN").upper()
+    if safety_state not in SAFETY_LABELS:
+        raise StatusValidationError("지원하지 않는 safety_state입니다.")
+    motion_stopped = payload.get("motion_stopped", False)
+    if not isinstance(motion_stopped, bool):
+        raise StatusValidationError("motion_stopped는 Bool이어야 합니다.")
+    safety_reason_code = payload.get("safety_reason_code", 0)
+    if isinstance(safety_reason_code, bool) or not isinstance(safety_reason_code, int) or safety_reason_code < 0:
+        raise StatusValidationError("safety_reason_code는 0 이상의 정수여야 합니다.")
+    safety_reason = payload.get("safety_reason", "")
+    if not isinstance(safety_reason, str):
+        raise StatusValidationError("safety_reason은 문자열이어야 합니다.")
     observed = _utc_timestamp(payload.get("observed_at"))
     current = now or datetime.now(timezone.utc)
     if observed > current + timedelta(minutes=5):
@@ -109,6 +129,10 @@ def validate_status(payload, now=None):
         "pose_valid": int(pose_valid),
         "last_valid_pose_at": last_valid_pose_at,
         "mission_status": mission_status,
+        "safety_state": safety_state,
+        "motion_stopped": int(motion_stopped),
+        "safety_reason_code": safety_reason_code,
+        "safety_reason": safety_reason.strip(),
         "connection_status": connection_status,
         "observed_at": observed.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
     }
@@ -148,6 +172,8 @@ def dashboard_robots(now=None):
                 "x": None, "y": None, "frame_id": None, "location_label": "—",
                 "pose_valid": False, "last_valid_x": None, "last_valid_y": None,
                 "last_valid_label": "—",
+                "safety_state": None, "safety_label": "—", "safety_warning": False,
+                "motion_stopped": None, "safety_reason_code": None, "safety_reason": "",
                 "observed_at": None, "received_at": None, "received_label": "—",
             })
             continue
@@ -181,10 +207,27 @@ def dashboard_robots(now=None):
                 if row["last_valid_pose_at"] else
                 (_display_time(last_valid["observed_at"]) if last_valid else "—")
             ),
+            "safety_state": row["safety_state"],
+            "safety_label": _safety_label(row),
+            "safety_warning": row["safety_state"] in SAFETY_WARNING_STATES,
+            "motion_stopped": bool(row["motion_stopped"]),
+            "safety_reason_code": row["safety_reason_code"],
+            "safety_reason": row["safety_reason"],
             "observed_at": row["observed_at"], "received_at": row["received_at"],
             "received_label": _display_time(row["received_at"]),
         })
     return result
+
+
+def _safety_label(row):
+    """safety_state와 실제 정지 확인을 한 문구로 합친다. 서로 대체 관계가 아니라 둘 다 적는다."""
+    label = SAFETY_LABELS.get(row["safety_state"], row["safety_state"])
+    if row["safety_state"] == "UNKNOWN":
+        return label
+    motion = "정지 확인됨" if row["motion_stopped"] else "이동 가능 상태"
+    if row["safety_reason_code"]:
+        return f"{label} · {motion} · 원인 {row['safety_reason_code']}"
+    return f"{label} · {motion}"
 
 
 def fleet_summary(robots):

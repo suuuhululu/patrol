@@ -86,7 +86,7 @@
 | AMR / robot1 | 미반영 | 별도 AMR 요청서 | 계약 검토·구현·시험 |
 | AMR / robot6 | 미반영 | 별도 AMR 요청서 | 계약 검토·구현·시험 |
 | 관제 | 문서 반영 | interfaces.md·control_server.md 2026-09-08 갱신 | API·상태 발행 코드 승인·구현 |
-| System monitor | 미반영 | 현재 read-only 및 legacy 메시지 사용 가능성 | 역할 검토·코드 승인·구현·시험 |
+| System monitor | 계약 소비 반영 | 2026-09-08 `EStop` 구독 전환, `latched`·`manual_reset_required` 의존 제거, `safety_state` 저장·표시(patrol_sysmon 구현 로그 34) | UI 정지·해제 버튼은 PM 결정·TBD-CTRL-004 후, `active_reasons`·CONTROL_SHUTDOWN 표시는 TBD-IF-011 후 |
 | 비전 | 변경 불필요 제안 | 직접 송수신 없음 | 검토 확인 |
 
 ## 완료 조건과 검증
@@ -108,3 +108,4 @@
 | 일자 | 검토자·단위 | 결정·의견 | 근거 |
 |---|---|---|---|
 | 2026-09-08 | 관제 | 공용 계약 반영 및 System monitor 검토 요청 초안 작성 | 사용자 승인·확정 내용 |
+| 2026-09-08 | System monitor | `EStop`(target_robot_id·active·reason·sequence) 구독으로 전환하고 `EStopState`·`manual_reset_required`·`latched` 의존을 제거했다. E-stop 표는 대상별 최신 행으로 재구성하며 옛 기록은 `_legacy` 표로 보존한다(DB migration 자동). `MissionCommandAck`는 사용처가 없어 폐기에 동의한다. `EStopState.msg`는 소비처가 없어졌으므로 폐기 가능하다. `ControlHeartbeat`·`CommandCheck`는 구독하지 않아 영향 없음. 요청 접수와 실제 활성·정지 확인은 EStop 요약과 RobotStatus `safety_state`·`motion_stopped`로 분리 표시한다. UI 정지·해제 버튼은 PM 결정과 관제 API 계약 뒤 착수한다 | patrol_sysmon 구현 로그 34, 단위시험 통과 |

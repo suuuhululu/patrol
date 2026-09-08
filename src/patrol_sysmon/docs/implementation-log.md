@@ -1211,3 +1211,16 @@ EStopState ───→ 최신 1행 + 활성·해제가 바뀐 시점만 이력
 - **[CR-003](../../docs/change_requests/CR-003_09-07_18-10_관제_판단_토픽_2종_도입.md) 작성**: `/control/operational_state`·`/control/operational_event` 도입에 동의하되 21단계 이후 반영을 제안했다. 새 메시지 두 개가 계약 v1.1과 네 PC 재빌드를 요구하고, 현재 자체 계산 중인 STALE·UNREPORTED·CCTV timeout과 판단 주체가 겹치기 때문이다. 필드명 `event_id` 충돌과 전환 시점도 확정 대상으로 적었다.
   - 같은 요청서에 PostgreSQL 전환은 13단계 측정치를 근거로 운영 전환 과제로 남기고, durable spool은 계약 3.8절의 생산자 재전송과 중복이라는 검토 결과를 함께 남겼다.
 - 검증: `.venv` 115개 통과, ROS를 source한 전체 시험도 통과. 새 시험은 조각이 하나만 도착한 증적이 시간 경과에 따라 `INCOMPLETE → DELAYED → MISSING`으로 바뀌고, 나머지 조각이 도착하면 `STORED`가 되는 것을 확인한다.
+
+## 34. E-stop 계약 EStop 전환과 RobotStatus safety_state 표시 (2026-09-08)
+
+- 배경: main에 병합된 interfaces.md 3.1·4절(2026-09-08 결정)과 관제 요청서 [CR-관제_09-08_15-15_System_monitor_E-stop_UI_운영상태_연계](../../../docs/change_requests/CR-관제_09-08_15-15_System_monitor_E-stop_UI_운영상태_연계.md)를 반영했다. 기존 구독 타입 `EStopState`는 계약 타입 `EStop`과 달라 DDS 매칭 자체가 되지 않는 상태였다.
+- **EStop 전환**: `/control/estop`을 `patrol_interfaces/msg/EStop`으로 구독한다. 계약 필드 `target_robot_id`(robot1·robot6·all)·`active`·`reason`(0~6)·`sequence`만 쓰고, 공용 `.msg`에 아직 남은 `latched`는 읽지 않는다. `estop_id`·`message_id`·`manual_reset_required`·`source_id` 의존을 제거했다.
+- 저장: `estop_latest`를 대상별 한 행(PK `target_robot_id`)으로, `estop_history`를 활성·해제·대표 원인이 바뀐 시점만 남기는 구조로 바꿨다. 옛 구조 표는 `_migrate_estop_contract`가 기록이 있으면 `_legacy`로 이름을 바꿔 보존하고 없으면 지운다. 옛 열은 새 계약에 대응 값이 없어 옮기지 않는다.
+- 표시: `/api/safety/status`의 `estop`은 전체 요약(`active`·`state_label`·대표 원인 라벨)과 `targets`(대상별 수신 여부·활성·stale)를 준다. `all` 활성은 두 로봇 모두 정지 대상이라는 뜻이며, 정지 명령이 있었다는 사실만 보여 준다. 실제 정지 여부는 RobotStatus 쪽에서 따로 표시한다. `manual_reset_required`·`latched`는 응답에서 제거했다.
+- **safety_state 표시**: RobotStatus의 `safety_state`(UNKNOWN=0…ERROR=5)·`motion_stopped`·`reason_code`·`reason`을 `robot_latest_status`·`robot_status_history`에 저장한다(`_migrate_safety_state`, 열 추가만). 로봇 카드에 "안전 상태" 줄을 추가해 `E-stop 활성 · 이동 가능 상태 · 원인 702`처럼 safety_state와 실제 정지 확인을 함께 적는다. ESTOPPED만으로 정지를 단정하지 않는다는 계약 문구를 그대로 따른 것이다. 임시 HTTP 입력은 값이 없으면 UNKNOWN이다.
+- 통합 이력: ESTOP 검색이 대상·대표 원인 라벨을 요약에 넣고, 로봇 필터(AMR1·AMR2)로 검색하면 해당 로봇과 `all` 대상 기록을 함께 보여 준다.
+- 요청서 회신 근거: `MissionCommandAck.msg`·`ControlHeartbeat.msg`·`CommandCheck`·`parameters_json`은 시스템 모니터가 구독·발행하지 않아 코드 변경이 없다. `EStopState.msg`는 이번 전환으로 소비처가 없어졌다. UI 정지·해제 버튼과 `active_reasons`·CONTROL_SHUTDOWN 표시는 PM 결정과 TBD-CTRL-004·IF-011 계약이 없어 착수하지 않았다.
+- 공용 `.msg`는 바꾸지 않았다. `EStop.msg`의 `latched`와 `MissionCommand.msg`의 `parameters_json`은 AMR 코드가 아직 읽고 있어 AMR 요청서 처리와 같은 배포 단위로 제거해야 한다.
+- 변경 파일: `app/ros/registry.py`, `app/ros/payloads.py`, `app/ros/node.py`, `app/models/safety.py`, `app/models/robot.py`, `app/models/history.py`, `app/services/safety_service.py`, `app/services/robot_service.py`, `app/schema.sql`, `app/database.py`, `app/templates/index.html`, `app/static/js/dashboard.js`, `app/static/css/dashboard.css`, `tests/test_patrol_safety.py`, `tests/test_ros_adapter.py`, `testkit/ros_topic_test.py`.
+- 검증: `.venv` 119개 통과(ROS 7개 skip), ROS를 source한 전체 **119개 통과**. 별도 프로세스 DDS 시험(도메인 격리)에서 `/control/estop`이 `EStop`으로 매칭돼 대상별 최신 행과 변경 이력이 저장되는 것을 확인했다. 이 시험이 첫 구현의 migration 결함(재초기화 때마다 `estop_history`를 legacy로 넘김)을 잡아내 고쳤다.

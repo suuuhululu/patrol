@@ -116,7 +116,7 @@ SUBSCRIPTIONS = (
     ),
     SubscriptionSpec(
         "estop", "/control/estop",
-        "patrol_interfaces/msg/EStopState", "estop", True,
+        "patrol_interfaces/msg/EStop", "estop", True,
     ),
 )
 
@@ -134,6 +134,26 @@ MISSION_STATES = {
     9: "FAILED",
     10: "CANCELED",
 }
+# [계약] interfaces.md 4절 safety_state (2026-09-08 결정). 이름은 계약 표를 그대로 옮긴다.
+SAFETY_STATES = {
+    0: "UNKNOWN",
+    1: "NORMAL",
+    2: "STOPPING",
+    3: "STOPPED",
+    4: "ESTOPPED",
+    5: "ERROR",
+}
+# [계약] interfaces.md 3.1절 EStop reason과 대상 값. UI가 원인 집합을 직접 계산하지 않는다.
+ESTOP_REASONS = {
+    0: "UNKNOWN",
+    1: "OPERATOR",
+    2: "COMMUNICATION",
+    3: "TOKEN",
+    4: "OBSTACLE",
+    5: "KEEPOUT_FAILURE",
+    6: "SYSTEM_FAULT",
+}
+ESTOP_TARGETS = ("robot1", "robot6", "all")
 CAMERA_IDS_BY_TOPIC = {
     "/robot1/oakd/image/compressed": "amr1",
     "/robot6/oakd/image/compressed": "amr2",
