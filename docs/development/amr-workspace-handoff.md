@@ -997,17 +997,24 @@ ros2 topic pub --once --qos-durability transient_local --qos-reliability reliabl
 
 `estop_active`만 빠지고 `motion allowed`는 아직 `False`다. token이 없기 때문이다.
 
-**터미널 3 — ② 주행 허가증.** ①이 끝난 뒤 같은 터미널에서 이어 실행한다. `-r 5`는 Q-01의 5 Hz 발행 규칙이고, `lease_duration` 8초는 손시험 중 만료되지 않도록 넉넉히 준 값이다.
+**터미널 3 — ② 주행 허가증.** ①이 끝난 뒤 같은 터미널에서 이어 실행한다. 기본값이 Q-01 그대로다 — 5 Hz 발행, lease 1.0초.
 
 ```bash
-ros2 topic pub -r 5 /control/drive_token patrol_interfaces/msg/DriveToken "{control_session_id: 'ctrl-test', token_id: 'tok-a', holder_robot_id: 'robot1', lease_duration: {sec: 8, nanosec: 0}, message_sequence: 1}"
+python3 tests/integration/publish_drive_token.py
 ```
 
+- **터미널 3**: `granting robot1 token 'tok-a' at 5.0 Hz, lease 1.0s, message_sequence from 1`
 - **터미널 1**: `motion allowed: True blocked_reasons: []`
 - **터미널 1**: `cmd_vel: STOP blocked_reasons: ['candidate_missing']`
 - **터미널 2**: **변화 없음. `0.0` 유지.**
 
 여기가 이 시험의 핵심이다. 주행이 허용됐는데도 속도는 0이다. 권한 게이트(`motion_allowed`)와 출력 게이트(`cmd_vel`)를 나눈 결과이며, 후보가 없으면 내보낼 값 자체가 없다.
+
+**`ros2 topic pub -r 5`를 쓰지 않는 이유.** `ros2 topic pub`은 고정된 메시지 하나를 반복하므로 `message_sequence`가 계속 같은 값이다. [drive_token_guard.py](../../src/patrol_amr/patrol_amr/drive_token_guard.py)는 `message_sequence <= 직전 값`을 `STALE_MESSAGE_SEQUENCE`로 폐기하고 **lease를 연장하지 않는다.** 첫 메시지만 수락되므로 발행 주기와 무관하게 정확히 `lease_duration` 뒤에 권한을 잃는다.
+
+이는 의도된 동작이며 [DriveToken 요청서](../change_requests/CR-AMR_09-07_15-12_DriveToken_sequence_epoch와_holder_교체.md)에서 "같은 token의 역행·중복은 폐기, 폐기 메시지는 lease 미연장"으로 확정한 것이다. 2026-09-08 사용자 시험에서 실제로 재현됐다 — `motion allowed: True` 8.000초 뒤 정확히 `drive_token_not_granted`가 떴고, 그 8초는 당시 절차의 `lease_duration: {sec: 8}`이었다.
+
+[publish_drive_token.py](../../tests/integration/publish_drive_token.py)는 관제가 실제로 할 방식대로 `message_sequence`를 증가시키므로 실행 중에는 lease가 계속 갱신되고, 멈추면 Q-01 1.0초 뒤에 만료된다.
 
 **터미널 4 — 후보 발행.** 여기서부터 실제로 속도가 나간다.
 
@@ -1051,10 +1058,19 @@ ros2 topic pub --once --qos-durability transient_local --qos-reliability reliabl
 **시험 C — token 만료.** 터미널 3의 token 발행을 `Ctrl+C`로 멈추고 1초 이상 기다린다.
 
 - **터미널 1**: `motion allowed: False blocked_reasons: ['drive_token_not_granted']`
-- **터미널 1**: `cmd_vel: STOP blocked_reasons:`에 `drive_token_not_granted`가 포함된다.
-- **터미널 2**: `0.0`.
+- **터미널 1**: 바로 다음 줄에 `cmd_vel: STOP blocked_reasons: ['drive_token_not_granted']`
+- **터미널 2**: 후보가 계속 들어오는데도 `0.0`.
 
-Q-01 lease 1.0초가 메시지 수신이 아니라 시계로 만료되는 것을 확인하는 항목이다.
+Q-01 lease 1.0초가 메시지 수신이 아니라 시계로 만료되는 것을 확인하는 항목이다. 멈추기 전까지 몇 분을 돌려도 권한이 유지되어야 한다 — 유지되지 않으면 `message_sequence`가 증가하지 않는 발행자를 쓰고 있는 것이다.
+
+**시험 D — 권한 회수(선택).** 관제가 빈 `token_id`로 권한을 거두는 경로다. 터미널 3의 발행을 멈춘 상태에서 실행한다.
+
+```bash
+python3 tests/integration/publish_drive_token.py --revoke
+```
+
+- **터미널 3**: `revoking authority for robot1 (empty token_id, sequence 1)`
+- **터미널 1**: 이미 만료 상태라면 추가 로그가 없다. 발행 중에 회수하면 `drive_token_not_granted`가 뜬다.
 
 #### 12단계 통과 기준
 
@@ -1063,6 +1079,7 @@ Q-01 lease 1.0초가 메시지 수신이 아니라 시계로 만료되는 것을
 | 1 | 노드만 실행 | `candidate_missing`·`drive_token_not_granted`·`estop_active` | `0.0` |
 | 2 | E-stop 해제 | `estop_active` 사라짐 | `0.0` |
 | 3 | token 발행 | `motion allowed: True`, `cmd_vel: STOP ['candidate_missing']` | `0.0` |
+| 3-1 | 그대로 1분 이상 방치 | 추가 로그 없음 — lease 갱신 중 | `0.0` |
 | 4 | 후보 스트림 | `cmd_vel: candidate blocked_reasons: []` | `0.25 / -0.1` |
 | 5 | 후보 중단 0.5초 | `cmd_vel: STOP ['candidate_stale']`, `motion allowed` 미출력 | `0.0` |
 | 6 | E-stop 활성 | `estop_active` 두 줄이 1 ms 이내 | `0.0` |
