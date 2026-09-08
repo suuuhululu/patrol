@@ -1,0 +1,31 @@
+# Mission/navigation parameters shared by robot1 and robot6.
+# Keepout and local-safety settings belong to the teammate-owned modules.
+/**:
+  mission_supervisor:
+    ros__parameters:
+      robot_id: robot1  # patrol.launch.py always overrides this with its robot_id
+      waypoints_xyyaw: [
+        -0.206, -1.038,  90.8,
+        -1.147,  0.500, 175.4,
+        -2.029, -0.916, 266.3,
+        -2.751, -2.422, 182.4,
+        -4.389, -1.122,  94.3,
+        -2.909,  0.575, 358.3,
+        -1.374, -2.439, 359.8]
+      # Dwell/scan completion and resume rules remain TBD-AMR-005. A zero
+      # dwell avoids inventing a wait duration; it does not mark scan complete.
+      waypoint_dwell_s: 0.0
+      resume_policy: disabled
+      command_store_path: ''  # derives ~/.ros/patrol_amr/<robot_id>/...
+      mission_status_path: ''  # same robot-specific runtime directory
+      report_outbox_path: ''   # pending PatrolReport survives restart
+      source_session_id: ''    # launch supplies a new value on every start
+      # Enable only after the final local-safety speed path passes IT-16.
+      safety_path_ready: false
+      # Stock TurtleBot4 Nav2 path is limited to an explicit hardware test.
+      hardware_test_mode: false
+      # Empty by default. The launch must provide ENABLE_<ROBOT_ID>_MOTION.
+      motion_enable_token: ''
+      # Q-09 values. Sensor semantics remain TBD-AMR-004.
+      dock_timeout_s: 60.0
+      dock_sensor_stable_s: 2.0

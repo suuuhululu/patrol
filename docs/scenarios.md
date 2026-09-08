@@ -250,13 +250,13 @@ flowchart TD
 
 ## UC-08 · 안전 정지와 통신 복구
 
-목표/액터: 운영자가 안전 정지 상태와 복구 가능 여부를 확인하고 필요한 수동 reset을 수행한다. 사전 조건은 로컬 안전·Safety Arbiter·상태/권한 감시다.
+목표/액터: 운영자가 안전 정지 상태와 복구 가능 여부를 확인하고, 제안된 System monitor UI를 통해 관제에 OPERATOR 정지·해제를 요청한다. 사전 조건은 로컬 안전·Safety Arbiter·상태/권한 감시다. UI는 검토 대상이며 E-stop을 직접 발행하거나 해제를 판정하지 않는다.
 
 트리거: token 만료/회수, E-stop, 통신 STALE 또는 독립 안전 원인. 차량 permit=false만으로 전 주행을 금지하지 않으며 UC-04 대피 절차와 구분한다.
 
 기본 흐름: ① AMR 최종 속도 차단과 Goal 취소를 분리 수행 ② 상태·원인 보고 ③ STALE에서 관제 신규 mission/token 갱신 중단 ④ 정상 수신5초·유효 pose/age·배터리·E-stop·Keepout·permit 등 복구 게이트 확인 ⑤ 별도 유효 명령·token으로 재개한다.
 
-예외/미정: 물리 E-stop은 수동 reset까지 latch, 비물리 해제 조건3초 연속. heartbeat는 관제 5 Hz 발행·AMR 1초 timeout이며 메시지 타입명은 TBD-IF-004다. 최종 속도 토픽·타입 TBD-IF-009, 정지 감속·거리 TBD-AMR-006. 30초 경과 자동 교대를 사용하지 않는다.
+예외/미정: 하드웨어·물리 E-stop과 수동 reset은 구현하지 않는다. 모든 활성 원인이 사라진 상태가 3초 연속 유지되어야 관제가 해제할 수 있다. heartbeat는 `ControlHeartbeat`로 관제 5 Hz 발행·AMR 1초 timeout이다. Ctrl+C/SIGINT 정상 종료는 E-stop이 아닌 `CONTROL_SHUTDOWN` 운영 이벤트이며, 재기동 뒤 새 control session과 새 token·별도 command 전에는 재개하지 않는다. reason 우선순위·UI 요청 API는 TBD-IF-004·TBD-CTRL-004다. 정지 감속·거리는 TBD-AMR-006이며 30초 경과 자동 교대를 사용하지 않는다.
 
 완료 조건: 안전 출력 우회 없음·오래된 상태로 자동 출발 없음·결과 미수신 UNREPORTED 유지. 로그·실측 정지·적용 버전으로 IT-03/04/10/11/12/16을 검증한다. 현재 실제 시험 결과는 NOT_RUN, 미정 의존 부분 BLOCKED.
 
@@ -269,7 +269,7 @@ flowchart TD
     B --> D[상태·원인 보고]
     C --> D
     D --> E[관제 STALE 시 신규 mission·token 갱신 중단]
-    E --> F[원인별 해제 / 물리 원인은 수동 reset]
+    E --> F[모든 활성 원인 제거 3초 연속]
     F --> G{관제 복구 게이트 충족}
     G -->|아니오| W[안전 정지·대기]
     G -->|예| H[별도 유효 명령·token]
