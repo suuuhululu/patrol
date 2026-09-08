@@ -317,7 +317,7 @@ SUCCEEDED는 목표 정상 달성, FAILED는 자체 장애·주행 실패·위�
 
 command 하나가 최종 상태에 이를 때 PatrolReport 하나를 생성한다. report ID는 1.2절 형식으로 AMR이 생성하고, command ID와 mission ID는 수신한 MissionCommand의 값을 그대로 사용한다. 여러 report가 같은 mission ID를 공유할 수 있다. AMR은 미전송 report를 로컬 영속 큐에 저장하고 재연결 후 같은 report ID로 재전송한다. 수신자는 report ID로 중복을 제거한다.
 
-2026-09-08 AMR-07 구현은 robot별 로컬 outbox에 종료 결과를 저장하고 matched subscriber가 생기면 같은 report ID로 `/{robot}/patrol_report`를 발행한다. DDS publish 호출 성공만으로 수신 애플리케이션 저장 완료를 보장할 수 없으므로 ACK 단위와 ACK 이후 삭제 조건은 [AMR 검토 요청서](change_requests/CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md)의 TBD-IF-003에 남긴다.
+2026-09-08 AMR-07 구현은 robot별 로컬 outbox에 종료 결과를 저장하고 matched subscriber가 생기면 같은 report ID로 `/{robot}/patrol_report`를 발행한다. DDS publish 호출 성공만으로 수신 애플리케이션 저장 완료를 보장할 수 없으므로 ACK 단위와 ACK 이후 삭제 조건은 [AMR 검토 요청서](change_requests/CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md)의 TBD-IF-003에 남긴다. E-stop reset과 함께 정리한 [상세 권장 인터페이스 초안](change_requests/CR-AMR_09-08_13-54_E-stop_reset과_PatrolReport_ACK_인터페이스_명세.md)은 영향 팀 합의 전 제안이다.
 
 통신 두절 때 관제는 보고서를 대필하지 않는다. 결과가 없는 임무를 UNREPORTED로 유지하고 UNREPORTED를 PatrolReport 결과 enum에 추가하지 않는다. 늦은 report가 도착하면 현재 UNREPORTED를 해제하되 발생·해제 이력은 보존한다.
 
@@ -481,8 +481,8 @@ DB 테이블·컬럼 매핑·인덱스·보존·백업 등 내부 저장 설계�
 |---|---|---|
 | TBD-IF-001 | **일부 결정(2026-09-07):** 구조화 ID, CommandCheck 의미 상태, 충돌·재전송·보존·START/RESUME·STOP/CANCEL. 잔여: check_state 정수 매핑, command별 target 필수값과 parameters_json 스키마. [요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) | AMR·관제 |
 | TBD-IF-002 | **일부 결정(2026-09-07):** control session, token ID, message sequence, holder 회수·교대·정지 기준. 잔여: 송신 timestamp 기반 message age 검증. [요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) | AMR·관제 |
-| TBD-IF-003 | **일부 결정(2026-09-08):** RobotStatus·PatrolReport 의미 필드와 ID 연결, AMR 로컬 영속 outbox·동일 report ID 발행 구현. 잔여: safety enum 수치, waypoint·visit·scan 상세 타입, 수신 애플리케이션 저장 ACK와 ACK 이후 큐 삭제 조건. [관제 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) · [AMR ACK 검토 요청서](change_requests/CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md) | AMR·관제·시스템 모니터 |
-| TBD-IF-004 | **일부 결정(2026-09-07):** heartbeat 5 Hz·1초 timeout, E-stop 의미 필드·해제 조건. 잔여: 메시지 타입명, E-stop 원인 enum·전체 대상 값·depth·수동 reset 요청 경로. [요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) | AMR·관제·시스템 모니터 |
+| TBD-IF-003 | **일부 결정(2026-09-08):** RobotStatus·PatrolReport 의미 필드와 ID 연결, AMR 로컬 영속 outbox·동일 report ID 발행 구현. 잔여: safety enum 수치, waypoint·visit·scan 상세 타입, 수신 애플리케이션 저장 ACK와 ACK 이후 큐 삭제 조건. [관제 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) · [AMR ACK 검토 요청서](change_requests/CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md) · [상세 제안](change_requests/CR-AMR_09-08_13-54_E-stop_reset과_PatrolReport_ACK_인터페이스_명세.md) | AMR·관제·시스템 모니터 |
+| TBD-IF-004 | **일부 결정(2026-09-07):** heartbeat 5 Hz·1초 timeout, E-stop 의미 필드·해제 조건. 잔여: 메시지 타입명, E-stop 원인 enum·전체 대상 값·depth·수동 reset 요청 경로. [요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) · [상세 제안](change_requests/CR-AMR_09-08_13-54_E-stop_reset과_PatrolReport_ACK_인터페이스_명세.md) | AMR·관제·시스템 모니터 |
 | TBD-IF-005 | **일부 결정(2026-09-07):** CCTV event ID와 source session·sequence 필드. 잔여: CameraState 패키지, state 정수값, camera_id 값 | 비전·관제 |
 | TBD-IF-006 | **일부 결정(2026-09-07):** Detection event ID 형식. 잔여: Candidate/Event 필드·enum·토픽·QoS·발행자·중복 보존 | AMR·관제·시스템 모니터 |
 | TBD-IF-007 | **일부 결정(2026-09-07):** evidence ID 형식. 잔여: 메타데이터·전송 방법·결과 ACK·재전송·실패 계약 | AMR·관제·시스템 모니터 |
