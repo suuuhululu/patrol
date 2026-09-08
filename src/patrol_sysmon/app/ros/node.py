@@ -34,7 +34,7 @@ def build_node(app, node_name="sysmon_ros_adapter"):
         raise RosAdapterUnavailable(f"ROS adapter 의존성이 없습니다: {missing}")
 
     from nav_msgs.msg import OccupancyGrid
-    from parking_interfaces.msg import (
+    from patrol_interfaces.msg import (
         CameraState, DetectionEvent, EStopState, EvidenceChunk, IngestionAck,
         KeepoutStatus, PatrolReport, PatrolVisit, RobotStatus,
     )

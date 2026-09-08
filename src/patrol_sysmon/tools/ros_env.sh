@@ -24,7 +24,7 @@ python3 - <<'PY'
 import importlib.util
 import os
 
-missing = [name for name in ("flask", "rclpy", "parking_interfaces.msg")
+missing = [name for name in ("flask", "rclpy", "patrol_interfaces.msg")
            if importlib.util.find_spec(name) is None]
 print("준비 완료" if not missing else "빠진 모듈: " + ", ".join(missing),
       "· ROS_DOMAIN_ID=" + os.environ.get("ROS_DOMAIN_ID", ""))

@@ -76,7 +76,7 @@ class RosAdapterTests(unittest.TestCase):
         report = ros_adapter.dependency_report()
         self.assertEqual(
             set(report["dependencies"]),
-            {"rclpy", "parking_interfaces", "nav_msgs", "sensor_msgs", "std_msgs"},
+            {"rclpy", "patrol_interfaces", "nav_msgs", "sensor_msgs", "std_msgs"},
         )
         self.assertEqual(report["ready"], all(report["dependencies"].values()))
         self.assertEqual(
