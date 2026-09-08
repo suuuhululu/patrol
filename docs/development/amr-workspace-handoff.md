@@ -968,16 +968,23 @@ ros2 topic pub -r 5 /control/drive_token patrol_interfaces/msg/DriveToken "{cont
 **터미널 4 — 후보 발행.** 여기서부터 실제로 속도가 나간다.
 
 ```bash
-ros2 topic pub -r 20 /cmd_vel_safe geometry_msgs/msg/TwistStamped "{twist: {linear: {x: 0.25}, angular: {z: -0.1}}}"
+python3 tests/integration/publish_drive_candidate.py
 ```
 
-`ros2 topic pub`은 `header.stamp`를 채우지 않아 0으로 나간다. 그러면 age가 매우 커져 Q-17로 `candidate_stale`이 뜬다 — **의도된 동작이며 계약대로 stamp를 채우지 않는 발행자를 실제로 걸러낸다.** 통과를 보려면 stamp를 넣어 한 번씩 발행한다.
+터미널 2에 `linear.x: 0.25`, `angular.z: -0.1`이 나오고 터미널 1에 `cmd_vel: candidate blocked_reasons: []`가 뜬다. `Ctrl+C`로 멈추면 0.5초 뒤 `0.0`으로 돌아간다.
+
+**`ros2 topic pub`을 쓰지 않는 이유.** 두 가지가 모두 막는다.
+
+- `ros2 topic pub`은 `header.stamp`를 채우지 않고 0으로 보낸다. 0은 1970년이므로 Q-17로 즉시 `candidate_stale`이 된다. 이는 **의도된 동작**이며, 계약대로 stamp를 채우지 않는 발행자를 실제로 걸러낸다.
+- 셸에서 `sec: $(date +%s)`로 채워도 안 된다. `date +%s`는 초 단위로 잘라 stamp가 최대 1초 과거가 되므로 0.5초 한도를 절반쯤은 넘긴다. 2026-09-08 실제로 재현해 확인했다.
+
+그래서 [publish_drive_candidate.py](../../tests/integration/publish_drive_candidate.py)가 노드와 같은 ROS 시계로 stamp를 채워 20 Hz(Nav2 `controller_frequency`와 같은 주기)로 발행한다. 이 스크립트는 12단계 손시험 중 Nav2를 대신할 뿐 주행 계약의 일부가 아니다.
+
+`--once`로 한 번만 보내 Q-17 만료를 눈으로 볼 수 있고, `ros2 launch`로 노드를 띄웠다면 `--namespace /robot1`을 준다.
 
 ```bash
-ros2 topic pub --once /cmd_vel_safe geometry_msgs/msg/TwistStamped "{header: {stamp: {sec: $(date +%s), nanosec: 0}}, twist: {linear: {x: 0.25}, angular: {z: -0.1}}}"
+python3 tests/integration/publish_drive_candidate.py --once
 ```
-
-터미널 2에 `linear.x: 0.25`, `angular.z: -0.1`이 한 번 나오고, 0.5초 뒤 `0.0`으로 돌아가야 한다.
 
 **확인 항목과 통과 기준**
 
@@ -985,12 +992,16 @@ ros2 topic pub --once /cmd_vel_safe geometry_msgs/msg/TwistStamped "{header: {st
 |---|---|---|
 | 1 | 노드만 실행 | `/cmd_vel`이 `0.0`, 사유 `candidate_missing` |
 | 2 | E-stop 해제 + token | `motion allowed: True`, `/cmd_vel`은 여전히 `0.0` |
-| 3 | stamp 있는 후보 1회 | `/cmd_vel`에 `0.25 / -0.1`이 변형 없이 나옴 |
-| 4 | 후보 중단 0.5초 경과 | `/cmd_vel`이 `0.0`, 사유 `candidate_stale` |
+| 3 | 후보 스트림 시작 | `/cmd_vel`에 `0.25 / -0.1`이 변형 없이 나옴, 사유 `[]` |
+| 4 | 후보 `Ctrl+C` 후 0.5초 | `/cmd_vel`이 `0.0`, 사유 `candidate_stale` |
 | 5 | 후보 중 E-stop 활성 | 즉시 `0.0`, 사유 `estop_active` |
 | 6 | token 발행 중단 후 1초 | `0.0`, 사유에 `drive_token_not_granted` 포함 |
 
-5번은 터미널 3에서 `active: true, sequence: 2`로, 6번은 터미널 3의 token 발행을 `Ctrl+C`로 멈춰 확인한다.
+5번은 후보 스트림을 켜 둔 채 터미널 3에서 아래를 실행하고, 6번은 터미널 3의 token 발행을 `Ctrl+C`로 멈춰 확인한다.
+
+```bash
+ros2 topic pub --once --qos-durability transient_local --qos-reliability reliable /control/estop patrol_interfaces/msg/EStop "{target_robot_id: 'robot1', active: true, reason: 2, latched: false, sequence: 2}"
+```
 
 종료는 각 터미널에서 `Ctrl+C`다. 터미널 1을 마지막에 닫는다.
 
