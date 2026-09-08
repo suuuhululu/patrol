@@ -78,13 +78,13 @@ def main():
         finished_at_ns=3_000_000_004,
         final_waypoint_id='W4',
         related_event_ids=(),
-    ), 'amr-20260908T100000')
+    ), 'robot6-20260908T100000')
 
     command = [
         'ros2', 'run', 'patrol_amr', 'status_reporter', '--ros-args',
         '-r', '__ns:=/robot6',
         '-p', 'robot_id:=robot6',
-        '-p', 'source_session_id:=amr-20260908T100001',
+        '-p', 'source_session_id:=robot6-20260908T100001',
         '-p', 'safety_state:=0',
         '-p', f'mission_status_path:={status_path}',
         '-p', f'report_outbox_path:={outbox_path}',

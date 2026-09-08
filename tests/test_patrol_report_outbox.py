@@ -34,41 +34,41 @@ class PatrolReportOutboxTest(unittest.TestCase):
 
     def test_pending_report_survives_reload_with_same_id(self):
         first = PatrolReportOutbox(self.path).enqueue(
-            completion(), 'amr-20260908T100000')
+            completion(), 'robot6-20260908T100000')
         pending = PatrolReportOutbox(self.path).pending()
         self.assertEqual(pending, (first,))
-        self.assertEqual(first.report_id, 'rpt-amr-20260908T100000-0001')
+        self.assertEqual(first.report_id, 'rpt-robot6-20260908T100000-0001')
         self.assertEqual(first.final_waypoint_id, 'W7')
 
     def test_duplicate_completion_keeps_original_report(self):
         outbox = PatrolReportOutbox(self.path)
-        first = outbox.enqueue(completion(), 'amr-20260908T100000')
-        duplicate = outbox.enqueue(completion(), 'amr-20260908T100000')
+        first = outbox.enqueue(completion(), 'robot6-20260908T100000')
+        duplicate = outbox.enqueue(completion(), 'robot6-20260908T100000')
         self.assertEqual(duplicate, first)
         self.assertEqual(len(outbox.pending()), 1)
 
     def test_sequence_starts_at_one_for_each_source_session(self):
         outbox = PatrolReportOutbox(self.path)
-        a1 = outbox.enqueue(completion('cmd-a1'), 'amr-20260908T100000')
-        a2 = outbox.enqueue(completion('cmd-a2'), 'amr-20260908T100000')
-        b1 = outbox.enqueue(completion('cmd-b1'), 'amr-20260908T100100')
+        a1 = outbox.enqueue(completion('cmd-a1'), 'robot6-20260908T100000')
+        a2 = outbox.enqueue(completion('cmd-a2'), 'robot6-20260908T100000')
+        b1 = outbox.enqueue(completion('cmd-b1'), 'robot6-20260908T100100')
         self.assertEqual(a1.report_sequence, 1)
         self.assertEqual(a2.report_sequence, 2)
         self.assertEqual(b1.report_sequence, 1)
 
     def test_conflicting_duplicate_is_rejected(self):
         outbox = PatrolReportOutbox(self.path)
-        outbox.enqueue(completion(), 'amr-20260908T100000')
+        outbox.enqueue(completion(), 'robot6-20260908T100000')
         with self.assertRaises(PatrolReportOutboxError):
             outbox.enqueue(
                 completion(reason='ABORTED', reason_code=303),
-                'amr-20260908T100000',
+                'robot6-20260908T100000',
             )
 
     def test_mark_published_removes_only_matching_report(self):
         outbox = PatrolReportOutbox(self.path)
-        first = outbox.enqueue(completion('cmd-1'), 'amr-20260908T100000')
-        second = outbox.enqueue(completion('cmd-2'), 'amr-20260908T100000')
+        first = outbox.enqueue(completion('cmd-1'), 'robot6-20260908T100000')
+        second = outbox.enqueue(completion('cmd-2'), 'robot6-20260908T100000')
         self.assertTrue(outbox.mark_published(first.report_id))
         self.assertEqual(outbox.pending(), (second,))
         self.assertFalse(outbox.mark_published(first.report_id))

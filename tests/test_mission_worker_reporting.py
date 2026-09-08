@@ -63,7 +63,7 @@ class MissionWorkerReportingTest(unittest.TestCase):
             lambda: False,
             reporter=MissionReporter(
                 lambda result: outbox.enqueue(
-                    result, 'amr-20260908T100000')),
+                    result, 'robot6-20260908T100000')),
             state_sink=snapshots.append,
             now_ns=lambda: next(times),
         )
@@ -101,7 +101,7 @@ class MissionWorkerReportingTest(unittest.TestCase):
             lambda: False,
             reporter=MissionReporter(
                 lambda result: outbox.enqueue(
-                    result, 'amr-20260908T100000')),
+                    result, 'robot6-20260908T100000')),
             now_ns=lambda: 100,
         )
         worker._controller = Controller(

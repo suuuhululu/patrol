@@ -20,9 +20,11 @@ def generate_launch_description():
     hardware_test_mode = LaunchConfiguration('hardware_test_mode')
     motion_enable_token = LaunchConfiguration('motion_enable_token')
     source_session_id = LaunchConfiguration('source_session_id')
-    default_session = (
-        'amr-' + datetime.now().strftime('%Y%m%dT%H%M%S')
-        + f'-{os.getpid()}')
+    default_session = [
+        robot_id,
+        '-' + datetime.now().strftime('%Y%m%dT%H%M%S'),
+        f'-{os.getpid()}',
+    ]
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -45,7 +47,9 @@ def generate_launch_description():
             description='Must equal ENABLE_<ROBOT_ID>_MOTION to allow motion'),
         DeclareLaunchArgument(
             'source_session_id', default_value=default_session,
-            description='AMR process session; changes on every launch'),
+            description=(
+                'Robot process session: '
+                '<robot_id>-<YYYYMMDDTHHMMSS>-<restart_sequence>')),
         Node(
             package='patrol_amr',
             executable='mission_supervisor',

@@ -134,10 +134,14 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'source_session_id',
-            default_value=(
-                'amr-' + datetime.now().strftime('%Y%m%dT%H%M%S')
-                + f'-{os.getpid()}'),
-            description='AMR process session; changes on every launch',
+            default_value=[
+                robot_id,
+                '-' + datetime.now().strftime('%Y%m%dT%H%M%S'),
+                f'-{os.getpid()}',
+            ],
+            description=(
+                'Robot process session: '
+                '<robot_id>-<YYYYMMDDTHHMMSS>-<restart_sequence>'),
         ),
         DeclareLaunchArgument(
             'safety_state',

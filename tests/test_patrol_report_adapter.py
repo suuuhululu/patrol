@@ -48,10 +48,10 @@ class FakePublisher:
 
 def record():
     return PendingPatrolReport(
-        report_id='rpt-amr-20260908T100000-0001',
+        report_id='rpt-robot6-20260908T100000-0001',
         report_sequence=1,
         robot_id='robot6',
-        source_session_id='amr-20260908T100000',
+        source_session_id='robot6-20260908T100000',
         command_id='cmd-1',
         mission_id='msn-1',
         result=0,
