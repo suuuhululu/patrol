@@ -6,7 +6,7 @@
 
 이 문서의 모든 그림은 **설계**다. 코드를 작성하기 전에 합의할 수 있는 입력·판단·출력·실패·복구 흐름으로 읽는다. 현재 구현 수준은 1절에서 별도로 표시하며, 설계 그림이 있다고 구현·시험 완료로 처리하지 않는다. 함수·클래스·저장 알고리즘·실행 명령 등 코드 상세는 본문에 넣지 않는다.
 
-기준: [공용 인터페이스](interfaces.md), [AMR 기능·TBD](amr.md), [통합 순서](integration.md), [관제 v1.0 결정](decisions/2026-09-08-control-interface-baseline.md). 화살표를 읽기 위한 값 설명은 이 문서에 표시하되, 계약 변경은 기준 문서에서 결정한다. 기존 코드별 그림·검증 로그는 [9월 8일 구현·시험 이력](amr_patrol_safety_flowchart_2026-09-08_history.md)에 보존했다.
+기준: [공용 인터페이스](interfaces.md), [AMR 기능·TBD](amr.md), [통합 순서](integration.md), [관제 v1.0 결정](decisions/2026-09-08-control-interface-baseline.md). 2026-09-09 사용자가 제공한 `AMR 공동 구현 계약 v1`의 AMR 내부 결정은 이 문서의 공동 구현 기준으로 반영한다. 화살표를 읽기 위한 값 설명은 이 문서에 표시하되, 공용 메시지·System monitor ACK처럼 다른 개발 단위에 영향을 주는 변경은 기준 문서 갱신·수정 요청·명시적 구현 승인을 거쳐야 한다. 기존 코드별 그림·검증 로그는 [9월 8일 구현·시험 이력](amr_patrol_safety_flowchart_2026-09-08_history.md)에 보존했다.
 
 ## 1. 오전 시작 시 확인할 진행 상태와 역할
 
@@ -18,13 +18,51 @@
 | AMR-13 도킹 | TB4 Dock/Undock 요청·취소·60초 제한·도킹 상태 연속 확인 구현 | **DOCKED와 실제 CHARGING의 동시 연속 확인** 연결, 중복 실행 방지와 실패 경로 실기 | 성현님 실행, 조정묵 센서·보고 |
 | AMR-14 감지·증적·부저 | 화재 이벤트 중복 관리·TB4 부저 연결용 기초 기능 있음 | OAK-D 후보→yaw→1초 확인→이벤트·증적→부저의 전체 연결, 속도 중재 | 성현님 실행, 조정묵 안전 중재·보고 공동 |
 | AMR-15 robot6 위치 검증 | scan 수신·pose 준비 확인 있음 | **실제 위치 비교 및 0.5m·15도·3회 연속 판정 없음**. 요청·결과·timeout 계약 필요 | 성현님 검증 생산, 조정묵 전달 공동 |
-| AMR-18 중단·복구 | Nav2 취소·진행 상태 정리·명령 대기 핵심 경로 있음 | yaw/spin/도킹까지 취소 연결, 늦은 응답과 잔여 목표 차단, 실기 | 성현님 실행 정리, 조정묵 최종 정지 |
-| AMR-19 순찰 재개 | checkpoint와 재개 방식 선택 기능 있음. 기본 설정 비활성 | 재개 위치 확정, **30초 규칙의 기산점·만료 처리·token 회수 연계 없음** | 성현님 시나리오, 조정묵 상태 전달, 관제 회수 결정 |
-| 안전·상태 패키지 공통 | 명령 입구·배터리·권한·heartbeat·상태/결과 연결 완료. 전체 단위시험 367개 및 격리 ROS 시험 통과 기록 있음 | 실제 TB4·관제·mission 연결 시험, 임시 보고 상태의 실제 입력 교체 | 조정묵 |
+| AMR-18 중단·복구 | Nav2 취소·진행 상태 정리·명령 대기 핵심 경로 있음 | STOP은 checkpoint 보존·비종료 저장, CANCEL과 `motion_allowed=false`는 checkpoint 삭제·CANCELED 결과 저장으로 분리. yaw/spin/Dock 취소, 늦은 응답 차단, 실기 | 성현님 실행 정리, 조정묵 최종 정지·gateway 반영 |
+| AMR-19 순찰 재개 | checkpoint와 재개 방식 선택 기능 있음. 기본 설정 비활성 | `next_waypoint`로 설정·고정하고 PAUSED/WAITING_SAFE_ZONE의 동일 mission만 재개. 기존 30초 재개 창은 합격 기준에서 제거하고, robot6 위치 검증은 별도 선행 조건으로 유지 | 성현님 checkpoint·ledger, 조정묵 admission·상태 전달 |
+| 안전·상태 패키지 공통 | 공개 명령 입구·배터리·권한·heartbeat·상태/결과 연결 완료. 9월 9일 빌드와 전체 단위시험 367개 및 격리 ROS 회귀 통과 | 현재 조기 ACCEPTED와 `mission_lifecycle/String`을 PENDING→ADMITTED/REJECTED→STARTED 구조로 교체. 실제 TB4·관제·mission 연결 시험, 임시 보고 상태의 실제 입력 교체 | 조정묵 |
 
 **전체 AMR 코드가 완료된 상태는 아니다.** 임시 구현을 포함한 완료 범위는 안전·보고 패키지다. 임시 `SCANNING` 표시는 실제 탐지나 증적 완료를 의미하지 않는다.
 
-원본 작업표의 오래된 조건을 그대로 구현하지 않는다. 도킹은 접점 “또는” 센서 3초가 아니라 **DOCKED와 CHARGING 모두 2초**, E-stop은 현행 v1.0에서 물리 latch·manual reset 제외다. AMR-19의 재개 30초는 Q-06의 **마지막 pose age 30초**와 서로 다른 조건이며, 재개 정책은 TBD-AMR-005에서 결정해야 한다.
+원본 작업표의 오래된 조건을 그대로 구현하지 않는다. 도킹은 접점 “또는” 센서 3초가 아니라 **DOCKED와 CHARGING 모두 2초**, E-stop은 현행 v1.0에서 물리 latch·manual reset 제외다. AMR-19의 재개 위치는 공동 계약에 따라 **다음 waypoint**로 고정한다. 이전 그림의 30초 재개 창은 채택하지 않았으며 Q-06의 **마지막 pose age 30초**와 혼용하지 않는다.
+
+### 1.1 9월 9일 공동 구현 계약으로 갱신한 범위
+
+이 절은 이후 절의 오래된 설명과 충돌할 때 우선한다. 계약을 문서에 반영한 것이 코드 변경 승인이나 구현 완료를 뜻하지 않는다.
+
+| 경계 | 9월 9일 공동 기준 | 현재 작업본과의 차이·상태 |
+|---|---|---|
+| 명령 진입 | 공개 `mission_command`는 gateway만 구독하고 전체 `MissionCommand`를 내부 `mission_dispatch`로 전달 | 진입 구조는 연결됨 |
+| ACCEPTED 시점 | gateway 기본 검증→SQLite `PENDING`→dispatch→mission `ADMITTED/REJECTED` 후 외부 ACCEPTED/REJECTED. 4초 무응답은 `206 / MISSION_DISPATCH_TIMEOUT` | 현재 gateway는 저장 직후 ACCEPTED를 발행하므로 **교체 필요** |
+| 내부 실행 이벤트 | `MissionExecutionEvent`: ADMITTED, REJECTED, STARTED, NONTERMINAL_STORED, RESULT_STORED. QoS RELIABLE/TRANSIENT_LOCAL/KEEP_LAST(20) | 현재 `mission_lifecycle/std_msgs/String` 2종이므로 **공용 메시지 승인 후 양쪽 동시 교체** |
+| dispatch QoS·중복 | RELIABLE/TRANSIENT_LOCAL/KEEP_LAST(10), mission ledger가 retained 재수신·재시작의 실제 Action 중복을 차단 | 현재 dispatch는 VOLATILE이고 JSON command store가 일부 중복을 차단. PENDING 재전달과 실행 ledger 보강 필요 |
+| 중재 | STOP > MOVE_TO_SAFE_ZONE > DOCK > CANCEL > RESUME_PATROL > START_PATROL. 높은 우선순위만 교체, 같거나 낮으면 거절, 낮은 명령 FIFO 금지 | 우선순위·교체·SUPERSEDED 전체 대조 필요 |
+| STOP | 활성 mission이 없어도 no-op 수락. ADMITTED→STARTED→NONTERMINAL_STORED, PAUSED·checkpoint 보존·PatrolReport 없음 | 비종료 이벤트와 gateway 완료 상태 추가 필요 |
+| CANCEL | 동일 활성 mission만 허용. checkpoint 삭제, CANCELED/100 결과 저장, 새 mission ID START만 가능 | 실행부와 gateway 종단 대조 필요 |
+| 안전 권한 상실 | 모든 명령보다 우선. Nav2·Dock 취소, mission CANCELED, checkpoint 삭제, CANCELED/102 `LOCAL_SAFETY_REVOKED`, 자동 재출발 금지 | 현재 외부 stop/cancel 핵심은 있으나 결과·checkpoint 종단 보강 필요 |
+| 재개 | `resume_policy=next_waypoint`; PAUSED 또는 WAITING_SAFE_ZONE이며 checkpoint가 있는 동일 mission만 허용 | 코드 선택지는 있으나 기본 설정은 disabled. 설정·checkpoint 경계·시험 필요 |
+| 저장 책임 | gateway SQLite는 외부 command 상태, mission execution ledger는 side effect 중복, mission status/outbox는 상태·결과 | 파일은 일부 있으나 계약의 PENDING/REJECTED/비종료·ledger schema와 재시작 흐름 미완성 |
+| 결과 ACK | 같은 report ID를 1초 간격 재발행, 30초 후 경고하되 삭제 금지. 일치하는 STORED/DUPLICATE ACK만 삭제 후보 | `IngestionAck`의 System monitor 공식 채택 전 **외부 확인·구현 보류** |
+
+`MissionExecutionEvent.msg` 추가, 공용 메시지 상수 정리, `IngestionAck` 적용은 공유 계약에 영향을 준다. 먼저 AMR 수정 요청서와 영향 단위 검토를 남기고, 대상 파일·기능의 명시적 코드 변경 승인을 받은 뒤 구현한다. 특히 `RobotStatus.msg`의 “중복 SAFETY 상수 제거”는 어떤 상수가 중복인지 기준 문서와 실제 메시지를 대조해 삭제 대상을 확정하기 전에는 수행하지 않는다.
+
+### 1.2 9월 9일 자동 시험 결과와 다음 시작점
+
+테스트 작업본은 `82d53ecfd0f730a91c84f0ee9297956948357f60`이다. 2026-09-09 08:15 KST까지 소스 수정 없이 다음을 수행했다.
+
+| 구분 | 실행 결과 | 판정 범위 |
+|---|---|---|
+| 빌드 | `patrol_interfaces`, `patrol_amr`, `patrol_amr_safety` 3개 성공 | 현재 작업본 컴파일·설치 가능 |
+| 전체 단위시험 | 367개 통과, 2.708초 | 현재 구현의 순수 로직 회귀 |
+| 배터리 ROS | `BATTERY_MONITOR_ROS_SMOKE_PASS` | 격리된 원본 입력→상태 발행 |
+| 상태·결과 ROS | `AMR07_STATUS_REPORTER_SMOKE_PASS` | outbox 복구와 임시 상태 축 |
+| 현행 명령 lifecycle ROS | `COMMAND_LIFECYCLE_SMOKE_PASS` | 현재 `mission_lifecycle/String` 경로이며 새 계약 구현 증거는 아님 |
+| gateway 재시작 ROS | `GATEWAY_PERSISTENCE_PASS`, domain 135 | 기존 Discovery Server 변수를 제거한 격리 환경에서 중복 dispatch 방지·retention 확인 |
+| 안전 ROS robot1 | `AMR_SMOKE_PASS`, domain 136, 상태 67건, 변경 최단 0.100초 | 실물·Nav2가 아닌 로컬 게이트 시험 |
+| 안전 ROS robot6 | `AMR_SMOKE_PASS`, domain 137, 상태 70건, 변경 최단 0.100초 | 실물·Nav2가 아닌 로컬 게이트 시험 |
+| 이중 namespace ROS | `AMR_DUAL_NAMESPACE_SMOKE_PASS`, domain 138 | 한 domain에서 robot1/robot6 상태·명령·DB·token·E-stop 분리 |
+
+첫 스모크 시도는 실행 샌드박스의 UDP 소켓 제한으로 실패했고, gateway 단독 첫 재시도는 셸에 남아 있던 `ROS_DISCOVERY_SERVER`·`ROS_SUPER_CLIENT` 때문에 발견 timeout이 났다. 로컬 DDS 허용과 해당 외부 Discovery 변수 제거 후 통과했으므로 코드 FAIL로 판정하지 않는다. 이 결과는 RT-01~12 실물·다중 PC 시험 PASS를 대신하지 않는다. 오늘 자동 시험 뒤의 구현 시작점은 9절에 정리한다.
 
 ## 2. 화살표·타입 읽는 법
 
@@ -41,9 +79,9 @@ flowchart LR
     C -->|"/control/heartbeat · D04 ControlHeartbeat<br/>session:string, sequence:uint64"| S
     E[관제 Safety Arbiter] -->|"/control/estop · D05 EStop<br/>target:string, active:bool, reason:uint8, sequence:uint64"| S
     C -->|"/{r}/mission_command · D01 MissionCommand<br/>IDs:string, command:uint8, target_id:string"| G[조정묵: 명령 접수]
-    G -->|"/{r}/mission_dispatch · D01 MissionCommand<br/>접수한 명령 전체 값 유지"| M[성현님: 임무 실행]
-    M -->|"/{r}/mission_lifecycle · D12 String<br/>data:string, 내부 kind·IDs·result"| G
-    G -->|"/{r}/command_check · D02 CommandCheck<br/>IDs:string, check_state:uint8, reason_code:uint32"| C
+    G -.->|"/{r}/mission_dispatch · D01 MissionCommand<br/>전체 값 유지 · TRANSIENT_LOCAL"| M[성현님: 임무 admission·실행]
+    M -.->|"/{r}/mission_execution_event · D17 MissionExecutionEvent<br/>ADMITTED/REJECTED/STARTED/저장 완료"| G
+    G -->|"/{r}/command_check · D02 CommandCheck<br/>admission 후 ACCEPTED, 시작 후 EXECUTING"| C
     S -->|"/{r}/motion_allowed · D06 Bool<br/>data:bool, true=Action 허용 / false=중단"| M
     M -->|"/{r}/navigate_to_pose · D13 Action<br/>goal pose:PoseStamped"| N[Nav2 및 충돌 검사]
     N -->|"/{r}/cmd_vel_safe · D07 TwistStamped<br/>stamp:Time, linear.x·angular.z:float64"| S
@@ -69,7 +107,7 @@ flowchart LR
 | 번호·통로·메시지 타입 | 전달 필드와 타입 | 값의 종류·의미 |
 |---|---|---|
 | D01 `/{r}/mission_command`, `/{r}/mission_dispatch` · `patrol_interfaces/MissionCommand` | `header:Header`; `command_id, mission_id, robot_id, target_id, issued_by:string`; `command:uint8`; `target_pose:PoseStamped` | `command`: **0 STOP** 진행 보존 정지, **1 START_PATROL** 새 순찰, **2 MOVE_TO_SAFE_ZONE** 대피, **3 RESUME_PATROL** 기존 순찰 재개, **4 DOCK** 도킹, **5 CANCEL** 임무 종료. `target_id`: START는 `robot1_default/robot6_default`, DOCK는 `dock_1/dock_6`, 나머지 빈 문자열. `target_pose`는 현행 6종 명령에서 사용하지 않음 |
-| D02 `/{r}/command_check`, 내부 `/{r}/active_command` · `patrol_interfaces/CommandCheck` | `header:Header`; `command_id, mission_id, robot_id, reason, source_session_id:string`; `check_state:uint8`; `reason_code:uint32`; `sequence:uint64` | `check_state`: **0 UNKNOWN** 미정, **1 ACCEPTED** 접수, **2 EXECUTING** 실행 시작, **3 REJECTED** 거절. 접수 성공은 임무 성공이 아님. 원인은 3.5절 |
+| D02 `/{r}/command_check`, 내부 `/{r}/active_command` · `patrol_interfaces/CommandCheck` | `header:Header`; `command_id, mission_id, robot_id, reason, source_session_id:string`; `check_state:uint8`; `reason_code:uint32`; `sequence:uint64` | `check_state`: **0 UNKNOWN** 미정, **1 ACCEPTED** mission admission과 실행 대기열 진입 확인, **2 EXECUTING** worker 실제 실행 시작, **3 REJECTED** 거절. gateway SQLite 저장만으로 ACCEPTED를 발행하지 않는다. 원인은 3.5절 |
 | D03 `/control/drive_token` · `patrol_interfaces/DriveToken` | `header:Header`; `control_session_id, token_id, holder_robot_id:string`; `lease_duration:Duration`; `message_sequence:uint64` | holder는 `robot1/robot6`; 빈 token은 해당 holder 권한 회수. 같은 세션에서 sequence 증가만 수락. 발행 5Hz·lease 1초(Q-01). 새 token만으로 자동 출발하지 않음 |
 | D04 `/control/heartbeat` · `patrol_interfaces/ControlHeartbeat` | `header:Header`; `control_session_id:string`; `sequence:uint64` | 관제 세션과 증가 번호. 5Hz, 1초 미수신 시 차단(Q-16). 세션 변경 시 이전 권한 무효 |
 | D05 `/control/estop` · `patrol_interfaces/EStop` | `header:Header`; `target_robot_id:string`; `active:bool`; `reason:uint8`; `sequence:uint64` | target=`robot1/robot6/all`. active=true 정지 활성, false 해제 통보. reason: **0 UNKNOWN** 미분류, **1 OPERATOR** 운영자 요청, **2 COMMUNICATION** 통신, **3 TOKEN** 권한, **4 OBSTACLE** 장애물, **5 KEEPOUT_FAILURE** 영역 제한 실패, **6 SYSTEM_FAULT** 시스템 고장 |
@@ -120,7 +158,7 @@ D11 `/{r}/robot_status`의 타입은 `patrol_interfaces/RobotStatus`다.
 
 | 번호·통로·타입 | 전달 값과 종류·의미 |
 |---|---|
-| D12 `/{r}/mission_lifecycle` · `std_msgs/String` | `data:string` 안의 구조화된 값: `schema_version:int=1`, `kind:string`=`executing` 실행 시작 / `completed` 종료, `command_id, mission_id, robot_id:string`, `report:object 또는 null`. 시작에는 null, 종료에는 D14에 해당하는 결과. 외부 CommandCheck는 gateway만 발행 |
+| D17 `/{r}/mission_execution_event` · 제안된 `patrol_interfaces/MissionExecutionEvent` | 상수 `ADMITTED=1`, `REJECTED=2`, `STARTED=3`, `NONTERMINAL_STORED=4`, `RESULT_STORED=5`; `header:Header`; `command_id, mission_id, robot_id, source_session_id, reason:string`; `event_type:uint8`; `sequence:uint64`; `mission_state:uint8`; `reason_code:uint32`; `has_report:bool`; `report:PatrolReport`. 멱등 키는 `command_id + event_type + report_id`. 공용 메시지 승인 전에는 설계이며, 현행 `mission_lifecycle/String`은 교체 대상 |
 | D12 내부 임무 상태 인계 · `object` (ROS 토픽 아님) | `mission:string`은 `MISSION_NONE` 등 3.3절 Mission 이름에 `MISSION_` 접두사. `command_id, mission_id, outcome, reason:string`; `waypoint_index, last_waypoint_index:int`=-1 미지정 또는 0부터 순번; `reason_code:int`; `revision:int` 증가 번호; `updated_monotonic_s:float` 로컬 갱신 시각. outcome은 빈 값 진행 중 / `PAUSED` 보존 / `SUCCEEDED, FAILED, CANCELED` 종료 |
 | D12 내부 결과 인계 · `object` (ROS 토픽 아님) | D14의 로봇·명령·임무·결과·이유·시작/종료 시각·연관 이벤트를 전달. 같은 결과는 같은 report ID 유지. 전달 실패 시 결과 보존. 외부 저장 ACK 계약은 TBD-IF-003 |
 | D13 `/{r}/navigate_to_pose` · `nav2_msgs/action/NavigateToPose` | goal=`pose:PoseStamped`, `behavior_tree:string`; feedback=`current_pose:PoseStamped`, `distance_remaining:float32` m, 시간:`Duration`, `number_of_recoveries:int16`; result=`error_code:uint16`, `error_msg:string`. Action 상태 `status:int8`: 0 UNKNOWN, 1 ACCEPTED, 2 EXECUTING, 3 CANCELING, 4 SUCCEEDED, 5 CANCELED, 6 ABORTED |
@@ -161,7 +199,7 @@ D14 `/{r}/patrol_report`와 내부 재전달 통로 `/{r}/report_replay_request`
 | P02 정렬·스캔 판단 | `aligned:bool`, `same_target:bool`, `detected:bool`, `continuous_s:float` 유지 초, `scan_state:string` 실제 단계 | 오차·속도·timeout·단절 시 계수·단계 문자열: TBD-AMR-001·005. 1초 확인 의도는 유지 |
 | P03 확정 이벤트·증적 | `event_id, evidence_id, robot_id:string`; 이벤트 분류·위험도, `confidence:float32`, `location_valid:bool`, 위치·측정 시각; 증적 `media_type, sha256:string`, `chunk_index, chunk_count, total_size:uint32`, `data:uint8[]` 이미지 등 bytes | `DetectionEvent`·`Evidence` 정의는 있으나 생산·전송·저장 ACK 전체 계약은 TBD-IF-006·007. 최종 토픽 TBD, 수신자는 관제·시스템 모니터 협의 |
 | P04 LiDAR 검증 요청·결과 | `request_id, robot_id:string`, 기준·측정 pose, `position_error_m:float`, `yaw_error_deg:float`, `consecutive_count:int`, `verified:bool`, `reason:string` | 대상·연산 위치·토픽/서비스·wire 타입·timeout: TBD-AMR-002. Q-06의 0.5m·15도·3회 연속을 만족해야 verified=true |
-| P05 재개·token 회수 요청 | `mission_id:string`, `checkpoint:int`, `elapsed_s:float`, `resume_allowed:bool`; 관제에 알릴 회수 사유 | 30초 기산점·경계·재개 점·회수 요청 통로 TBD-AMR-005 및 관제 협의. AMR이 DriveToken을 직접 발행해 반납을 흉내 내지 않음 |
+| P05 재개 판단 | `mission_id:string`, `checkpoint:int`, `resume_allowed:bool`; checkpoint는 다음에 방문할 waypoint index | `next_waypoint`는 9월 9일 AMR 공동 기준. PAUSED/WAITING_SAFE_ZONE, 동일 mission, 유효 checkpoint와 별도 RESUME 명령을 검사한다. robot6 LiDAR 검증 요청·결과 통로는 P04로 별도 결정. AMR이 DriveToken을 직접 발행하지 않음 |
 
 DetectionEvent에 정의된 `event_type:uint8`은 0 미정 / 1 화재 / 2 누수 / 3 장애물 / 4 조명 / 5 시설 손상이며, `risk_level:uint8`은 0 미정 / 1 낮음 / 2 중간 / 3 높음이다. 후보 분류를 이 값으로 변환할 규칙과 실제 송수신 토픽은 별도 확인한다.
 
@@ -180,13 +218,21 @@ flowchart TD
     D -->|"내부 bool=true, same_payload:bool=true"| Q[기존 접수·결과 재전달, 재실행 금지]
     Q -->|"/{r}/command_check · D02<br/>기존 check_state:uint8 및 IDs:string"| O
     Q -->|"/{r}/report_replay_request · D14<br/>기존 결과가 있을 때 동일 report_id:string"| T[상태·결과 전달]
-    D -->|"내부 bool=false, 새 command_id:string"| A[접수 기록]
-    A -->|"/{r}/command_check · D02<br/>check_state:uint8=1"| O
-    A -->|"/{r}/mission_dispatch · D01<br/>수신한 명령 전체 값"| M[성현님: 실제 실행]
-    A -->|"/{r}/active_command · D02<br/>command_id·mission_id:string"| T
-    M -->|"/{r}/mission_lifecycle · D12 String<br/>kind:string=executing 또는 completed, IDs:string"| L[진행·종료 기록 갱신]
-    L -->|"/{r}/command_check · D02<br/>실행 시작 때 check_state:uint8=2"| O
+    D -->|"내부 bool=false, 새 command_id:string"| A[SQLite PENDING 저장]
+    A -.->|"/{r}/mission_dispatch · D01<br/>전체 MissionCommand · D17 승인 후 TRANSIENT_LOCAL"| M[성현님: admission·queue 예약]
+    M -.->|"/{r}/mission_execution_event · D17<br/>ADMITTED 또는 REJECTED"| H{4초 안에 admission 응답인가}
+    H -->|"아니오"| TO[REJECTED 206<br/>MISSION_DISPATCH_TIMEOUT·늦은 실행 금지]
+    TO -->|"/{r}/command_check · D02<br/>check_state:uint8=3"| O
+    H -->|"예, ADMITTED"| AC[SQLite ACCEPTED]
+    AC -->|"/{r}/command_check · D02<br/>check_state:uint8=1"| O
+    AC -->|"/{r}/active_command · D02<br/>command_id·mission_id:string"| T
+    H -->|"예, REJECTED"| RR[SQLite REJECTED]
+    RR -->|"/{r}/command_check · D02<br/>check_state:uint8=3"| O
+    M -.->|"/{r}/mission_execution_event · D17<br/>STARTED / NONTERMINAL_STORED / RESULT_STORED"| L[진행·비종료·종료 기록 갱신]
+    L -->|"STARTED일 때 /{r}/command_check · D02<br/>check_state:uint8=2"| O
 ```
+
+현재 구현은 `A`에서 바로 ACCEPTED를 발행하고 `mission_lifecycle/String`을 사용한다. 따라서 이 그림의 점선 구간은 목표 계약이며, 1.2절의 현행 lifecycle 스모크 통과를 새 admission 계약 통과로 해석하지 않는다.
 
 ### 4.2 배터리 분류
 
@@ -261,7 +307,7 @@ flowchart TD
     W -->|"내부 재시도 가능:bool=true, 동일 결과:object"| F
 ```
 
-외부 저장 ACK는 아직 확정되지 않았다. 토픽 수신·발행 성공과 DB 저장 완료를 같은 합격 조건으로 기록하지 않는다.
+외부 저장 ACK는 아직 확정되지 않았다. 토픽 수신·발행 성공과 DB 저장 완료를 같은 합격 조건으로 기록하지 않는다. 공동 구현 방향은 pending report를 같은 `report_id`로 1초 간격 재발행하고 30초 뒤 경고하되 보존하는 것이다. `/{r}/ingestion_ack`에서 robot·entity type·report ID가 일치하고 status가 STORED 또는 DUPLICATE일 때만 삭제하는 안은 System monitor 확인과 공용 계약 반영 전까지 production에 적용하지 않는다.
 
 ## 5. 성현님 파트 설계와 바로 수행할 작업
 
@@ -369,16 +415,17 @@ flowchart TD
     A -->|"내부 bool=true, status:int8=종료 상태"| K[옛 목표·늦은 응답이 새 동작을 만들지 않게 정리]
     K -->|"내부 trigger:STOP 또는 CANCEL 또는 safety"| T{중단 종류}
     T -->|"내부 command:uint8=0 STOP"| P[checkpoint·mission 보존]
-    P -->|"내부 D12 mission:string=MISSION_PAUSED<br/>최종 PatrolReport 없음"| O[상태·결과 전달]
+    P -.->|"D17 NONTERMINAL_STORED<br/>MISSION_PAUSED·PatrolReport 없음"| O[상태·결과 전달]
     T -->|"내부 command:uint8=5 CANCEL"| F[mission 종료·재개 불가]
-    F -->|"내부 D12 outcome:string=CANCELED<br/>외부 D14 result:uint8=2"| O
-    T -->|"내부 safety:bool=true"| H[안전 중단 상태 보존·새 명령 대기]
+    F -.->|"D17 RESULT_STORED<br/>D14 CANCELED·reason_code=100"| O
+    T -->|"내부 safety:bool=true"| H[mission CANCELED·checkpoint 삭제]
+    H -.->|"D17 RESULT_STORED<br/>D14 CANCELED·reason_code=102<br/>LOCAL_SAFETY_REVOKED"| O
     S[조정묵: 최종 차단·odom 확인] -->|"D11 motion_stopped:bool, safety_state:uint8<br/>실제 속도:float32, 측정 시각:Time"| H
     H -->|"내부 heartbeat/token 복구:bool=true"| N[정지 유지, 자동 재출발 금지]
-    N -->|"새 D01 명령 및 새 D03 권한<br/>mission_id:string, token_id:string"| R[5.5 재개 또는 새 임무 판단]
+    N -->|"새 D01 START와 새 D03 권한<br/>새 mission_id·token_id:string"| R[새 임무 admission]
 ```
 
-취소를 요청했다는 사실만으로 종료 완료로 표시하지 않는다. 종료 응답이 없거나 실제 정지가 확인되지 않으면 재개하지 않는다. 안전 중단을 PAUSED로 보존할지 최종 취소할지의 세부 정책은 TBD-AMR-005에서 원인별로 합의한다.
+취소를 요청했다는 사실만으로 종료 완료로 표시하지 않는다. 종료 응답이 없거나 실제 정지가 확인되지 않으면 새 임무를 실행하지 않는다. 9월 9일 공동 기준에 따라 STOP만 PAUSED로 보존하고, `motion_allowed=false`는 최종 CANCELED 처리한다. 안전 복구 뒤 이전 mission은 재개하지 않으며 새 mission ID의 START가 필요하다.
 
 ### 5.5 AMR-15 위치 검증·AMR-19 재개 — 제안 흐름
 
@@ -386,13 +433,11 @@ flowchart TD
 flowchart TD
     I[복구 후 관제 명령 대기] -->|"/{r}/mission_dispatch · D01<br/>command:uint8=3, mission_id:string"| M{보존한 동일 mission·checkpoint가 있는가}
     M -->|"내부 bool=false"| F[재개 거절·정지 유지]
-    M -->|"내부 bool=true, checkpoint:int"| T{합의할 재개 시간 제한 안인가}
-    T -.->|"내부 bool=false, P05 elapsed_s:float<br/>30초 기산점·경계 TBD"| X[정지 유지·관제에 권한 회수 필요 전달]
-    X -.->|"회수 요청 통로 TBD · P05<br/>mission_id:string, reason:string"| C[관제: token 회수 결정]
-    C -->|"/control/drive_token · D03<br/>token_id:string=빈 값, holder_robot_id:string"| S[조정묵: 권한 무효화]
-    T -.->|"내부 bool=true · P05 resume_allowed:bool"| P{pose 유효·age 1.5초 이내·새 token·별도 명령인가}
+    M -->|"내부 bool=true, checkpoint:int=다음 waypoint"| T{현재 상태가 PAUSED 또는 WAITING_SAFE_ZONE인가}
+    T -->|"내부 bool=false"| F
+    T -->|"내부 bool=true · P05 resume_allowed:bool"| P{pose 유효·age 1.5초 이내·새 token·별도 RESUME 명령인가}
     P -->|"내부 bool=false"| F
-    P -->|"내부 bool=true, robot_id:string=robot1"| R[합의한 checkpoint에서 재개]
+    P -->|"내부 bool=true, robot_id:string=robot1"| R[next_waypoint checkpoint에서 재개]
     P -->|"내부 bool=true, robot_id:string=robot6, 위치 검증 필요"| L[LiDAR 위치 비교]
     O[robot6 LiDAR·기준 위치] -.->|"/{r}/scan · D10 ranges:float32[]<br/>요청 통로 TBD · P04 request_id:string, 기준 pose"| L
     L -.->|"내부 P04 position_error_m·yaw_error_deg:float<br/>기준 pose age_s:float"| V{Q-06 기준과 비교 유효성을 만족하는가}
@@ -406,7 +451,7 @@ flowchart TD
     R -->|"내부 mission_id:string, checkpoint:int<br/>D13 target_pose:PoseStamped"| N[5.1 공통 주행·순찰]
 ```
 
-이 그림의 30초 재개 창·검증 요청·회수 요청은 **미합의 제안**이다. 마지막 pose가 30초 이내라는 Q-06만으로 현재 pose 신선도(Q-05)를 통과시키지 않는다. AMR이 token 발급·회수 결정권을 가져오지 않는다. 검사 결과가 false 또는 불명확하면 출발시키지 않는다. 연속 샘플의 독립성·실패 재시도·timeout·기산 시점은 성현님과 관제가 먼저 결정해야 한다.
+`next_waypoint`와 허용 mission 상태는 9월 9일 공동 기준이다. 기존 30초 재개 창과 token 회수 요청은 이 흐름에서 제거했다. 마지막 pose가 30초 이내라는 Q-06만으로 현재 pose 신선도(Q-05)를 통과시키지 않는다. AMR이 token 발급·회수 결정권을 가져오지 않는다. robot6 LiDAR 검사 결과가 false 또는 불명확하면 출발시키지 않는다. 연속 샘플의 독립성·실패 재시도·timeout은 TBD-AMR-002에서 결정한다.
 
 ### 5.6 성현님 오전 작업 인계표
 

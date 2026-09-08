@@ -16,6 +16,7 @@
 |---|---|---|---|
 | /{robot}/mission_command | patrol_interfaces/msg/MissionCommand | 관제 → AMR | 명령별 mission·target과 `.msg`·AMR 수신부 반영, 관제 송신부 미구현 |
 | /{robot}/command_check | patrol_interfaces/msg/CommandCheck | AMR → 관제 | check_state 수치·전이와 `.msg`·AMR 발행부 반영, 관제 수신부 미구현 |
+| /{robot}/mission_execution_event | patrol_interfaces/msg/MissionExecutionEvent | AMR mission → AMR command gateway | 2026-09-09 AMR 내부 계약, gateway 소비부 반영 중·mission 생산부 미반영 |
 | /control/drive_token | patrol_interfaces/msg/DriveToken | 관제 → AMR 로컬 안전 | 세션·ID·message_sequence·회수 타입 반영 |
 | /{robot}/robot_status | patrol_interfaces/msg/RobotStatus | AMR → 관제·시스템 모니터 | safety_state 의미·AMR 발행부 반영, `.msg` 중복 상수 정리와 관제 수신부 미구현 |
 | /{robot}/patrol_report | patrol_interfaces/msg/PatrolReport | AMR → 관제·시스템 모니터 | 영속 큐·동일 report_id 발행 구현, 수신 저장 ACK는 TBD-IF-003 |
@@ -69,6 +70,7 @@
 │                                       상태 토픽·실환경 확인 [TBD-IF-008 / 7절]
 ├── AMR 내부 연결                       [robot1·robot6에 각각 적용]
 │   ├── mission_supervisor → Nav2       내부 Action; 정확한 이름·타입은 미기재
+│   ├── mission_supervisor → gateway    MissionExecutionEvent: admission·실행·저장 완료
 │   ├── 감지 처리 → 확정 처리           DetectionCandidate [TBD-IF-006]
 │   ├── cmd_vel_safe                 TwistStamped: Nav2 collision_monitor → local safety
 │   ├── cmd_vel_yaw                  TwistStamped: mission_supervisor → local safety
@@ -177,6 +179,35 @@ uint64 sequence
 | CHECK_REJECTED | 3 | command를 실행하지 않음 |
 
 정의되지 않은 check_state 숫자는 폐기하고 프로토콜 경고를 기록한다. 정상 전이는 ACCEPTED → EXECUTING이며 역방향 전이는 항상 폐기한다. 관제 내부 `WAITING` 상태에서 ACCEPTED가 누락된 EXECUTING을 받으면 동일 `command_id`·`mission_id`·`robot_id`가 모두 일치할 때만 `WAITING → EXECUTING` 복구 예외로 수락하고 관제 운영 경고 `ACCEPTED_MISSING`을 기록한다. 이 예외를 수락하면 AMR이 실행을 시작한 증거이므로 해당 MissionCommand 재전송을 중단한다.
+
+### 2.2 AMR 내부 MissionExecutionEvent
+
+`/{robot}/mission_execution_event`는 mission 실행부가 command gateway에 admission·실행 시작·영속 저장 완료를 알리는 AMR 내부 토픽이다. 외부 관제는 이 토픽을 구독하지 않으며 외부 `CommandCheck`는 gateway 하나만 발행한다.
+
+~~~text
+uint8 ADMITTED=1
+uint8 REJECTED=2
+uint8 STARTED=3
+uint8 NONTERMINAL_STORED=4
+uint8 RESULT_STORED=5
+
+std_msgs/Header header
+string command_id
+string mission_id
+string robot_id
+uint8 event_type
+string source_session_id
+uint64 sequence
+uint8 mission_state
+uint32 reason_code
+string reason
+bool has_report
+patrol_interfaces/PatrolReport report
+~~~
+
+gateway는 새 명령을 PENDING으로 저장하고 전체 `MissionCommand`를 `mission_dispatch`에 발행한다. mission의 ADMITTED 뒤에만 외부 ACCEPTED, worker 실제 시작을 알리는 STARTED 뒤에 EXECUTING을 발행한다. REJECTED는 외부 REJECTED로 변환한다. NONTERMINAL_STORED는 PAUSED·WAITING_SAFE_ZONE처럼 PatrolReport가 없는 저장 완료이며, RESULT_STORED는 `has_report=true`이고 report의 robot·command·mission ID가 이벤트와 모두 일치해야 한다.
+
+같은 이벤트의 영속 멱등성 키는 `command_id + event_type + report_id`다. report가 없는 이벤트는 빈 report ID를 사용한다. 완료 상태를 과거 상태로 되돌리는 이벤트는 적용하지 않고 프로토콜 경고를 남긴다. QoS는 RELIABLE / TRANSIENT_LOCAL / KEEP_LAST(20)이다. `mission_dispatch`도 RELIABLE / TRANSIENT_LOCAL / KEEP_LAST(10)으로 사용하며, retained 재수신으로 실제 Action이 중복되지 않도록 mission 실행 ledger가 command fingerprint를 보존한다.
 
 관제는 MissionCommand를 발행한 뒤 5초 이내에 같은 command ID의 ACCEPTED 또는 REJECTED를 기다린다. 매 시도 5초 timeout 후 동일 ID·payload를 최대 2회 재전송한다. 이후에도 확인되지 않으면 관제 운영 판단 `COMMAND_CHECK_TIMEOUT`을 기록하고 새 command ID를 자동 생성하지 않는다. EXECUTING은 정상 Check timeout 응답 조건이 아니며 최종 결과는 PatrolReport로 전달한다. 중간 CommandCheck가 일부 누락됐어도 ID가 유효한 PatrolReport는 최종 결과로 수락하고 프로토콜 경고만 기록한다. `COMMAND_CHECK_TIMEOUT`과 `ACCEPTED_MISSING`은 AMR CommandCheck reason code가 아니라 TBD-IF-011의 관제 운영 이벤트다.
 

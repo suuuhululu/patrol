@@ -60,7 +60,14 @@ class MissionIngress:
         verdict = observed.verdict
         if verdict is command_store.RegisterVerdict.NEW:
             return IngressDecision(
-                check_meaning=command_check.CheckMeaning.ACCEPTED,
+                check_meaning=None,
+                reason_code=0,
+                reason='',
+                dispatch_new=True,
+            )
+        if verdict is command_store.RegisterVerdict.DUPLICATE_PENDING:
+            return IngressDecision(
+                check_meaning=None,
                 reason_code=0,
                 reason='',
                 dispatch_new=True,
@@ -88,6 +95,23 @@ class MissionIngress:
                 replay_report=self._store.completed_report(
                     command_fields['command_id']
                 ),
+            )
+        if verdict in {
+            command_store.RegisterVerdict.DUPLICATE_NONTERMINAL,
+            command_store.RegisterVerdict.DUPLICATE_SUPERSEDED,
+        }:
+            return IngressDecision(
+                check_meaning=None,
+                reason_code=observed.reason_code,
+                reason=observed.reason,
+                dispatch_new=False,
+            )
+        if verdict is command_store.RegisterVerdict.DUPLICATE_REJECTED:
+            return IngressDecision(
+                check_meaning=command_check.CheckMeaning.REJECTED,
+                reason_code=observed.reason_code,
+                reason=observed.reason,
+                dispatch_new=False,
             )
         if verdict is command_store.RegisterVerdict.COMMAND_ID_CONFLICT:
             return IngressDecision(
@@ -138,6 +162,7 @@ def mission_command_fields(message, *, received_at: float) -> dict:
             'command': message.command,
             'target_id': message.target_id,
             'target_pose': pose_stamped_payload(message.target_pose),
+            'issued_by': message.issued_by,
             'received_at': received_at,
         }
     except AttributeError as error:
