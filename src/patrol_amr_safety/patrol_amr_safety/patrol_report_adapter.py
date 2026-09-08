@@ -33,7 +33,11 @@ def fill_message(message, record, header_stamp) -> None:
 
 
 class PatrolReportDrain:
-    """Publish pending reports only when at least one receiver is matched."""
+    """Publish pending reports only when at least one receiver is matched.
+
+    Removal after a publish call remains the provisional behavior until the
+    shared application-level ACK in TBD-IF-003 is defined.
+    """
 
     def __init__(self, outbox, publisher, message_factory, now_message) -> None:
         self._outbox = outbox

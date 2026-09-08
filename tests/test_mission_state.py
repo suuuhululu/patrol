@@ -4,6 +4,17 @@ from patrol_amr.mission_state import MissionStateTracker
 
 
 class MissionStateTrackerTest(unittest.TestCase):
+    def test_restart_can_continue_revision_after_persisted_snapshot(self):
+        tracker = MissionStateTracker(starting_revision=8)
+        self.assertEqual(tracker.snapshot().revision, 8)
+        tracker.command_started('cmd-1', 'msn-1')
+        self.assertEqual(tracker.snapshot().revision, 9)
+
+    def test_invalid_starting_revision_is_rejected(self):
+        for value in (-1, 1.5, True):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                MissionStateTracker(starting_revision=value)
+
     def test_progress_and_terminal_result_are_preserved(self):
         tracker = MissionStateTracker()
         tracker.command_started('cmd-1', 'msn-1')

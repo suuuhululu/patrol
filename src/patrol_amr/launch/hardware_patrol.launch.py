@@ -24,12 +24,26 @@ def generate_launch_description():
     start_nav2 = LaunchConfiguration('start_nav2')
     start_local_safety = LaunchConfiguration('start_local_safety')
     start_status_reporter = LaunchConfiguration('start_status_reporter')
+    start_command_gateway = LaunchConfiguration('start_command_gateway')
     motion_enable_token = LaunchConfiguration('motion_enable_token')
     source_session_id = LaunchConfiguration('source_session_id')
-    safety_state = LaunchConfiguration('safety_state')
+
+    command_gateway = Node(
+        package='patrol_amr_safety',
+        executable='command_gateway',
+        name='command_gateway',
+        namespace=robot_id,
+        condition=IfCondition(start_command_gateway),
+        parameters=[{
+            'robot_id': ParameterValue(robot_id, value_type=str),
+            'source_session_id': ParameterValue(
+                source_session_id, value_type=str),
+        }],
+        output='screen',
+    )
 
     local_safety = Node(
-        package='patrol_amr',
+        package='patrol_amr_safety',
         executable='local_safety_supervisor',
         name='local_safety_supervisor',
         namespace=robot_id,
@@ -41,7 +55,7 @@ def generate_launch_description():
     )
 
     status_reporter = Node(
-        package='patrol_amr',
+        package='patrol_amr_safety',
         executable='status_reporter',
         name='status_reporter',
         namespace=robot_id,
@@ -50,7 +64,6 @@ def generate_launch_description():
             'robot_id': ParameterValue(robot_id, value_type=str),
             'source_session_id': ParameterValue(
                 source_session_id, value_type=str),
-            'safety_state': ParameterValue(safety_state, value_type=int),
         }],
         output='screen',
     )
@@ -119,6 +132,12 @@ def generate_launch_description():
                 'False when the namespaced Nav2 stack is already running'),
         ),
         DeclareLaunchArgument(
+            'start_command_gateway',
+            default_value='true',
+            choices=['true', 'false'],
+            description='False only when command_gateway is already running',
+        ),
+        DeclareLaunchArgument(
             'start_local_safety',
             default_value='true',
             choices=['true', 'false'],
@@ -144,11 +163,6 @@ def generate_launch_description():
                 '<robot_id>-<YYYYMMDDTHHMMSS>-<restart_sequence>'),
         ),
         DeclareLaunchArgument(
-            'safety_state',
-            default_value='0',
-            description='Transported uint8; enum meaning remains TBD-IF-003',
-        ),
-        DeclareLaunchArgument(
             'motion_enable_token',
             default_value='',
             description='Explicit arm token, for example ENABLE_ROBOT6_MOTION',
@@ -168,6 +182,7 @@ def generate_launch_description():
             default_value=os.path.join(
                 mission_share, 'config', 'patrol_nav2.yaml'),
         ),
+        command_gateway,
         local_safety,
         status_reporter,
         localization,

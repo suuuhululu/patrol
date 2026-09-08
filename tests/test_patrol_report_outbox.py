@@ -5,7 +5,7 @@ import unittest
 from patrol_amr.mission_reporter import MissionCompletion
 from patrol_amr.mission_types import MissionOutcome, MissionType
 from patrol_amr.patrol_report_outbox import (
-    PatrolReportOutbox, PatrolReportOutboxError)
+    PatrolReportOutbox, PatrolReportOutboxError, to_patrol_report_record)
 
 
 def completion(command_id='cmd-1', reason='', reason_code=0):
@@ -55,6 +55,15 @@ class PatrolReportOutboxTest(unittest.TestCase):
         self.assertEqual(a1.report_sequence, 1)
         self.assertEqual(a2.report_sequence, 2)
         self.assertEqual(b1.report_sequence, 1)
+
+    def test_pending_record_converts_to_canonical_gateway_report(self):
+        pending = PatrolReportOutbox(self.path).enqueue(
+            completion(), 'robot6-20260908T100000')
+        converted = to_patrol_report_record(pending)
+        self.assertEqual(converted.report_id, pending.report_id)
+        self.assertEqual(converted.command_id, pending.command_id)
+        self.assertEqual(converted.started_at.sec, 1)
+        self.assertEqual(converted.started_at.nanosec, 1)
 
     def test_conflicting_duplicate_is_rejected(self):
         outbox = PatrolReportOutbox(self.path)

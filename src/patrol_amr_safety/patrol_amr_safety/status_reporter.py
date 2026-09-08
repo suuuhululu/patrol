@@ -17,11 +17,11 @@ import time
 from patrol_amr_safety import robot_status_state as rss
 from patrol_amr.mission_status_store import (
     MissionStatusStore, MissionStatusStoreError)
-from patrol_amr.patrol_report_adapter import (
+from patrol_amr_safety.patrol_report_adapter import (
     PatrolReportDrain, PatrolReportPublishError)
 from patrol_amr.patrol_report_outbox import (
     PatrolReportOutbox, PatrolReportOutboxError)
-from patrol_amr.status_mission_bridge import MissionStatusBridge
+from patrol_amr_safety.status_mission_bridge import MissionStatusBridge
 
 
 UINT64_MAX = 0xFFFFFFFFFFFFFFFF
@@ -190,6 +190,7 @@ def create_node_class():
             )
 
             self._source_session_id = source_session_id
+            self._robot_id = robot_id
             self._state = rss.RobotStatusState(robot_id)
             self._gate = PublicationGate()
             self._sequence = StatusSequence()
@@ -251,6 +252,12 @@ def create_node_class():
                 'active_command',
                 self._on_active_command,
                 internal_qos,
+            )
+            self.create_subscription(
+                PatrolReport,
+                'report_replay_request',
+                self._on_report_replay,
+                report_qos,
             )
             self.create_subscription(
                 BatteryState,
@@ -375,6 +382,15 @@ def create_node_class():
                 self.get_logger().warning(
                     f'ignored active_command update: {error}'
                 )
+
+        def _on_report_replay(self, message) -> None:
+            """Forward an exact retained report through the sole public owner."""
+            if message.robot_id != self._robot_id:
+                self.get_logger().warning(
+                    'ignored report replay for another robot: '
+                    f'{message.robot_id!r}')
+                return
+            self._report_publisher.publish(message)
 
         def _on_battery_status(self, message) -> None:
             try:

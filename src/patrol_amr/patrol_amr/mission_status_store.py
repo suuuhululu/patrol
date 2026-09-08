@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import json
+import math
 import os
 from pathlib import Path
 import tempfile
@@ -27,6 +28,7 @@ class MissionStatusStore:
     def write(self, snapshot: MissionStateSnapshot) -> None:
         if not isinstance(snapshot, MissionStateSnapshot):
             raise TypeError('snapshot must be MissionStateSnapshot')
+        _validate_snapshot(snapshot)
         payload = {'schema_version': SCHEMA_VERSION, **asdict(snapshot)}
         parent = self._path.parent
         try:
@@ -63,7 +65,40 @@ class MissionStatusStore:
                 raise ValueError('mission status root must be an object')
             if payload.pop('schema_version', None) != SCHEMA_VERSION:
                 raise ValueError('unsupported schema_version')
-            return MissionStateSnapshot(**payload)
+            snapshot = MissionStateSnapshot(**payload)
+            _validate_snapshot(snapshot)
+            return snapshot
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise MissionStatusStoreError(
                 f'cannot read mission status {self._path}: {exc}') from exc
+
+
+def _validate_snapshot(snapshot: MissionStateSnapshot) -> None:
+    for name in (
+        'mission', 'command_id', 'mission_id', 'outcome', 'reason',
+    ):
+        if not isinstance(getattr(snapshot, name), str):
+            raise ValueError(f'{name} must be a str')
+    for name in ('waypoint_index', 'last_waypoint_index'):
+        value = getattr(snapshot, name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < -1:
+            raise ValueError(f'{name} must be an int greater than or equal to -1')
+    if (
+        isinstance(snapshot.reason_code, bool)
+        or not isinstance(snapshot.reason_code, int)
+        or not 0 <= snapshot.reason_code <= 0xFFFFFFFF
+    ):
+        raise ValueError('reason_code must fit in uint32')
+    if (
+        isinstance(snapshot.updated_monotonic_s, bool)
+        or not isinstance(snapshot.updated_monotonic_s, (int, float))
+        or not math.isfinite(snapshot.updated_monotonic_s)
+        or snapshot.updated_monotonic_s < 0.0
+    ):
+        raise ValueError('updated_monotonic_s must be finite and non-negative')
+    if (
+        isinstance(snapshot.revision, bool)
+        or not isinstance(snapshot.revision, int)
+        or snapshot.revision < 0
+    ):
+        raise ValueError('revision must be a non-negative int')

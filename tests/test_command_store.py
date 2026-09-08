@@ -215,6 +215,21 @@ class PersistenceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 store.complete_report(command_id, other_command)
 
+    def test_lifecycle_identity_must_match_stored_mission_and_robot(self):
+        command_id = command_args()['command_id']
+        with self.store() as store:
+            store.register(**command_args())
+            self.assertIs(
+                store.validate_identity(
+                    command_id,
+                    command_args()['mission_id'],
+                    'robot1',
+                ),
+                S.ACCEPTED,
+            )
+            with self.assertRaisesRegex(ValueError, 'identity'):
+                store.validate_identity(command_id, 'msn-other', 'robot1')
+
     def test_state_transitions_are_idempotent_but_not_reversible(self):
         command_id = command_args()['command_id']
         with self.store() as store:

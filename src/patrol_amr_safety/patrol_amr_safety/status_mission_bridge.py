@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from patrol_amr_safety import robot_status_state as rss
 from patrol_amr.mission_state import MissionStateSnapshot
+from patrol_amr_safety import robot_status_state as rss
 
 
 class MissionStatusBridge:
-    """Track the newest mission snapshot written by mission_supervisor."""
+    """Apply only the newest mission snapshot written by mission_supervisor."""
 
     def __init__(self, store) -> None:
         self._store = store
@@ -22,6 +22,11 @@ class MissionStatusBridge:
         snapshot = self._store.read()
         if snapshot is None or snapshot.revision == self._last_revision:
             return False
+        if snapshot.revision < self._last_revision:
+            raise ValueError(
+                'mission status revision moved backward: '
+                f'{snapshot.revision} < {self._last_revision}'
+            )
         try:
             mission_state = rss.MissionState[snapshot.mission]
         except KeyError as exc:

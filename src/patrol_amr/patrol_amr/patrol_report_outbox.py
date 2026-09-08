@@ -37,6 +37,36 @@ class PendingPatrolReport:
     related_event_ids: tuple[str, ...]
 
 
+def to_patrol_report_record(record: PendingPatrolReport):
+    """Convert a durable outbox record to the canonical gateway payload."""
+    if not isinstance(record, PendingPatrolReport):
+        raise ValueError('record must be a PendingPatrolReport')
+    from patrol_amr import patrol_report
+
+    started_sec, started_nanosec = divmod(record.started_at_ns, 1_000_000_000)
+    finished_sec, finished_nanosec = divmod(
+        record.finished_at_ns, 1_000_000_000)
+    factory = patrol_report.PatrolReportFactory(
+        record.robot_id,
+        record.source_session_id,
+        next_sequence=record.report_sequence,
+    )
+    converted = factory.create(
+        command_id=record.command_id,
+        mission_id=record.mission_id,
+        result=record.result,
+        reason_code=record.reason_code,
+        reason=record.reason,
+        started_at=patrol_report.ReportTime(started_sec, started_nanosec),
+        finished_at=patrol_report.ReportTime(finished_sec, finished_nanosec),
+        final_waypoint_id=record.final_waypoint_id,
+        related_event_ids=record.related_event_ids,
+    )
+    if converted.report_id != record.report_id:
+        raise ValueError('outbox report_id does not match its sequence')
+    return converted
+
+
 class PatrolReportOutbox:
     """Atomically enqueue results and remove them after a publish attempt."""
 

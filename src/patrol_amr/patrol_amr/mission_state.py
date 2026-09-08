@@ -26,9 +26,18 @@ class MissionStateSnapshot:
 class MissionStateTracker:
     """Own mission progress until TBD-IF-003 defines RobotStatus fields."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, starting_revision: int = 0) -> None:
+        if (
+            isinstance(starting_revision, bool)
+            or not isinstance(starting_revision, int)
+            or starting_revision < 0
+        ):
+            raise ValueError('starting_revision must be a non-negative int')
         self._lock = threading.Lock()
-        self._snapshot = MissionStateSnapshot(updated_monotonic_s=time.monotonic())
+        self._snapshot = MissionStateSnapshot(
+            updated_monotonic_s=time.monotonic(),
+            revision=starting_revision,
+        )
 
     def command_started(self, command_id: str, mission_id: str) -> None:
         with self._lock:

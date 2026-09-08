@@ -112,19 +112,27 @@ class MissionCommandParser:
         if pose is None:
             return True
         try:
+            header = pose.header
+            stamp = header.stamp
             position = pose.pose.position
             orientation = pose.pose.orientation
-            values = (
-                float(position.x), float(position.y), float(position.z),
+            position_values = (
+                float(position.x), float(position.y), float(position.z))
+            orientation_values = (
                 float(orientation.x), float(orientation.y),
-                float(orientation.z), float(orientation.w),
-            )
+                float(orientation.z), float(orientation.w))
         except (AttributeError, TypeError, ValueError) as exc:
             raise InvalidMissionCommand(
                 'target_pose is incomplete', reason_code=205) from exc
-        if not all(math.isfinite(value) for value in values):
+        if not all(math.isfinite(value) for value in (
+            *position_values, *orientation_values
+        )):
             raise InvalidMissionCommand(
                 'target_pose contains a non-finite value', reason_code=205)
-        frame_id = str(
-            getattr(getattr(pose, 'header', None), 'frame_id', '')).strip()
-        return frame_id == '' and all(value == 0.0 for value in values)
+        return (
+            str(header.frame_id).strip() == ''
+            and stamp.sec == 0
+            and stamp.nanosec == 0
+            and position_values == (0.0, 0.0, 0.0)
+            and orientation_values == (0.0, 0.0, 0.0, 1.0)
+        )

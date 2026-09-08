@@ -34,6 +34,7 @@ class MissionWorker:
         navigation_factory=NavigationAdapter,
         reporter: MissionReporter | None = None,
         state_sink=None,
+        execution_started_sink=None,
         now_ns=time.time_ns,
     ) -> None:
         self._config = config
@@ -47,6 +48,7 @@ class MissionWorker:
         self._navigation_factory = navigation_factory
         self._reporter = reporter
         self._state_sink = state_sink
+        self._execution_started_sink = execution_started_sink
         self._now_ns = now_ns
         self._navigation = None
         self._controller = None
@@ -117,6 +119,15 @@ class MissionWorker:
             return
 
         started_at_ns = self._now_ns()
+        if self._execution_started_sink is not None:
+            try:
+                self._execution_started_sink(request)
+            except Exception as exc:
+                self._arbiter.disable_motion('LIFECYCLE_REPORT_FAILED')
+                self._logger.fatal(
+                    'command execution-start notification failed; '
+                    f'motion disabled: {exc!r}')
+                return
         try:
             if not interrupt:
                 self._state.command_started(

@@ -6,12 +6,13 @@ This intentionally verifies only the connections implemented by
 
 * BatteryState -> battery_monitor -> battery_status -> status_reporter
   -> RobotStatus                                                  (10단계)
-* EStop + DriveToken -> local_safety_supervisor -> motion_allowed  (10단계)
+* heartbeat + EStop + DriveToken -> local_safety_supervisor
+  -> motion_allowed                                               (10단계)
 * cmd_vel_safe + the two gates above -> local_safety_supervisor
   -> cmd_vel                                                      (13단계)
 * Odometry -> status_reporter -> RobotStatus velocity/motion_stopped
                                                                   (14단계)
-* EStop active/release -> local_safety_supervisor stops/releases
+* 5 Hz heartbeat and EStop active/release -> local safety state
 * Accepted/expired DriveToken -> RobotStatus token fields          (16단계)
 * AMCL pose -> RobotStatus current/last-valid pose                 (17단계)
 
@@ -53,14 +54,17 @@ from rclpy.qos import (
 )
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, TwistStamped
 from nav_msgs.msg import Odometry
-from patrol_interfaces.msg import DriveToken, EStop, RobotStatus
+from patrol_interfaces.msg import (
+    ControlHeartbeat, DriveToken, EStop, RobotStatus)
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import Bool, UInt8
 
 
 ROBOT_ID = "robot1"
-SOURCE_SESSION_ID = "robot1-amr-smoke"
+SOURCE_SESSION_ID = "robot1-20260908T210000"
 NS = f"/{ROBOT_ID}"
+TEST_NS = f'/patrol_test/{ROBOT_ID}'
+TEST_CONTROL_NS = '/patrol_test/control'
 # 12단계에서 확정한 Q-17 값. motion_guard.CANDIDATE_MAX_AGE_SECONDS 와 같다.
 CANDIDATE_MAX_AGE_SECONDS = 0.5
 CANDIDATE = (0.25, -0.1)
@@ -85,11 +89,13 @@ class SmokeProbe(Node):
         super().__init__("amr_smoke_probe")
         self.motion_observations = []
         self.status_observations = []
+        self.battery_status_observations = []
         self.velocity_observations = []
+        self._heartbeat_sequence = 0
 
         self.create_subscription(
             Bool,
-            f"{NS}/motion_allowed",
+            f"{TEST_NS}/motion_allowed",
             self._on_motion_allowed,
             _qos(
                 10,
@@ -109,7 +115,7 @@ class SmokeProbe(Node):
         )
         self.estop_publisher = self.create_publisher(
             EStop,
-            "/control/estop",
+            f'{TEST_CONTROL_NS}/estop',
             _qos(
                 1,
                 ReliabilityPolicy.RELIABLE,
@@ -118,39 +124,62 @@ class SmokeProbe(Node):
         )
         self.token_publisher = self.create_publisher(
             DriveToken,
-            "/control/drive_token",
+            f'{TEST_CONTROL_NS}/drive_token',
             _qos(
                 3,
                 ReliabilityPolicy.BEST_EFFORT,
                 DurabilityPolicy.VOLATILE,
             ),
         )
+        self.heartbeat_publisher = self.create_publisher(
+            ControlHeartbeat,
+            f'{TEST_CONTROL_NS}/heartbeat',
+            _qos(
+                3,
+                ReliabilityPolicy.BEST_EFFORT,
+                DurabilityPolicy.VOLATILE,
+            ),
+        )
+        self.create_timer(0.2, self._publish_heartbeat)
         self.battery_publisher = self.create_publisher(
-            BatteryState, f"{NS}/battery_state", qos_profile_sensor_data
+            BatteryState,
+            f'{TEST_NS}/battery_state',
+            qos_profile_sensor_data,
         )
         # Q-02 변경 발행 상한을 재려면 enum 축을 빠르게 흔들어야 한다.
         # battery_monitor 와 같은 내부 QoS 로 직접 발행한다.
         self.battery_status_publisher = self.create_publisher(
             UInt8,
-            f"{NS}/battery_status",
+            f'{TEST_NS}/battery_status',
             _qos(1, ReliabilityPolicy.RELIABLE, DurabilityPolicy.TRANSIENT_LOCAL),
+        )
+        self.create_subscription(
+            UInt8,
+            f'{TEST_NS}/battery_status',
+            lambda message: self.battery_status_observations.append(
+                message.data),
+            _qos(
+                1,
+                ReliabilityPolicy.RELIABLE,
+                DurabilityPolicy.TRANSIENT_LOCAL,
+            ),
         )
         # 12단계 속도 경로: RELIABLE・VOLATILE・KEEP_LAST(1).
         velocity_qos = _qos(
             1, ReliabilityPolicy.RELIABLE, DurabilityPolicy.VOLATILE
         )
         self.create_subscription(
-            Twist, f"{NS}/cmd_vel", self._on_cmd_vel, velocity_qos
+            Twist, f'{TEST_NS}/cmd_vel', self._on_cmd_vel, velocity_qos
         )
         self.candidate_publisher = self.create_publisher(
-            TwistStamped, f"{NS}/cmd_vel_safe", velocity_qos
+            TwistStamped, f'{TEST_NS}/cmd_vel_safe', velocity_qos
         )
         self.odometry_publisher = self.create_publisher(
-            Odometry, f"{NS}/odom", qos_profile_sensor_data
+            Odometry, f'{TEST_NS}/odom', qos_profile_sensor_data
         )
         self.pose_publisher = self.create_publisher(
             PoseWithCovarianceStamped,
-            f"{NS}/amcl_pose",
+            f'{TEST_NS}/amcl_pose',
             10,
         )
 
@@ -161,6 +190,14 @@ class SmokeProbe(Node):
         self.velocity_observations.append(
             (round(message.linear.x, 6), round(message.angular.z, 6))
         )
+
+    def _publish_heartbeat(self):
+        self._heartbeat_sequence += 1
+        message = ControlHeartbeat()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.control_session_id = 'ctrl-amr-smoke'
+        message.sequence = self._heartbeat_sequence
+        self.heartbeat_publisher.publish(message)
 
 
 def _launch_log(log_path):
@@ -209,6 +246,7 @@ def _check_initial_outputs(node, launch_process, log_path):
         launch_process,
         lambda: node.estop_publisher.get_subscription_count() >= 1
         and node.token_publisher.get_subscription_count() >= 1
+        and node.heartbeat_publisher.get_subscription_count() >= 1
         and node.battery_publisher.get_subscription_count() >= 2
         and node.candidate_publisher.get_subscription_count() >= 1
         and node.pose_publisher.get_subscription_count() >= 1,
@@ -326,14 +364,13 @@ def _check_safety_path(node, launch_process, log_path):
 
 def _check_battery_path(node, launch_process, log_path):
     low_start_index = len(node.status_observations)
-    publish_started_at = time.monotonic()
-    for index in range(36):
-        target_time = publish_started_at + index * 0.1
-        while True:
-            remaining = target_time - time.monotonic()
-            if remaining <= 0.0:
-                break
-            rclpy.spin_once(node, timeout_sec=min(0.02, remaining))
+    deadline = time.monotonic() + 8.0
+    next_publish = time.monotonic()
+    while time.monotonic() < deadline:
+        now = time.monotonic()
+        if now < next_publish:
+            rclpy.spin_once(node, timeout_sec=min(0.02, next_publish - now))
+            continue
         message = BatteryState()
         message.header.stamp = node.get_clock().now().to_msg()
         message.percentage = 0.15
@@ -342,7 +379,15 @@ def _check_battery_path(node, launch_process, log_path):
         )
         message.present = True
         node.battery_publisher.publish(message)
-    rclpy.spin_once(node, timeout_sec=0.05)
+        next_publish += 0.1
+        rclpy.spin_once(node, timeout_sec=0.02)
+        status_low = any(
+            status.battery_state == RobotStatus.LOW
+            and math.isclose(status.battery_soc, 0.15, abs_tol=1e-6)
+            for status in node.status_observations[low_start_index:]
+        )
+        if RobotStatus.LOW in node.battery_status_observations and status_low:
+            break
 
     _wait_for(
         node,
@@ -478,9 +523,24 @@ def _stream_odometry(node, seconds, linear, angular, period=0.05):
 
 def _check_odometry_path(node, launch_process, log_path):
     """14단계: measured velocity and the motion_stopped judgment."""
-    if any(status.motion_stopped for status in node.status_observations):
+    unexpected_stopped = [
+        status
+        for status in node.status_observations
+        if status.source_session_id == SOURCE_SESSION_ID
+        and status.motion_stopped
+    ]
+    if unexpected_stopped:
+        details = [
+            (
+                status.status_sequence,
+                status.linear_velocity,
+                status.angular_velocity,
+            )
+            for status in unexpected_stopped[-5:]
+        ]
         raise AssertionError(
-            "motion_stopped must stay false before any odometry arrives"
+            'motion_stopped must stay false before any odometry arrives; '
+            f'unexpected={details!r}'
         )
 
     # 움직이는 표본은 정지가 아니고, 측정값이 그대로 보고된다.
@@ -489,7 +549,9 @@ def _check_odometry_path(node, launch_process, log_path):
     moving = [
         status
         for status in node.status_observations[start:]
-        if math.isclose(status.linear_velocity, MOVING_LINEAR, abs_tol=1e-6)
+        if status.source_session_id == SOURCE_SESSION_ID
+        and math.isclose(
+            status.linear_velocity, MOVING_LINEAR, abs_tol=1e-6)
     ]
     if not moving:
         raise AssertionError("measured linear velocity was not reported")
@@ -501,7 +563,11 @@ def _check_odometry_path(node, launch_process, log_path):
     _wait_for(
         node,
         launch_process,
-        lambda: node.status_observations[-1].motion_stopped,
+        lambda: any(
+            status.source_session_id == SOURCE_SESSION_ID
+            and status.motion_stopped
+            for status in node.status_observations[start:]
+        ),
         3.0,
         "motion_stopped after the odometry hold window",
         log_path,
@@ -511,8 +577,12 @@ def _check_odometry_path(node, launch_process, log_path):
     _wait_for(
         node,
         launch_process,
-        lambda: not node.status_observations[-1].motion_stopped
-        and math.isnan(node.status_observations[-1].linear_velocity),
+        lambda: any(
+            status.source_session_id == SOURCE_SESSION_ID
+            and not status.motion_stopped
+            and math.isnan(status.linear_velocity)
+            for status in node.status_observations[start:]
+        ),
         3.0,
         "stale odometry returns to NaN and not-stopped",
         log_path,
@@ -593,6 +663,11 @@ def _check_publication_rate(node, launch_process, log_path):
     broken cadence would have passed. This measures the RobotStatus header
     stamps, which are the reporter's own snapshot times.
     """
+    # 이전 단계의 stale·상태 변경 발행이 모두 끝난 뒤 조용한 구간을 잰다.
+    settle_deadline = time.monotonic() + 0.8
+    while time.monotonic() < settle_deadline:
+        rclpy.spin_once(node, timeout_sec=0.02)
+
     # 1) 조용한 구간. 아무 축도 흔들지 않으면 0.5초 주기여야 한다.
     start = len(node.status_observations)
     quiet_deadline = time.monotonic() + 2.6
@@ -642,11 +717,11 @@ def _check_publication_rate(node, launch_process, log_path):
 
 def _check_single_velocity_publisher(node):
     """interfaces.md 7절: local_safety_supervisor is the sole publisher."""
-    publishers = node.get_publishers_info_by_topic(f"{NS}/cmd_vel")
+    publishers = node.get_publishers_info_by_topic(f'{TEST_NS}/cmd_vel')
     names = sorted(info.node_name for info in publishers)
     if names != ["local_safety_supervisor"]:
         raise AssertionError(
-            f"{NS}/cmd_vel publishers must be exactly "
+            f"{TEST_NS}/cmd_vel publishers must be exactly "
             f"['local_safety_supervisor'], got {names!r}"
         )
     return names
@@ -666,9 +741,12 @@ def _check_status_sequence(node):
 
 
 def main():
-    with tempfile.NamedTemporaryFile(
+    with tempfile.TemporaryDirectory(
+        prefix='patrol-amr-smoke-runtime-'
+    ) as runtime_directory, tempfile.NamedTemporaryFile(
         prefix="patrol-amr-smoke-launch-", suffix=".log"
     ) as launch_log:
+        runtime_root = Path(runtime_directory)
         launch_process = subprocess.Popen(
             [
                 "ros2",
@@ -677,7 +755,21 @@ def main():
                 "amr_safety_status.launch.py",
                 f"robot_id:={ROBOT_ID}",
                 f"source_session_id:={SOURCE_SESSION_ID}",
-                "safety_state:=0",
+                f'battery_state_topic:={TEST_NS}/battery_state',
+                f'battery_status_topic:={TEST_NS}/battery_status',
+                f'candidate_topic:={TEST_NS}/cmd_vel_safe',
+                f'output_topic:={TEST_NS}/cmd_vel',
+                f'odom_topic:={TEST_NS}/odom',
+                f'pose_topic:={TEST_NS}/amcl_pose',
+                f'drive_token_topic:={TEST_CONTROL_NS}/drive_token',
+                f'heartbeat_topic:={TEST_CONTROL_NS}/heartbeat',
+                f'estop_topic:={TEST_CONTROL_NS}/estop',
+                f'motion_allowed_topic:={TEST_NS}/motion_allowed',
+                f'safety_state_topic:={TEST_NS}/safety_state',
+                f'accepted_token_topic:={TEST_NS}/accepted_token_id',
+                f'database_path:={runtime_root / "command_store.sqlite3"}',
+                f'mission_status_path:={runtime_root / "mission_status.json"}',
+                f'report_outbox_path:={runtime_root / "report_outbox.json"}',
             ],
             stdout=launch_log,
             stderr=subprocess.STDOUT,

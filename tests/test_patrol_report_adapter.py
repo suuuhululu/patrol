@@ -1,7 +1,14 @@
+from pathlib import Path
+import sys
 from types import SimpleNamespace
 import unittest
 
-from patrol_amr.patrol_report_adapter import (
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+for package_root in ('src/patrol_amr_safety', 'src/patrol_amr'):
+    sys.path.insert(0, str(REPOSITORY_ROOT / package_root))
+
+from patrol_amr_safety.patrol_report_adapter import (
     nanoseconds_to_time, PatrolReportDrain, PatrolReportPublishError)
 from patrol_amr.patrol_report_outbox import PendingPatrolReport
 
