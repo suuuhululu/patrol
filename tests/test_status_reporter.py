@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
 
 
@@ -11,6 +12,36 @@ PATROL_AMR_PACKAGE_ROOT = (
 sys.path.insert(0, str(PATROL_AMR_PACKAGE_ROOT))
 
 from patrol_amr import status_reporter as MODULE  # noqa: E402
+
+
+def pose_payload(value=0.0):
+    return SimpleNamespace(
+        pose=SimpleNamespace(
+            position=SimpleNamespace(x=value, y=0.0, z=0.0),
+            orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        covariance=[0.0] * 36,
+    )
+
+
+class PosePayloadTests(unittest.TestCase):
+    def test_finite_pose_and_covariance_are_accepted(self):
+        self.assertTrue(MODULE.pose_payload_is_finite(pose_payload()))
+
+    def test_nonfinite_position_is_rejected(self):
+        self.assertFalse(
+            MODULE.pose_payload_is_finite(pose_payload(float('nan')))
+        )
+
+    def test_nonfinite_orientation_is_rejected(self):
+        payload = pose_payload()
+        payload.pose.orientation.w = float('inf')
+        self.assertFalse(MODULE.pose_payload_is_finite(payload))
+
+    def test_nonfinite_covariance_is_rejected(self):
+        payload = pose_payload()
+        payload.covariance[12] = float('nan')
+        self.assertFalse(MODULE.pose_payload_is_finite(payload))
 
 
 class AcceptedTokenFieldTests(unittest.TestCase):

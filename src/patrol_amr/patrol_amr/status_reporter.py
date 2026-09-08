@@ -3,7 +3,7 @@
 Implemented inputs are limited to contracts that exist in this workspace:
 the internal ``battery_status`` enum, raw ``battery_state`` observation,
 odometry, and the local safety supervisor's ``accepted_token_id``. Mission,
-docking, and localization validity remain at safe unknown/empty values.
+docking, and other mission-owned fields remain at safe unknown/empty values.
 
 ``safety_state`` is a required parameter because TBD-IF-003 has not assigned
 its enum numbers. The node transports the explicitly supplied uint8 but does
@@ -41,6 +41,27 @@ def accepted_token_fields(value: str):
     if not isinstance(value, str):
         raise ValueError('accepted_token_id must be a str')
     return value, bool(value)
+
+
+def pose_payload_is_finite(pose_with_covariance) -> bool:
+    """Whether every numeric AMCL pose/covariance component is finite."""
+    pose = pose_with_covariance.pose
+    values = (
+        pose.position.x,
+        pose.position.y,
+        pose.position.z,
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z,
+        pose.orientation.w,
+        *pose_with_covariance.covariance,
+    )
+    return all(
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        for value in values
+    )
 
 
 class PublicationGate:
@@ -108,6 +129,7 @@ def create_node_class():
         qos_profile_sensor_data,
     )
     from builtin_interfaces.msg import Time
+    from geometry_msgs.msg import PoseWithCovarianceStamped
     from nav_msgs.msg import Odometry
     from patrol_interfaces.msg import RobotStatus
     from sensor_msgs.msg import BatteryState
@@ -174,6 +196,14 @@ def create_node_class():
             self.create_subscription(
                 Odometry, 'odom', self._on_odometry, qos_profile_sensor_data
             )
+            # 17단계: Nav2 AMCL 표준 상대 토픽. 신선도 timeout은 계약에
+            # 없으므로 수신 중단만으로 pose_valid를 false로 만들지 않는다.
+            self.create_subscription(
+                PoseWithCovarianceStamped,
+                'amcl_pose',
+                self._on_pose,
+                10,
+            )
             self.create_timer(self.TICK_SECONDS, self._tick)
             self.get_logger().info(
                 f'status reporter ready: robot_id={robot_id} '
@@ -197,6 +227,30 @@ def create_node_class():
                 )
             except ValueError as error:
                 self.get_logger().warning(f'ignored odometry sample: {error}')
+
+        def _on_pose(self, message) -> None:
+            """Accept a finite map-frame AMCL pose and preserve its stamp.
+
+            Q-02 makes a *validity transition* an immediate publication
+            trigger. Ordinary pose movement stays on the regular 2 Hz path.
+            No local age threshold changes pose_valid after this callback;
+            consumers compare the embedded measurement stamp themselves.
+            """
+            previous_valid = self._state.pose_valid
+            try:
+                if not pose_payload_is_finite(message.pose):
+                    raise ValueError('pose or covariance is not finite')
+                self._state.observe_pose(
+                    message,
+                    True,
+                    measured_at=stamp_to_seconds(message.header.stamp),
+                    frame_id=message.header.frame_id,
+                )
+            except ValueError as error:
+                self._state.observe_pose(None, False)
+                self.get_logger().warning(f'pose marked invalid: {error}')
+            if self._state.pose_valid != previous_valid:
+                self._gate.note_change()
 
         def _on_battery_status(self, message) -> None:
             try:

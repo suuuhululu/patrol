@@ -160,6 +160,11 @@ class RobotStatusState:
     def revision(self) -> int:
         return self._revision
 
+    @property
+    def pose_valid(self) -> bool:
+        """Current localization validity without creating a snapshot."""
+        return self._pose_valid
+
     def update_states(
         self,
         *,

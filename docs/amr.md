@@ -499,9 +499,10 @@ flowchart TD
 - 필수 설정: `robot_id`, `source_session_id`, `safety_state`를 모두 명시해야 시작한다. `safety_state`는 TBD-IF-003 때문에 기본 숫자를 만들 수 없어, 통합 주체가 합의된 uint8 값을 넣도록 강제했다. 현재 단계의 `safety_state:=0`은 전송 시험값일 뿐 의미 확정이 아니다.
 - **14단계 odometry 연결(2026-09-08):** 상대 토픽 `odom`(`nav_msgs/Odometry`)을 구독해 `linear_velocity`·`angular_velocity`·`motion_stopped`를 채운다. 판정은 7.1절의 `RobotStatusState`가 하고 이 노드는 ROS 변환만 한다. `odom`은 로봇 드라이버가 내는 표준 토픽이며 interfaces.md TBD 표에 없다 — 미정 항목이 아니다. launch의 `odom_topic` 인자로 드라이버 위치를 바꿀 수 있다(TBD-ARCH-001).
 - **16단계 token 연결(2026-09-08):** 상대 내부 토픽 `accepted_token_id`(`std_msgs/String`)를 구독한다. 값이 비어 있지 않으면 같은 값을 `accepted_token_id`에 쓰고 `token_valid=true`, 빈 값이면 `''`·`false`로 한 snapshot에서 함께 쓴다. Q-02의 즉시 발행 목록에는 token이 없으므로 다음 정기 2 Hz snapshot에 반영한다.
+- **17단계 pose 연결(2026-09-08):** Nav2 AMCL 표준 상대 토픽 `amcl_pose`(`geometry_msgs/PoseWithCovarianceStamped`)를 구독한다. `map` frame이고 pose·covariance 전부가 유한한 메시지는 현재 pose와 last-valid pose에 함께 보존한다. frame·수치가 무효면 `pose_valid=false`로 바꾸되 last-valid pose는 지우지 않는다. `pose_valid` 전이만 Q-02의 변경 발행 대상으로 표시하고 일반 위치 이동은 정기 2 Hz snapshot에 반영한다.
+- pose 수신이 끊겨도 임의 timeout으로 `pose_valid=false`를 만들지 않는다. Q-03·Q-05의 1.5초는 관제 STALE 및 주행 재개 조건이지 pose 유효성 정의가 아니다. RobotStatus의 pose와 last-valid pose가 측정 timestamp를 포함하므로 소비자가 그 시각으로 age를 판단한다.
 - odometry 수신은 **즉시 발행 대상이 아니다.** Q-02가 즉시 발행을 요구하는 것은 mission·safety·battery enum과 `pose_valid`이고 속도는 그 목록에 없다. 속도는 매 표본마다 바뀌므로 변경 트리거로 다루면 이유 없이 10 Hz 제한을 넘긴다.
-- 남은 안전한 미연결 값: mission supervisor와 위치 유효성 판정 입력이 아직 없다. 따라서 operational은 `OP_UNKNOWN`, mission은 `MISSION_NONE`, docking은 `DOCK_UNKNOWN`, pose_valid는 false로 둔다. SOC 미수신은 0으로 오해하지 않도록 NaN으로 낸다.
-- pose 보존 로직은 7단계에 구현됐지만 입력 토픽·유효성 판정 계약이 없어 ROS callback에는 연결하지 않았다. `/amcl_pose` 같은 이름을 임의로 정하지 않았다. 실제 위치·token·mission 연결과 safety enum 자동 산출은 해당 계약 확정 후 추가한다.
+- 남은 안전한 미연결 값은 mission supervisor가 공급해야 하는 operational·mission·docking·command·mission·waypoint·scan·reason 축과 미정인 safety enum이다. SOC 미수신은 0으로 오해하지 않도록 NaN으로 낸다.
 
 ~~~mermaid
 flowchart TD
@@ -510,6 +511,13 @@ flowchart TD
     CFG -->|예| MODEL[RobotStatusState 안전 초기값 생성]
     BS[battery_status 콜백] --> BVAL{BatteryState enum 유효?}
     TOK[accepted_token_id 콜백] --> KEEP_TOKEN[현재 유효 token ID 보존]
+    AP[amcl_pose 콜백] --> APV{map frame / pose·covariance 유한?}
+    APV -->|예| KEEP_POSE[현재 pose + last-valid pose 갱신]
+    APV -->|아니오| INVALID_POSE[pose_valid false / last-valid 보존]
+    KEEP_POSE --> PVC{pose_valid 전이?}
+    INVALID_POSE --> PVC
+    PVC -->|예| PENDING
+    PVC -->|아니오| WAIT
     BVAL -->|아니오| WARN[경고 후 폐기]
     BVAL -->|예·변경| PENDING[변경 발행 pending]
     RAW[battery_state 콜백] --> SOC{present / SOC 유효?}
@@ -520,11 +528,13 @@ flowchart TD
     DUE -->|예| SNAP[RobotStatusState.snapshot]
     SNAP --> MAP[새 RobotStatus 필드명으로 변환]
     KEEP_TOKEN --> MAP
+    KEEP_POSE --> SNAP
+    INVALID_POSE --> SNAP
     MAP --> SEQ[status_sequence 증가]
     SEQ --> PUB[/{robot}/robot_status 발행]
 ~~~
 
-검증: [단위시험](../tests/test_status_reporter.py) 12건은 필수 설정, 최초·정기 2 Hz·변경 최대 10 Hz 판정, 시간 역행 거절, status_sequence, 그리고 빈/비어 있지 않은 token ID의 두 RobotStatus 필드 매핑을 확인한다. 실제 토픽 echo는 사용자 환경에서 확인해야 한다.
+검증: [단위시험](../tests/test_status_reporter.py) 16건은 필수 설정, 최초·정기 2 Hz·변경 최대 10 Hz 판정, 시간 역행 거절, status_sequence, token 필드 매핑, pose·orientation·covariance의 유한성 판정을 확인한다. [robot_status_state 단위시험](../tests/test_robot_status_state.py) 32건은 유효 pose 저장, 무효 pose 뒤 last-valid 보존과 age 계산을 포함한다. 실제 토픽 echo는 사용자 환경에서 확인해야 한다.
 
 다음 기존 안전 로그를 보존한다.
 

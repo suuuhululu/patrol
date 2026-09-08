@@ -31,6 +31,7 @@ class DefaultStateTests(unittest.TestCase):
         self.assertIsNone(snapshot.pose)
         self.assertIsNone(snapshot.last_valid_pose)
         self.assertIsNone(snapshot.last_valid_pose_age)
+        self.assertFalse(state.pose_valid)
         self.assertEqual(snapshot.revision, 0)
 
     def test_robot_id_is_restricted_to_configured_robots(self):

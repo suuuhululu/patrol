@@ -13,6 +13,7 @@ This intentionally verifies only the connections implemented by
                                                                   (14단계)
 * A latched EStop -> local_safety_supervisor stays stopped         (15단계)
 * Accepted/expired DriveToken -> RobotStatus token fields          (16단계)
+* AMCL pose -> RobotStatus current/last-valid pose                 (17단계)
 
 All topics live under the robot namespace the launch file now applies.
 
@@ -50,7 +51,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
     qos_profile_sensor_data,
 )
-from geometry_msgs.msg import Twist, TwistStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, TwistStamped
 from nav_msgs.msg import Odometry
 from patrol_interfaces.msg import DriveToken, EStop, RobotStatus
 from sensor_msgs.msg import BatteryState
@@ -140,6 +141,11 @@ class SmokeProbe(Node):
         self.odometry_publisher = self.create_publisher(
             Odometry, f"{NS}/odom", qos_profile_sensor_data
         )
+        self.pose_publisher = self.create_publisher(
+            PoseWithCovarianceStamped,
+            f"{NS}/amcl_pose",
+            10,
+        )
 
     def _on_motion_allowed(self, message):
         self.motion_observations.append(bool(message.data))
@@ -198,7 +204,8 @@ def _check_initial_outputs(node, launch_process, log_path):
         lambda: node.estop_publisher.get_subscription_count() >= 1
         and node.token_publisher.get_subscription_count() >= 1
         and node.battery_publisher.get_subscription_count() >= 2
-        and node.candidate_publisher.get_subscription_count() >= 1,
+        and node.candidate_publisher.get_subscription_count() >= 1
+        and node.pose_publisher.get_subscription_count() >= 1,
         10.0,
         "all launch subscriptions",
         log_path,
@@ -506,6 +513,64 @@ def _check_odometry_path(node, launch_process, log_path):
     )
 
 
+def _check_pose_path(node, launch_process, log_path):
+    """17단계: a received map pose stays valid without a guessed timeout."""
+    source_statuses = [
+        status for status in node.status_observations
+        if status.source_session_id == SOURCE_SESSION_ID
+    ]
+    if any(status.pose_valid for status in source_statuses):
+        raise AssertionError('pose_valid must start false before amcl_pose')
+
+    start = len(node.status_observations)
+    message = PoseWithCovarianceStamped()
+    message.header.stamp = node.get_clock().now().to_msg()
+    message.header.frame_id = 'map'
+    message.pose.pose.position.x = 1.25
+    message.pose.pose.position.y = -0.5
+    message.pose.pose.orientation.w = 1.0
+    message.pose.covariance[0] = 0.1
+    message.pose.covariance[7] = 0.1
+    message.pose.covariance[35] = 0.05
+    node.pose_publisher.publish(message)
+
+    def matching_pose(status):
+        return (
+            status.source_session_id == SOURCE_SESSION_ID
+            and status.pose_valid
+            and math.isclose(status.pose.pose.pose.position.x, 1.25)
+            and math.isclose(status.pose.pose.pose.position.y, -0.5)
+            and math.isclose(
+                status.last_valid_pose.pose.pose.position.x, 1.25
+            )
+        )
+
+    _wait_for(
+        node,
+        launch_process,
+        lambda: any(
+            matching_pose(status)
+            for status in node.status_observations[start:]
+        ),
+        2.0,
+        'valid current and last-valid pose in RobotStatus',
+        log_path,
+    )
+
+    # Q-03/Q-05의 1.5초를 pose_valid timeout으로 오용하지 않는다.
+    hold_deadline = time.monotonic() + 1.7
+    while time.monotonic() < hold_deadline:
+        rclpy.spin_once(node, timeout_sec=0.05)
+    own_latest = next(
+        status for status in reversed(node.status_observations)
+        if status.source_session_id == SOURCE_SESSION_ID
+    )
+    if not matching_pose(own_latest):
+        raise AssertionError(
+            'pose_valid changed or last-valid pose was lost without input'
+        )
+
+
 def _check_local_latch(node, launch_process, log_path):
     """15단계: a latched E-stop must survive the arbiter clearing it.
 
@@ -582,6 +647,7 @@ def main():
         try:
             _check_initial_outputs(node, launch_process, launch_log.name)
             _check_safety_path(node, launch_process, launch_log.name)
+            _check_pose_path(node, launch_process, launch_log.name)
             _check_battery_path(node, launch_process, launch_log.name)
             _check_velocity_path(node, launch_process, launch_log.name)
             _check_odometry_path(node, launch_process, launch_log.name)
@@ -599,6 +665,7 @@ def main():
                 "candidate_after_release"
             )
             print("motion_stopped=false,moving_false,held_true,stale_false")
+            print("pose=initial_invalid,valid_map_pose,held_without_timeout")
             print("local_latch=engaged_on_latched,held_after_arbiter_cleared")
             print(f"cmd_vel_publishers={velocity_publishers}")
             print(

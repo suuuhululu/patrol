@@ -34,6 +34,8 @@ contract name and can be pointed elsewhere without editing this file:
   ``cmd_vel_safe``, but 관제's launch has not been merged and confirmed yet.
 * ``odom_topic`` -- the drive base publishes odometry, and like the battery
   driver its placement is part of TBD-ARCH-001.
+* ``pose_topic`` -- Nav2 AMCL's standard ``amcl_pose`` output. The argument
+  keeps namespace/integration changes out of the node implementation.
 """
 
 from launch import LaunchDescription
@@ -51,6 +53,7 @@ def _nodes(
     battery_state_topic,
     candidate_topic,
     odom_topic,
+    pose_topic,
 ):
     """Build a fresh set of node actions.
 
@@ -91,6 +94,7 @@ def _nodes(
             remappings=[
                 ('battery_state', battery_state_topic),
                 ('odom', odom_topic),
+                ('amcl_pose', pose_topic),
             ],
         ),
     ]
@@ -103,6 +107,7 @@ def generate_launch_description():
     battery_state_topic = LaunchConfiguration('battery_state_topic')
     candidate_topic = LaunchConfiguration('candidate_topic')
     odom_topic = LaunchConfiguration('odom_topic')
+    pose_topic = LaunchConfiguration('pose_topic')
 
     push_namespace = LaunchConfiguration('push_namespace')
 
@@ -154,17 +159,25 @@ def generate_launch_description():
                 'motion_stopped judgment of interfaces.md 3절.'
             ),
         ),
+        DeclareLaunchArgument(
+            'pose_topic',
+            default_value='amcl_pose',
+            description=(
+                'Where Nav2 AMCL publishes '
+                'geometry_msgs/PoseWithCovarianceStamped.'
+            ),
+        ),
         GroupAction(
             [PushRosNamespace(robot_id), *_nodes(
                 robot_id, source_session_id, safety_state,
-                battery_state_topic, candidate_topic, odom_topic,
+                battery_state_topic, candidate_topic, odom_topic, pose_topic,
             )],
             condition=IfCondition(push_namespace),
         ),
         GroupAction(
             _nodes(
                 robot_id, source_session_id, safety_state,
-                battery_state_topic, candidate_topic, odom_topic,
+                battery_state_topic, candidate_topic, odom_topic, pose_topic,
             ),
             condition=UnlessCondition(push_namespace),
         ),
