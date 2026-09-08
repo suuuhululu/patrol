@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.py[cod]
+instance/
+.env
+# 시연 전 만든 DB·이미지 백업 폴더는 저장소에 넣지 않는다.
+instance-backup-*/

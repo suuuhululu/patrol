@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}지하주차장 시스템 모니터{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block styles %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<main class="{% block main_class %}{% endblock %}">
+    {% block header %}<header>
+        <a class="brand" href="{{ url_for('dashboard.index') }}">SYSMON · 지하주차장 시스템 모니터</a>
+        {% if g.user %}
+        <nav aria-label="사용자 메뉴">
+            <span>{{ g.user.username }} · {{ role_labels[g.user.role] }}</span>
+            {% if g.user.role == 'ADMIN' %}<a href="{{ url_for('auth.users') }}">사용자 관리</a>{% endif %}
+            <form method="post" action="{{ url_for('auth.logout') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="secondary" type="submit">로그아웃</button>
+            </form>
+        </nav>
+        {% endif %}
+    </header>{% endblock %}
+    {% for message in get_flashed_messages() %}<p class="success" role="status">{{ message }}</p>{% endfor %}
+    {% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>
