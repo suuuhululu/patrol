@@ -121,6 +121,8 @@ SUBSCRIPTIONS = (
 )
 
 ROBOT_DISPLAY_IDS = {"robot1": "AMR1", "robot6": "AMR2"}
+# [ReportDetection] 확정 사건·증거 사진을 서비스 한 번으로 받는다. System monitor가 서버다.
+REPORT_DETECTION_SERVICE = "/system_monitor/report_detection"
 MISSION_STATES = {
     0: "IDLE",
     1: "UNDOCKING",
@@ -211,6 +213,14 @@ def active_subscriptions():
     return tuple(spec for spec in SUBSCRIPTIONS if spec.active)
 
 
+def _module_available(module_name):
+    try:
+        importlib.import_module(module_name)
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+    return True
+
+
 def dependency_report():
     """실행 환경을 바꾸지 않고 ROS adapter 시작 가능 여부를 점검한다."""
     modules = {
@@ -234,6 +244,9 @@ def dependency_report():
         "dependencies": available,
         "errors": errors,
         "active_topics": [spec.topic for spec in active_subscriptions()],
+        "report_service": REPORT_DETECTION_SERVICE,
+        # 서비스 타입은 patrol_interfaces를 srv 포함으로 다시 빌드해야 보인다. 없어도 토픽 수신은 동작한다.
+        "report_service_available": _module_available("patrol_interfaces.srv"),
         "pending_topics": [
             spec.topic for spec in SUBSCRIPTIONS if not spec.active
         ],

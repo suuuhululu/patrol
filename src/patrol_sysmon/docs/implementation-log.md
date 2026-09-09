@@ -1260,3 +1260,11 @@ flowchart TD
 
 - 검증: `tests/test_patrol_safety.py` 11개 통과. 별도 프로세스 DDS 시험 6개 통과. ROS 환경 전체 `tests/`는 **120개 시험과 86개 subtest 통과**했으며 callback 처리 실패와 DB 외래 키 오류는 0이었다.
 - 남은 일: 실제 상대 PC publisher·운영 domain 6·PC 간 네트워크 시험은 **NOT_RUN**이다.
+
+## 39. ReportDetection 서비스 서버 (2026-09-09)
+
+- 목적: 확정 사건과 증거 사진을 토픽 2종 + 회신 토픽 대신 ROS 2 서비스 호출 한 번으로 받는다. 요청 필드는 로봇 ID·사건 ID·이미지·시각·위치 5개로 확정했고, 응답은 `status`(0 저장·1 중복·2 거부)와 `detail`(거부 사유)이다. 발행 측이 System monitor 규격에 맞추기로 한 협의에 따라 서버를 먼저 구현하고 규격을 요청서로 보낸다.
+- 변경 파일·함수: 공용 `patrol_interfaces/srv/ReportDetection.srv`와 `CMakeLists.txt` 등록. `app/ros/registry.py`에 서비스 이름 `/system_monitor/report_detection`과 `dependency_report`의 `report_service_available`. `app/ros/payloads.py::report_detection_payload`가 요청을 dict로 바꾸고, `app/services/detection_service.py::validate_report`·`receive_report`가 검증·파일 저장을, `app/models/detection.py::store_report`가 `events` 1행 + `event_evidence` 1행 저장을 맡는다. `app/ros/node.py`는 `patrol_interfaces.srv`가 있을 때만 `create_service`로 서버를 띄우고 `_handle_report_detection`이 응답을 채운다. `app/schema.sql`은 `events.event_type` 기본값 UNKNOWN, `risk_level` NULL 허용, `content_hash` 열 추가. `app/database.py::_migrate_events_report`가 위험도 NOT NULL인 기존 DB를 외래 키 검사를 끄고 표 재구성으로 옮긴다. 화면은 종류 `미분류`, 위험도 `—`로 표시한다.
+- 설계 이유: 중복 판정은 `message_id` 없이 `event_id` + 내용 해시로 한다. 응답 유실 후 재시도는 같은 내용이므로 DUPLICATE, 같은 `event_id`에 다른 내용은 REJECTED다. 사진은 조각 없이 요청 안에 담으므로 `evidence_chunks`·`evidence_ingestions`·`detection_event_messages`를 쓰지 않는다. 이미지 형식은 바이트로 판별해 필드를 늘리지 않는다. 상한은 DDS 전송을 고려해 `REPORT_IMAGE_MAX_BYTES=1 MiB`다.
+- 검증: `tests/test_detection_report.py` 7개 추가, 전체 127개 통과(skip 7). 재구성 마이그레이션은 위험도 NOT NULL·사건·증거·변경 이력이 있는 구형 DB로 회귀시험했다.
+- 남은 일: 기존 토픽 경로(`DetectionEvent`·`EvidenceChunk`·`IngestionAck`)와 관련 표 3개는 계약 합의 뒤 제거한다. 요청서는 `CR-System monitor_09-09_20-14_Detection_증적_서비스_전환.md`이며 v1.1 기준선(토픽 방식)과 충돌하므로 네 팀 합의가 필요하다. 실제 상대 PC 호출 시험은 NOT_RUN.

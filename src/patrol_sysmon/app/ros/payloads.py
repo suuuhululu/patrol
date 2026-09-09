@@ -450,6 +450,29 @@ def keepout_status_payload(topic, message):
     }
 
 
+def report_detection_payload(request):
+    """ReportDetection 요청(필드 5개)을 저장 서비스 입력으로 바꾼다."""
+    contract_robot_id = getattr(request, "robot_id", "")
+    try:
+        robot_id = ROBOT_DISPLAY_IDS[contract_robot_id]
+    except KeyError as exc:
+        raise RosMessageMappingError("robot_id는 robot1 또는 robot6이어야 합니다.") from exc
+    try:
+        position = request.position
+        detected_at = _stamp_iso(request.detected_at)
+        image = bytes(request.image)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise RosMessageMappingError("ReportDetection 필수 필드가 올바르지 않습니다.") from exc
+    return {
+        "robot_id": robot_id,
+        "event_id": getattr(request, "event_id", ""),
+        "detected_at": detected_at,
+        "x": _finite_number(getattr(position, "x", None), "position.x"),
+        "y": _finite_number(getattr(position, "y", None), "position.y"),
+        "image": image,
+    }
+
+
 def estop_payload(message):
     """계약 EStop(/control/estop)을 안전 상태 저장 입력으로 바꾼다.
 

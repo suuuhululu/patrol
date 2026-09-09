@@ -67,7 +67,8 @@ if (eventsPanel) {
         }
         const riskCell = addTextCell(row, "");
         const risk = document.createElement("span");
-        risk.className = `risk-badge risk-${event.risk_level.toLowerCase()}`;
+        // 서비스로 받은 사건은 위험도가 없어 risk_level이 null이다.
+        risk.className = `risk-badge risk-${(event.risk_level || "none").toLowerCase()}`;
         risk.textContent = event.risk_label;
         riskCell.appendChild(risk);
         const statusCell = addTextCell(row, "");

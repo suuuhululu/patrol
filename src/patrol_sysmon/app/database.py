@@ -52,6 +52,7 @@ def init_db():
     _migrate_detection_storage(connection)
     _migrate_pose_validity(connection)
     _migrate_safety_state(connection)
+    _migrate_events_report(connection)
 
 
 ESTOP_COLUMNS = {
@@ -118,6 +119,77 @@ def _migrate_safety_state(connection):
     except sqlite3.Error:
         connection.rollback()
         raise
+
+
+def _migrate_events_report(connection):
+    """ReportDetection용으로 events의 위험도를 NULL 허용으로 바꾸고 내용 해시 열을 더한다.
+
+    SQLite는 CHECK 제약을 바꿀 수 없어 위험도가 NOT NULL인 기존 DB는 표를 다시 만들어 옮긴다.
+    다른 표가 events를 참조하므로 외래 키 검사를 잠시 끄고 수행한다. 기존 행은 모두 보존한다.
+    """
+    info = {row[1]: row for row in connection.execute("PRAGMA table_info(events)")}
+    risk_not_null = bool(info["risk_level"][3]) if "risk_level" in info else False
+    if not risk_not_null and "content_hash" in info:
+        return
+    if not risk_not_null:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("ALTER TABLE events ADD COLUMN content_hash TEXT")
+            connection.commit()
+        except sqlite3.Error:
+            connection.rollback()
+            raise
+        return
+    columns = [
+        "event_id", "message_id", "robot_id", "event_type", "occurred_at", "x", "y", "frame_id",
+        "confidence", "location_valid", "evidence_id", "risk_level", "status", "received_at",
+    ]
+    present = [name for name in columns if name in info]
+    column_list = ", ".join(present)
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            """
+            CREATE TABLE events_report_new (
+                event_id TEXT PRIMARY KEY NOT NULL,
+                message_id TEXT NOT NULL UNIQUE,
+                robot_id TEXT NOT NULL REFERENCES robots(robot_id),
+                event_type TEXT NOT NULL DEFAULT 'UNKNOWN',
+                occurred_at TEXT NOT NULL,
+                x REAL,
+                y REAL,
+                frame_id TEXT,
+                confidence REAL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 1)),
+                location_valid INTEGER NOT NULL DEFAULT 1 CHECK (location_valid IN (0, 1)),
+                evidence_id TEXT,
+                risk_level TEXT CHECK (risk_level IS NULL OR risk_level IN ('HIGH', 'MEDIUM', 'LOW')),
+                status TEXT NOT NULL DEFAULT 'NEW'
+                    CHECK (status IN ('NEW', 'REVIEWING', 'WORK_REQUESTED', 'RESOLVED')),
+                received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                content_hash TEXT
+            )
+            """
+        )
+        connection.execute(
+            f"INSERT INTO events_report_new ({column_list}) SELECT {column_list} FROM events"
+        )
+        connection.execute("DROP TABLE events")
+        connection.execute("ALTER TABLE events_report_new RENAME TO events")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_events_occurred ON events(occurred_at)")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_robot_time ON events(robot_id, occurred_at)"
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_events_evidence_id ON events(evidence_id)")
+        problems = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if problems:
+            raise sqlite3.IntegrityError(f"events 재구성 후 외래 키 불일치 {len(problems)}건")
+        connection.commit()
+    except sqlite3.Error:
+        connection.rollback()
+        raise
+    finally:
+        connection.execute("PRAGMA foreign_keys = ON")
 
 
 def _drop_legacy_patrol_tables(connection):

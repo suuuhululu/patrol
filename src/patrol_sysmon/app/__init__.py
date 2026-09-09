@@ -23,6 +23,8 @@ def create_app(test_config=None):
         MAP_MAX_CELLS=16_000_000,
         MAP_MAX_IMAGE_SIDE=2000,
         EVENT_IMAGE_MAX_BYTES=5 * 1024 * 1024,
+        # [ReportDetection 서비스] 사진을 요청 안에 통째로 받으므로 DDS 전송 부담을 고려해 1 MiB로 제한한다.
+        REPORT_IMAGE_MAX_BYTES=1 * 1024 * 1024,
         # [증적 상태] 사건은 왔는데 증적 조립이 끝나지 않은 시간으로 지연·누락을 구분한다.
         # 저장값은 INCOMPLETE 그대로 두고 경과 시간으로 화면 표시만 나눈다.
         EVIDENCE_DELAYED_AFTER_SECONDS=30,
