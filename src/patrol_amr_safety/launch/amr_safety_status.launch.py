@@ -8,8 +8,8 @@ mandatory on purpose:
 * ``robot_id`` differs per robot, so no default is assumed here.
 * ``source_session_id`` must change on every run so that consumers can
   tell one status_reporter run from the next.
-* ``safety_state`` is produced by local_safety_supervisor and consumed by
-  status_reporter; launch does not inject a second source for that state.
+* ``safety_state`` is not a launch parameter. status_reporter receives the
+  fixed v1.0 enum from local_safety_supervisor's internal state topic.
 
 Namespace (13단계): the nodes run under ``/<robot_id>``. architecture.md
 2절 fixes robot1 -> /robot1 and robot6 -> /robot6, and both robots share
@@ -24,7 +24,7 @@ status_reporter publishes an absolute ``/<robot_id>/robot_status`` that
 does not double. That mix is quiet and half-wrong, so a caller that pushes
 its own namespace must pass ``push_namespace:=false``.
 
-The topic arguments below exist because those endpoints are owned by
+The four topic arguments below exist because those endpoints are owned by
 code that is not in this repository yet. They default to the agreed
 contract name and can be pointed elsewhere without editing this file:
 
@@ -32,7 +32,7 @@ contract name and can be pointed elsewhere without editing this file:
   TBD-ARCH-001 (device placement), so it may not sit inside the robot
   namespace.
 * ``candidate_topic`` -- TBD-IF-009 puts Nav2's collision_monitor output on
-  ``cmd_vel_safe``, but 관제's launch has not been merged and confirmed yet.
+  the fixed ``cmd_vel_safe`` input path.
 * ``odom_topic`` -- the drive base publishes odometry, and like the battery
   driver its placement is part of TBD-ARCH-001.
 * ``pose_topic`` -- Nav2 AMCL's standard ``amcl_pose`` output. The argument
@@ -127,12 +127,6 @@ def _nodes(
                 'robot_id': ParameterValue(robot_id, value_type=str),
                 'source_session_id': ParameterValue(
                     source_session_id, value_type=str
-                ),
-                'mission_status_path': ParameterValue(
-                    mission_status_path, value_type=str
-                ),
-                'report_outbox_path': ParameterValue(
-                    report_outbox_path, value_type=str
                 ),
             }],
             remappings=[
@@ -272,22 +266,14 @@ def generate_launch_description():
         GroupAction(
             [PushRosNamespace(robot_id), *_nodes(
                 robot_id, source_session_id,
-                battery_state_topic, battery_status_topic,
-                candidate_topic, output_topic, odom_topic, pose_topic,
-                drive_token_topic, heartbeat_topic, estop_topic,
-                motion_allowed_topic, safety_state_topic, accepted_token_topic,
-                database_path, mission_status_path, report_outbox_path,
+                battery_state_topic, candidate_topic, odom_topic, pose_topic,
             )],
             condition=IfCondition(push_namespace),
         ),
         GroupAction(
             _nodes(
                 robot_id, source_session_id,
-                battery_state_topic, battery_status_topic,
-                candidate_topic, output_topic, odom_topic, pose_topic,
-                drive_token_topic, heartbeat_topic, estop_topic,
-                motion_allowed_topic, safety_state_topic, accepted_token_topic,
-                database_path, mission_status_path, report_outbox_path,
+                battery_state_topic, candidate_topic, odom_topic, pose_topic,
             ),
             condition=UnlessCondition(push_namespace),
         ),

@@ -27,11 +27,13 @@ W2가 시작하면 정상 좌표로 실제 이동할 수 있으므로 작업자�
 
 ## 0. 현장 안전 준비
 
-- robot1의 회전·짧은 후진 recovery 공간까지 비우고 작업자가 물리 E-stop에
-  손을 둔다.
+- robot1의 회전·짧은 후진 recovery 공간까지 비우고 작업자가 관제 UI의
+  OPERATOR 정지를 즉시 실행할 수 있게 준비한다. UI 정지 경로가 준비되지
+  않았으면 실제 주행 단계는 진행하지 않는다.
 - 관제·다른 시험자가 같은 robot1에 명령하지 않는 단독 시험에서만 수행한다.
 - 이미 `/robot1` localization/Nav2가 실행 중이면 중복 실행하지 않는다.
-- 로컬 latch가 이미 걸렸다면 reset 계약이 없으므로 시험 노드를 재시작한다.
+- 이전 EStop·token·heartbeat 상태가 남지 않도록 시험 노드를 재시작하고,
+  새 control session·새 token·별도 command 순서를 다시 적용한다.
 
 ## 1. 빌드와 환경
 
@@ -42,7 +44,7 @@ cd /home/mu-01/patrol
 source /opt/ros/jazzy/setup.bash
 source /home/mu-01/turtlebot4_ws/install/setup.bash
 source /home/mu-01/rokey_ws/install/setup.bash
-colcon build --packages-select patrol_interfaces patrol_amr --symlink-install
+colcon build --packages-select patrol_interfaces patrol_amr patrol_amr_safety --symlink-install
 source /home/mu-01/patrol/install/setup.bash
 export ROS_DOMAIN_ID=6
 unset ROS_LOCALHOST_ONLY
@@ -120,7 +122,7 @@ ros2 topic echo /robot1/motion_allowed --once \
 
 ros2 topic pub --once /robot1/mission_command \
   patrol_interfaces/msg/MissionCommand \
-  "{command_id: 'cmd-ctrl-20260908T160000-1-robot1-start-0001', mission_id: 'msn-ctrl-20260908T160000-1-robot1-0001', robot_id: 'robot1', command: 1, target_id: '', issued_by: 'amr16-hardware-test', parameters_json: '{}'}"
+  "{command_id: 'cmd-ctrl-20260908T160000-1-robot1-start-0001', mission_id: 'msn-ctrl-20260908T160000-1-robot1-0001', robot_id: 'robot1', command: 1, target_id: 'robot1_default', issued_by: 'amr16-hardware-test'}"
 ```
 
 터미널 1에서 다음 순서를 확인한다.
@@ -134,7 +136,8 @@ MISSION_PATROLLING W2
 ```
 
 `MISSION_PATROLLING W2`가 보이는 즉시 터미널 3의 DriveToken을 `Ctrl+C`로
-끊는다. 물리적으로 즉시 멈춰야 하면 로그를 기다리지 말고 E-stop을 누른다.
+끊는다. 즉시 정지가 필요하면 로그를 기다리지 말고 준비한 관제 UI OPERATOR
+정지를 실행한다.
 
 터미널 2에서 정지와 자동 재출발 없음을 확인한다.
 

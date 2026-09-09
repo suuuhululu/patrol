@@ -2,8 +2,8 @@
 
 This module joins the persistent command store to the fixed duplicate-handling
 contract.  It deliberately does not execute command-specific behavior because
-target schemas and the mission transition table remain TBD-IF-001 and
-TBD-AMR-005.  Rejection reason codes are injected rather than guessed.
+the mission transition table remains TBD-AMR-005.  Rejection reason codes use
+the fixed v1.0 public values rather than launch-time or caller overrides.
 """
 
 from dataclasses import dataclass
@@ -11,9 +11,11 @@ from typing import Any, Optional
 
 from patrol_amr import command_check
 from patrol_amr import command_store
+from patrol_amr import patrol_report
 
 
-UINT32_MAX = 0xFFFFFFFF
+INVALID_PARAMETERS = int(patrol_report.ReasonCode.INVALID_PARAMETERS)
+COMMAND_ID_CONFLICT = int(patrol_report.ReasonCode.COMMAND_ID_CONFLICT)
 
 
 @dataclass(frozen=True)
@@ -28,22 +30,10 @@ class IngressDecision:
 class MissionIngress:
     """Classify one received command without running it more than once."""
 
-    def __init__(
-        self,
-        store: command_store.CommandStore,
-        *,
-        invalid_reason_code: int = 205,
-        conflict_reason_code: int = 203,
-    ):
+    def __init__(self, store: command_store.CommandStore):
         if not isinstance(store, command_store.CommandStore):
             raise ValueError('store must be a CommandStore')
         self._store = store
-        self._invalid_reason_code = _uint32(
-            invalid_reason_code, 'invalid_reason_code'
-        )
-        self._conflict_reason_code = _uint32(
-            conflict_reason_code, 'conflict_reason_code'
-        )
 
     def observe(self, **command_fields) -> IngressDecision:
         """Return the exact response action for a wire command payload."""
@@ -52,7 +42,7 @@ class MissionIngress:
         except ValueError as error:
             return IngressDecision(
                 check_meaning=command_check.CheckMeaning.REJECTED,
-                reason_code=self._invalid_reason_code,
+                reason_code=INVALID_PARAMETERS,
                 reason=str(error),
                 dispatch_new=False,
             )
@@ -116,7 +106,7 @@ class MissionIngress:
         if verdict is command_store.RegisterVerdict.COMMAND_ID_CONFLICT:
             return IngressDecision(
                 check_meaning=command_check.CheckMeaning.REJECTED,
-                reason_code=self._conflict_reason_code,
+                reason_code=COMMAND_ID_CONFLICT,
                 reason='COMMAND_ID_CONFLICT',
                 dispatch_new=False,
             )
@@ -152,6 +142,20 @@ def pose_stamped_payload(message) -> dict:
         raise ValueError('target_pose must have PoseStamped fields') from error
 
 
+def header_payload(message) -> dict:
+    """Copy a std_msgs/Header-compatible value for restart replay."""
+    try:
+        return {
+            'stamp': {
+                'sec': message.stamp.sec,
+                'nanosec': message.stamp.nanosec,
+            },
+            'frame_id': message.frame_id,
+        }
+    except AttributeError as error:
+        raise ValueError('header must have Header fields') from error
+
+
 def mission_command_fields(message, *, received_at: float) -> dict:
     """Copy the exact CommandStore fingerprint fields from MissionCommand."""
     try:
@@ -168,57 +172,3 @@ def mission_command_fields(message, *, received_at: float) -> dict:
         }
     except AttributeError as error:
         raise ValueError('message must have MissionCommand fields') from error
-
-
-def header_payload(message) -> dict:
-    """Copy a std_msgs/Header-compatible value for restart replay."""
-    try:
-        return {
-            'stamp': {
-                'sec': message.stamp.sec,
-                'nanosec': message.stamp.nanosec,
-            },
-            'frame_id': message.frame_id,
-        }
-    except AttributeError as error:
-        raise ValueError('header must have Header fields') from error
-
-
-def populate_mission_command(message, stored) -> object:
-    """Restore the original persisted command into a ROS-compatible message."""
-    if not isinstance(stored, command_store.StoredCommand):
-        raise ValueError('stored must be a StoredCommand')
-    message.command_id = stored.command_id
-    message.mission_id = stored.mission_id
-    message.robot_id = stored.robot_id
-    message.command = stored.command
-    message.target_id = stored.target_id
-    message.issued_by = stored.issued_by
-    _populate_header(message.header, stored.header)
-    _populate_pose_stamped(message.target_pose, stored.target_pose)
-    return message
-
-
-def _populate_header(message, payload) -> None:
-    message.stamp.sec = payload['stamp']['sec']
-    message.stamp.nanosec = payload['stamp']['nanosec']
-    message.frame_id = payload['frame_id']
-
-
-def _populate_pose_stamped(message, payload) -> None:
-    _populate_header(message.header, payload['header'])
-    source = payload['pose']
-    for name in ('x', 'y', 'z'):
-        setattr(message.pose.position, name, source['position'][name])
-    for name in ('x', 'y', 'z', 'w'):
-        setattr(message.pose.orientation, name, source['orientation'][name])
-
-
-def _uint32(value, name):
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or not 0 <= value <= UINT32_MAX
-    ):
-        raise ValueError(f'{name} must be in uint32 range')
-    return value

@@ -1,6 +1,6 @@
 # AMR 순찰 시스템 개발 문서
 
-작성일: 2026-09-06 · 상태: 설계 초안 · 대상: AMR·관제·시스템 모니터·비전 전체 개발자
+작성일: 2026-09-06 · 상태: v1.0 공용 계약 확정 · 차기 버전 TBD·장비 통합 별도 · 대상: AMR·관제·시스템 모니터·비전 전체 개발자
 
 두 AMR이 CCTV 차량 상태와 관제의 주행 권한에 따라 순찰·대피·도킹·역할 교대를 수행하는 시스템이다. 이 문서는 설계 기준과 미정 계약을 관리한다. 구현 진행 상태는 각 개발 단위의 변경 기록과 시험 결과로 확인한다. 기존 결정은 유지하고 상세 계약이 부족한 부분은 각 문서의 TBD에 표시했다. 실제 시스템의 구현·배포·통합시험 완료를 의미하지 않는다.
 
@@ -39,7 +39,7 @@ docs/
 
 ## 설계 기준
 
-[2026-09-07 PM 설계 결정](decisions/2026-09-07-design-baseline.md)에 따라 관제는 별도 노드, 시스템 모니터는 UI 전용으로 사용한다. 공용 메시지 패키지는 `patrol_interfaces`다. 관제의 명령·Heartbeat·DriveToken·E-stop·RobotStatus·이중 Keepout 구현 입력은 [v1.0 (`CTRL-IF-2026-09-08`)](decisions/2026-09-08-control-interface-baseline.md)으로 고정한다. 남은 TBD는 v1.0 완료 조건에서 제외하고 차기 버전으로 이관한다. 최신 PM 결정과 System design의 확정 내용을 우선하며, 과거 문서의 TBD가 확정 사항을 대체하지 않는다. 진행표와 통합 일정은 PM이 별도로 수동 관리한다.
+[2026-09-07 PM 설계 결정](decisions/2026-09-07-design-baseline.md)에 따라 관제는 별도 노드, 시스템 모니터는 UI 전용으로 사용한다. 공용 메시지 패키지는 `patrol_interfaces 1.0.0`이다. 관제의 명령·Heartbeat·DriveToken·E-stop·RobotStatus·이중 Keepout 구현 입력은 [v1.0 (`CTRL-IF-2026-09-08`)](decisions/2026-09-08-control-interface-baseline.md)으로 고정한다. 남은 TBD는 v1.0 완료 조건에서 제외하고 차기 버전으로 이관한다. 네 팀은 같은 Git commit을 각 PC에서 로컬 빌드하고 공용 검증 스크립트의 manifest SHA-256을 비교한다. 최신 PM 결정과 System design의 확정 내용을 우선하며, 과거 문서의 TBD가 확정 사항을 대체하지 않는다. 진행표와 통합 일정은 PM이 별도로 수동 관리한다.
 
 ## 읽기 순서와 작성 원칙
 
@@ -69,7 +69,7 @@ docs/
 
 - 2026-09-07 결정: command·mission·token·report·CCTV/Detection/증적·관제 운영 event ID는 사람이 식별 가능한 발행자 session·sequence 기반 문자열을 사용한다. MissionCommand 확인은 CommandCheck의 ACCEPTED·EXECUTING·REJECTED로 구분하고 최종 결과는 PatrolReport로 전달한다. 상세 형식과 필드는 interfaces.md를 기준으로 한다. 근거: 개발 프로세스 학습 범위에서 로그 추적성과 팀 간 계약 이해를 우선한다. AMR 반영은 [관제 수정 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md)로 추적한다.
 
-- 2026-09-07 결정: LOW는 새 mission을 시작하지 않고 현재 mission의 순찰·복귀·도킹까지 완료하며 CRITICAL은 즉시 복귀 또는 도킹 판단으로 전환한다. 화재 확정 후에도 현재 mission의 순찰·복귀·도킹까지 기존 token을 유지하고 종료 시 회수하며, 이후 다른 로봇에 새 token을 발급하지 않는다. 도킹 성공과 화재 부저 OFF는 DOCKED·CHARGING 2초 연속이며 도킹 실패 시 다른 활성 화재가 없으면 부저를 끄고 관제 경고를 발생시킨다. 근거: 프로젝트 담당자 명시. 영향: 관제·AMR 공용 계약과 IT-13·14 시험 기준.
+- 2026-09-07 결정, 2026-09-08 용어 명확화: LOW는 새 mission을 시작하지 않고 현재 mission의 순찰·복귀·도킹까지 완료하며 CRITICAL은 즉시 복귀 또는 도킹 판단으로 전환한다. 화재 확정 후에도 현재 mission의 순찰·복귀·도킹까지 기존 token을 유지하고 종료 시 회수하며, 이후 다른 로봇에 새 token을 발급하지 않는다. 도킹 성공과 화재 부저 OFF는 DOCKED 완료 센서·별도 충전 감지 신호 활성 2초 연속이며, 이 신호는 SOC 기반 `BatteryState` enum과 독립적이다. 도킹 실패 시 다른 활성 화재가 없으면 부저를 끄고 관제 경고를 발생시킨다. 근거: 프로젝트 담당자 명시. 영향: 관제·AMR 공용 계약과 IT-13·14 시험 기준.
 
 ## 초안의 한계
 
@@ -99,7 +99,7 @@ patrol/                 # 저장소 루트 = 워크스페이스 루트
     └── fixtures/
 ```
 
-향후 ROS 패키지 구현 후에는 Ubuntu 24.04 / ROS 2 Jazzy 환경에서 `patrol` 루트로 이동하여 `colcon build`를 실행한다. 생성되는 `build/`, `install/`, `log/`는 Git에서 제외한다. 현재 `src/`는 작업 폴더만 준비된 상태이며, 패키지 구현이나 빌드 검증이 완료된 것은 아니다.
+Ubuntu 24.04 / ROS 2 Jazzy 환경에서는 `patrol` 루트에서 `colcon build`를 실행하며 생성되는 `build/`, `install/`, `log/`는 Git에서 제외한다. 2026-09-08 기준 `patrol_interfaces 1.0.0`과 AMR·AMR 안전·비전 패키지는 이 작업공간에서 로컬 빌드를 확인했고, 시스템 모니터는 로컬 소비부·별도 프로세스 DDS 시험을 확인했다. `src/patrol_control`의 관제 동작 코드는 아직 미구현이며, 상대 PC 배포와 여러 PC·장비 통합시험은 완료되지 않았다.
 
 ## Git 협업 가이드
 

@@ -1,4 +1,4 @@
-"""CommandCheck construction tests with contract values injected."""
+"""CommandCheck construction tests for the fixed v1.0 values."""
 
 from pathlib import Path
 import sys
@@ -24,14 +24,14 @@ def message():
 
 
 class MappingTests(unittest.TestCase):
-    def test_caller_supplied_values_map_all_fixed_meanings(self):
-        mapping = MODULE.CheckStateMapping(accepted=9, executing=4, rejected=7)
-        self.assertEqual(mapping.wire_value(MODULE.CheckMeaning.ACCEPTED), 9)
-        self.assertEqual(mapping.wire_value(MODULE.CheckMeaning.EXECUTING), 4)
-        self.assertEqual(mapping.wire_value(MODULE.CheckMeaning.REJECTED), 7)
+    def test_values_match_the_fixed_v1_contract(self):
+        mapping = MODULE.CheckStateMapping()
+        self.assertEqual(mapping.wire_value(MODULE.CheckMeaning.ACCEPTED), 1)
+        self.assertEqual(mapping.wire_value(MODULE.CheckMeaning.EXECUTING), 2)
+        self.assertEqual(mapping.wire_value(MODULE.CheckMeaning.REJECTED), 3)
 
-    def test_values_must_be_distinct_uint8(self):
-        for values in ((0, 0, 1), (-1, 1, 2), (0, 1, 256), (False, 1, 2)):
+    def test_non_contract_values_are_rejected(self):
+        for values in ((9, 4, 7), (0, 0, 1), (-1, 1, 2), (1, 2, 256)):
             with self.subTest(values=values), self.assertRaises(ValueError):
                 MODULE.CheckStateMapping(*values)
 
@@ -41,7 +41,7 @@ class FactoryTests(unittest.TestCase):
         return MODULE.CommandCheckFactory(
             'robot1',
             'robot1-20260908T120000',
-            MODULE.CheckStateMapping(9, 4, 7),
+            MODULE.CheckStateMapping(),
             **kwargs,
         )
 
@@ -51,17 +51,17 @@ class FactoryTests(unittest.TestCase):
             command_id='cmd-1', mission_id='msn-1',
             meaning=MODULE.CheckMeaning.ACCEPTED,
         )
-        self.assertEqual((record.check_state, record.sequence), (9, 5))
+        self.assertEqual((record.check_state, record.sequence), (1, 5))
         self.assertEqual(factory.next_sequence, 6)
 
     def test_rejected_check_preserves_reason_fields(self):
         record = self.factory().create(
             command_id='cmd-1', mission_id='msn-1',
             meaning=MODULE.CheckMeaning.REJECTED,
-            reason_code=200, reason='COMMAND_ID_CONFLICT',
+            reason_code=200, reason='INVALID_COMMAND',
         )
-        self.assertEqual((record.check_state, record.reason_code), (7, 200))
-        self.assertEqual(record.reason, 'COMMAND_ID_CONFLICT')
+        self.assertEqual((record.check_state, record.reason_code), (3, 200))
+        self.assertEqual(record.reason, 'INVALID_COMMAND')
 
     def test_empty_ids_can_be_echoed_for_malformed_input_rejection(self):
         record = self.factory().create(
@@ -73,7 +73,7 @@ class FactoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MODULE.CommandCheckFactory(
                 'robot6', 'robot1-20260908T120000',
-                MODULE.CheckStateMapping(0, 1, 2),
+                MODULE.CheckStateMapping(),
             )
         with self.assertRaises(ValueError):
             self.factory().create(
@@ -117,7 +117,7 @@ class WireTests(unittest.TestCase):
         )
         self.assertEqual(
             (result.check_state, result.reason_code, result.reason),
-            (4, 12, 'running'),
+            (2, 12, 'running'),
         )
         self.assertEqual(
             (result.source_session_id, result.sequence),

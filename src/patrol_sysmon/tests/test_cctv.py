@@ -31,9 +31,18 @@ class CctvTests(unittest.TestCase):
             )
         self.now = datetime(2026, 9, 7, 5, 0, 0, tzinfo=timezone.utc)
 
+    _sequence = 0
+
+    def contract_event_id(self, camera_id="gate_cam", state="ENTERING"):
+        # 비전 팀 확정 형식: cam-<source_session_id>-<state 소문자>-<source_sequence 4자리>
+        type(self)._sequence += 1
+        return f"cam-{camera_id}-20260907T050000-01-{state.lower()}-{type(self)._sequence:04d}"
+
     def payload(self, **changes):
         payload = {
-            "event_id": str(uuid.uuid4()),
+            "event_id": self.contract_event_id(
+                changes.get("camera_id", "gate_cam"), changes.get("state", "ENTERING")
+            ),
             "camera_id": "gate_cam",
             "state": "ENTERING",
             "confidence": 0.93,
@@ -48,9 +57,7 @@ class CctvTests(unittest.TestCase):
 
     def test_valid_camera_states_are_stored_and_labeled(self):
         gate = self.payload()
-        center = self.payload(
-            event_id=str(uuid.uuid4()), camera_id="center_cam", state="PARKED"
-        )
+        center = self.payload(camera_id="center_cam", state="PARKED")
         with self.app.app_context():
             self.assertEqual(cctv_service.receive_camera_state(gate, self.now)[0], "accepted")
             self.assertEqual(cctv_service.receive_camera_state(center, self.now)[0], "accepted")
@@ -143,7 +150,8 @@ class CctvTests(unittest.TestCase):
 
     def test_invalid_camera_state_contract_values_are_rejected(self):
         invalid = (
-            self.payload(event_id="not-a-uuid"),
+            self.payload(event_id="not-a-contract-id"),
+            self.payload(event_id="cam-gate_cam-2026-01-entering-1"),
             self.payload(camera_id="webcam1"),
             self.payload(state="PARKED"),
             self.payload(confidence=float("nan")),

@@ -55,7 +55,7 @@ def _qos_profiles():
         durability=DurabilityPolicy.VOLATILE,
     )
     permit.deadline = Duration(seconds=0.5)
-    state_latched = QoSProfile(
+    state_snapshot = QoSProfile(
         history=HistoryPolicy.KEEP_LAST,
         depth=1,
         reliability=ReliabilityPolicy.RELIABLE,
@@ -65,8 +65,8 @@ def _qos_profiles():
         "patrol_visit": reliable_events,
         "patrol_report": reliable_events,
         # [상태 유지] 늦게 접속한 관제도 마지막 Keepout·E-stop 상태를 즉시 받는다.
-        "keepout_status": state_latched,
-        "estop": state_latched,
+        "keepout_status": state_snapshot,
+        "estop": state_snapshot,
         "patrol_allowed_writer": permit_writer,
         "robot_status": robot_status, "map": map_qos,
         "camera_frame": image, "costmap": costmap,

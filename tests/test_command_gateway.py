@@ -1,7 +1,7 @@
 """command_gateway configuration tests; no ROS graph required.
 
-The node itself needs rclpy, but its refusal-to-start rules are pure and
-are the part that keeps undecided wire values out of the system.
+The node itself needs rclpy, but its refusal-to-start rules are pure and keep
+robot/session identity aligned with the fixed v1.0 wire values.
 """
 
 from pathlib import Path

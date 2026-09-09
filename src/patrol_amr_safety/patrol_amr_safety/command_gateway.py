@@ -191,8 +191,8 @@ def create_node_class():
             )
             # status_reporter 가 active_command_id·active_mission_id 를 채우는
             # 입력이다. CommandCheck 타입을 재사용해 새 메시지를 만들지 않았고,
-            # 여기서 이미 판정이 끝났으므로 구독자는 check_state 정수 매핑
-            # (TBD-IF-001)을 알 필요가 없다.
+            # 여기서 이미 판정이 끝났으므로 구독자는 v1.0 check_state 정수
+            # 매핑을 다시 해석할 필요가 없다.
             self._active_publisher = self.create_publisher(
                 CommandCheck, 'active_command', state_qos
             )

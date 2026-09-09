@@ -185,6 +185,7 @@ def build_virtual_publisher(config):
             super().__init__(f"sysmon_virtual_publisher_{os.getpid()}")
             self.published_counts = Counter()
             self._boot_id = str(uuid.uuid4())
+            self._session_started_at = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
             self._status_sequence = {"robot1": 0, "robot6": 0}
             self._status_publishers = {
                 robot_id: self.create_publisher(
@@ -524,9 +525,6 @@ def build_virtual_publisher(config):
                 estop.active = active
                 estop.reason = 4 if active else 0
                 estop.sequence = self._safety_sequence
-                if hasattr(estop, "latched"):
-                    # 공용 .msg에 아직 남은 필드다. 계약에서 제거됐으므로 의미 없는 기본값만 둔다.
-                    estop.latched = False
                 self._estop_publisher.publish(estop)
                 self.published_counts["/control/estop"] += 1
 
@@ -544,9 +542,12 @@ def build_virtual_publisher(config):
             message = CameraState()
             message.header.stamp = self.get_clock().now().to_msg()
             message.header.frame_id = camera_id
+            # [계약 형식] 비전 팀 gate_cam·center_cam 이 만드는 구조화 ID 를 그대로 흉내 낸다.
+            source_session_id = f"{camera_id}-{self._session_started_at}-01"
             fill(
-                message, event_id=str(uuid.uuid4()), camera_id=camera_id,
-                source_session_id=f"{self._boot_id}-{camera_id}",
+                message,
+                event_id=f"cam-{source_session_id}-{state_name.lower()}-{self._cctv_sequence:04d}",
+                camera_id=camera_id, source_session_id=source_session_id,
                 source_sequence=self._cctv_sequence, confidence=0.92,
             )
             # [enum 값 차이] 상태 숫자가 정의마다 달라 이름으로 넣는다.

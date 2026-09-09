@@ -291,7 +291,7 @@ python3 -m unittest discover -s tests -p test_estop_guard.py -v
 `src/patrol_amr/patrol_amr/motion_guard.py`는 3·4단계와 같은 일반 Python 모듈이다. 원래 파일명이 함의하는 장애물 회피·정지 거리·감속은 TBD-AMR-006이 전부 미정으로 남긴 부분이라, 진행 전 사용자에게 확인하고 범위를 좁혔다.
 
 - 구현한 것: token 미부여 또는 E-stop 활성 중 하나라도 해당하면 속도 후보를 버리고 정지(0.0, 0.0)를 출력하는 AND 게이트. 3·4단계 가드의 판정을 그대로 입력받는다.
-- 구현하지 않은 것: Nav2·yaw 후보 중 선택(TBD-AMR-001), 장애물 감지·감속·정지 거리·센서 고장 판정(TBD-AMR-006), 속도 상한, 최종 발행 타입(TBD-IF-009). 실제 로봇 사양·물리량이 필요해 근거 없이 구현하면 안전성이 검증되지 않은 채 "구현됨"으로 보일 위험이 있었다.
+- 당시 구현하지 않은 것: Nav2·yaw 후보 중 선택(TBD-AMR-001), 장애물 감지·감속·정지 거리·센서 고장 판정(TBD-AMR-006), 속도 상한, 최종 발행 타입. 최종 발행 타입과 경로는 이후 TBD-IF-009 합의로 `Twist`·`/robotN/cmd_vel`로 확정하고 11~13단계에 반영했다. 나머지 안전 수치는 실제 로봇 사양·물리량이 필요해 근거 없이 구현하지 않았다.
 
 단위시험:
 
@@ -309,7 +309,7 @@ python3 -m unittest discover -s tests -p test_motion_guard.py -v
 `src/patrol_amr/patrol_amr/local_safety_supervisor.py`는 3~5단계 가드를 실제 ROS 노드로 묶은 첫 지점이다. 5단계와 같은 이유로 진행 전 범위를 확인했다.
 
 - 구현한 것: `/control/drive_token`·`/control/estop`을 실제 구독해 3·4단계 가드에 반영하고, 결합 결과를 AMR 내부 신호 `motion_allowed`(`std_msgs/Bool`)로 발행한다. drive_token의 Q-01 lease가 메시지 없이도 시계로 만료되도록 0.1초 재확인 타이머를 둔다(`battery_monitor`의 신선도 검사와 같은 간격).
-- 구현하지 않은 것: 실제 속도 후보 입력과 최종 속도 발행. Nav2·yaw 후보 중재(TBD-AMR-001)는 `mission_supervisor` 담당이며 이 작업 범위(AMR Python 파일 7개·ROS 노드 3개) 밖이고, 최종 발행 타입(TBD-IF-009)도 미정이다. `MotionGuard.evaluate()`는 준비돼 있지만 아직 실제 후보로 호출되지 않는다.
+- 당시 구현하지 않은 것: 실제 속도 후보 입력과 최종 속도 발행. Nav2·yaw 후보 중재(TBD-AMR-001)는 `mission_supervisor` 담당으로 남았고, 최종 발행 타입은 이후 TBD-IF-009 합의로 `Twist`로 확정해 11~13단계에 반영했다. `MotionGuard.evaluate()`는 이 단계 시점에는 준비됐지만 실제 후보로 호출되지 않았다.
 - `robot_id`는 필수 ROS parameter다. 미지정·오지정 시 노드가 시작하지 않는다.
 
 단위시험 (ROS 불필요, `SafetyGate`는 순수 Python):
@@ -834,7 +834,7 @@ TBD-AMR-003은 사용자의 권장안 승인으로 AMR 코드에 반영했으며
 |---|---|---|
 | 1 | `final_turtlebot_pkg` → `patrol_amr` 이관 방식 확정 | 이 브랜치는 `patrol_amr` 사용 완료. 박성현 launch·브랜치와 즉시 합의·병합 확인 필요 |
 | 2 | 업무분장표의 I-02 패키지 등록 | 9단계 완료: package.xml·setup.py·entry point 3개·launch 등록. 아래 시스템 통합 I-02와 같은 이름인지 구분 필요 |
-| 3 | cmd_vel 경로 확정(TBD-IF-009) | 미정·미구현. Nav2 출력 → local_safety_supervisor → 최종 발행 계약과 박성현 launch remap 합의 필요 |
+| 3 | cmd_vel 경로 확정(TBD-IF-009) | **해결·AMR 로컬 반영 완료.** Nav2 출력 → local_safety_supervisor → 최종 발행 계약과 상세는 10.3·10.4절 참조. 관제 launch·실기 검증은 별도 |
 | 4 | AMR-18·19 `recovery_supervisor.py` | 미착수. 현재 파일 없음. 박성현의 nav2_client·mission 코드가 현재 브랜치에 병합된 뒤 goal/spin 취소·30초 재개를 연결해야 함 |
 | 5 | AMR-07 PatrolReport 발행 | 메시지 정의만 있음. publisher 없음. 박성현 체크포인트/mission 결과 입력과 연결 필요 |
 | 6 | AMR-11 물리 E-stop latch | 부분 완료: 수신한 `latched`는 반영. 로컬 물리 latch·수동 reset 경로는 TBD-IF-004 해소 전 미구현 |
@@ -904,7 +904,7 @@ PYTHONDONTWRITEBYTECODE=1 PATROL_SMOKE_DOMAIN_ID=127 \
 |---|---|---|---|
 | 1 | `final_turtlebot_pkg` → `patrol_amr` 이관 | TBD 아님. 이 브랜치는 이미 `patrol_amr`로 완료. 박성현 코드를 어디에 넣을지 **사람 합의**만 남음 | 합의 |
 | 2 | I-02 패키지 등록 | 없음. 9단계에서 `package.xml`·`setup.py`·entry point 3개·launch 등록 완료 | 완료 |
-| 3 | cmd_vel 경로 | **TBD-IF-009 OPEN** | TBD |
+| 3 | cmd_vel 경로 | **TBD-IF-009 해결·AMR 로컬 반영 완료** | 계약 완료 / 통합·실기 검증 별도 |
 | 4 | AMR-18·19 `recovery_supervisor.py` | **TBD-AMR-005 OPEN**(STOP/CANCEL 차이·재개 지점) + `nav2_client.py` 미병합 | TBD + 병합 |
 | 5 | AMR-07 PatrolReport 발행 | **TBD-IF-003 잔여**(waypoint·visit·scan 타입, safety enum 수치) + 박성현 체크포인트 입력 | TBD + 병합 |
 | 6 | AMR-11 물리 E-stop latch | **TBD-IF-004 잔여**(수동 reset 요청 경로, reason enum) | TBD |
@@ -1065,7 +1065,7 @@ python3 tests/integration/publish_drive_token.py
 
 여기가 이 시험의 핵심이다. 주행이 허용됐는데도 속도는 0이다. 권한 게이트(`motion_allowed`)와 출력 게이트(`cmd_vel`)를 나눈 결과이며, 후보가 없으면 내보낼 값 자체가 없다.
 
-**`ros2 topic pub -r 5`를 쓰지 않는 이유.** `ros2 topic pub`은 고정된 메시지 하나를 반복하므로 `message_sequence`가 계속 같은 값이다. [drive_token_guard.py](../../src/patrol_amr/patrol_amr/drive_token_guard.py)는 `message_sequence <= 직전 값`을 `STALE_MESSAGE_SEQUENCE`로 폐기하고 **lease를 연장하지 않는다.** 첫 메시지만 수락되므로 발행 주기와 무관하게 정확히 `lease_duration` 뒤에 권한을 잃는다.
+**`ros2 topic pub -r 5`를 쓰지 않는 이유.** `ros2 topic pub`은 고정된 메시지 하나를 반복하므로 `message_sequence`가 계속 같은 값이다. 현재 위치의 [drive_token_guard.py](../../src/patrol_amr_safety/patrol_amr_safety/drive_token_guard.py)는 `message_sequence <= 직전 값`을 `STALE_MESSAGE_SEQUENCE`로 폐기하고 **lease를 연장하지 않는다.** 첫 메시지만 수락되므로 발행 주기와 무관하게 정확히 `lease_duration` 뒤에 권한을 잃는다.
 
 이는 의도된 동작이며 [DriveToken 요청서](../change_requests/CR-AMR_09-07_15-12_DriveToken_sequence_epoch와_holder_교체.md)에서 "같은 token의 역행·중복은 폐기, 폐기 메시지는 lease 미연장"으로 확정한 것이다. 2026-09-08 사용자 시험에서 실제로 재현됐다 — `motion allowed: True` 8.000초 뒤 정확히 `drive_token_not_granted`가 떴고, 그 8초는 당시 절차의 `lease_duration: {sec: 8}`이었다.
 
@@ -1155,7 +1155,7 @@ python3 tests/integration/publish_drive_token.py --revoke
 | 인자 | 기본값 | 이유 |
 |---|---|---|
 | `battery_state_topic` | `battery_state` | 실제 배터리 드라이버 위치는 TBD-ARCH-001(장치 배치)이라 robot namespace 안에 없을 수 있다 |
-| `candidate_topic` | `cmd_vel_safe` | TBD-IF-009가 Nav2 `collision_monitor` 출력을 여기로 두지만 관제 launch가 아직 병합·확인되지 않았다 |
+| `candidate_topic` | `cmd_vel_safe` | TBD-IF-009 합의로 Nav2 `collision_monitor` 출력을 여기로 확정했다. 관제 launch 병합·통합 확인은 별도 검증 항목이다 |
 
 **스모크 확장.** `amr_safety_status_smoke.py`가 최종 속도 경로를 함께 검증한다. 후보는 이 스크립트가 20 Hz(Nav2 `controller_server`와 같은 주기)로 직접 발행한다 — Nav2가 아니므로 **IT-16이 아니라 게이트 시험**이다.
 
@@ -1449,7 +1449,7 @@ ROS에 의존하지 않으며 위 노드들이 import해서 쓴다.
 
 **절반만 어긋나므로 조용히 통과했다가 통합 시점에 드러난다.** launch에 `push_namespace` 인자(기본 `true`)를 추가했다. 관제 launch가 자체 `PushRosNamespace`로 감싸면 **`push_namespace:=false`를 전달해야 한다.** 전달했을 때 모든 토픽이 `/robot1/` 하나로 정리되는 것을 확인했다.
 
-#### 통합 위험 2 — 최종 `cmd_vel` 타입 (관제 확인 필요)
+#### 통합 위험 2 — 최종 `cmd_vel` 타입 (계약 확정·실기 호환성 검증 필요)
 
 AMR은 최종 출력을 미stamped `geometry_msgs/Twist`로 발행한다. 근거는 `irobot_create_control/config/control.yaml`의 `use_stamped_vel: false`인데 **이는 시뮬레이션 설정 파일**이다.
 

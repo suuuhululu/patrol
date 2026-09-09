@@ -100,11 +100,10 @@ class StateAxisTests(unittest.TestCase):
         self.assertIs(snapshot.mission_state, M.MISSION_NONE)
         self.assertEqual(snapshot.revision, 0)
 
-    def test_safety_uses_the_confirmed_enum(self):
+    def test_safety_uses_v1_enum_and_rejects_unknown_values(self):
         state = MODULE.RobotStatusState('robot1')
-        self.assertTrue(state.update_states(safety_state=S.SAFETY_STOPPED))
-        self.assertIs(
-            state.snapshot(0.0).safety_state, S.SAFETY_STOPPED)
+        self.assertTrue(state.update_states(safety_state=S.SAFETY_NORMAL))
+        self.assertIs(state.snapshot(0.0).safety_state, S.SAFETY_NORMAL)
         for value in (-1, 6, 200, 256, True, 1.0, None):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):

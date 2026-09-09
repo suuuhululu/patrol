@@ -3,12 +3,6 @@
 
 from __future__ import annotations
 
-<<<<<<< HEAD
-from patrol_amr.mission_command_store import CommandStore
-from patrol_amr import command_lifecycle
-from patrol_amr.drive_token_callback import DriveTokenCallback
-=======
->>>>>>> origin/feat/amr-mission-navigation
 from patrol_amr.mission_arbiter import MissionArbiter
 from patrol_amr.mission_command_callback import MissionCommandCallback
 from patrol_amr.mission_command_parser import MissionCommandParser
@@ -102,11 +96,7 @@ class MissionSupervisor(Node):
         )
         self._mission_dispatch_subscription = self.create_subscription(
             MissionCommand,
-<<<<<<< HEAD
             'mission_dispatch',
-=======
-            MISSION_DISPATCH_TOPIC,
->>>>>>> origin/feat/amr-mission-navigation
             self._mission_command_callback,
             MISSION_QOS,
         )
