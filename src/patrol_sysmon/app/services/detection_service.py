@@ -14,6 +14,7 @@ import uuid
 from flask import current_app
 
 from ..models import detection as detection_model
+from ..models.detection import DetectionMessageConflictError
 from . import event_service
 from .robot_service import ROBOT_NAMES
 
@@ -122,6 +123,84 @@ def receive_detection(payload, now=None):
         json.dumps(hash_source, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return detection_model.store_detection_event(event, content_hash)
+
+
+def validate_report(payload, now=None):
+    """ReportDetection 요청 5개 필드를 검증해 저장용 record와 이미지를 돌려준다."""
+    if not isinstance(payload, dict):
+        raise DetectionValidationError("ReportDetection 요청 객체가 필요합니다.")
+    current = now or datetime.now(timezone.utc)
+    robot_id = payload.get("robot_id")
+    if robot_id not in ROBOT_NAMES:
+        raise DetectionValidationError("robot_id는 AMR1 또는 AMR2여야 합니다.")
+    image = payload.get("image")
+    if not isinstance(image, (bytes, bytearray)) or not image:
+        raise DetectionValidationError("image가 비어 있습니다.")
+    image = bytes(image)
+    maximum = current_app.config["REPORT_IMAGE_MAX_BYTES"]
+    if len(image) > maximum:
+        raise DetectionValidationError(f"image는 {maximum // 1024}KiB 이하여야 합니다.")
+    try:
+        extension = event_service._detect_image(image)
+    except event_service.EvidenceValidationError as exc:
+        raise DetectionValidationError("image는 실제 PNG 또는 JPEG여야 합니다.") from exc
+    image_hash = sha256(image).hexdigest()
+    record = {
+        "event_id": _uuid_v4(payload.get("event_id"), "event_id"),
+        "robot_id": robot_id,
+        "robot_name": ROBOT_NAMES[robot_id],
+        "occurred_at": _timestamp(payload.get("detected_at"), "detected_at", current),
+        "x": _finite(payload.get("x"), "position.x"),
+        "y": _finite(payload.get("y"), "position.y"),
+        "frame_id": "map",
+        "image_sha256": image_hash,
+        "extension": extension,
+        "received_at": current.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+    }
+    # [중복 판정 열쇠] message_id 없이 event_id + 내용 해시로 재시도와 잘못된 재사용을 가른다.
+    hash_source = {key: record[key] for key in (
+        "event_id", "robot_id", "occurred_at", "x", "y", "image_sha256")}
+    record["content_hash"] = sha256(
+        json.dumps(hash_source, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return record, image
+
+
+def receive_report(payload, now=None):
+    """서비스 요청 한 건을 사진 파일 1장 + events 1행으로 저장한다.
+
+    반환 outcome: "accepted"(저장) 또는 "duplicate"(같은 event_id·같은 내용). 값 오류는
+    DetectionValidationError, 같은 event_id에 다른 내용은 DetectionMessageConflictError.
+    """
+    record, image = validate_report(payload, now)
+    existing = detection_model.find_report(record["event_id"])
+    if existing is not None:
+        if existing["content_hash"] == record["content_hash"]:
+            return "duplicate", dict(existing)
+        raise DetectionMessageConflictError("같은 event_id에 다른 내용이 이미 저장돼 있습니다.")
+    image_name = f'evidence-{record["event_id"]}-{record["image_sha256"][:24]}{record["extension"]}'
+    directory = Path(current_app.config["EVIDENCE_DIR"])
+    image_path = directory / image_name
+    created = False
+    if not image_path.exists():
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=directory, suffix=".tmp", delete=False) as stream:
+                temporary_path = Path(stream.name)
+                stream.write(image)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_path, image_path)
+            created = True
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+    try:
+        return detection_model.store_report(record, image_name)
+    except Exception:
+        if created:
+            image_path.unlink(missing_ok=True)
+        raise
 
 
 def validate_evidence_chunk(payload, now=None):

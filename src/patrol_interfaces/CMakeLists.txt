@@ -31,6 +31,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/EvidenceChunk.msg"
   "msg/KeepoutStatus.msg"
   "msg/AlignmentStatus.msg"
+  # [System monitor 수집] 확정 사건 + 증거 사진을 요청·응답 한 쌍으로 받는다.
+  "srv/ReportDetection.srv"
   DEPENDENCIES std_msgs geometry_msgs builtin_interfaces
 )
 
