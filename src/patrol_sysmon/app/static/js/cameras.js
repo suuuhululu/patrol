@@ -54,5 +54,6 @@ if (cameraArea) {
     };
 
     refreshCameras();
-    window.setInterval(refreshCameras, 1000);
+    // [조회 주기] 어댑터 수신 상한 5 Hz와 맞춰 0.2초마다 조회한다. 1초면 화면이 1 fps로 끊겨 보인다.
+    window.setInterval(refreshCameras, 200);
 }
