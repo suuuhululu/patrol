@@ -2,13 +2,7 @@
 """ROS composition node for AMR mission and navigation integration."""
 
 from __future__ import annotations
-
-<<<<<<< HEAD
-=======
-from patrol_amr.mission_command_store import CommandStore
 from patrol_amr import command_lifecycle
-from patrol_amr.drive_token_callback import DriveTokenCallback
->>>>>>> origin/codex/amr-row-completion
 from patrol_amr.mission_arbiter import MissionArbiter
 from patrol_amr.mission_command_callback import MissionCommandCallback
 from patrol_amr.mission_command_parser import MissionCommandParser
@@ -102,11 +96,7 @@ class MissionSupervisor(Node):
         )
         self._mission_dispatch_subscription = self.create_subscription(
             MissionCommand,
-<<<<<<< HEAD
-            MISSION_DISPATCH_TOPIC,
-=======
-            'mission_dispatch',
->>>>>>> origin/codex/amr-row-completion
+                        MISSION_DISPATCH_TOPIC,
             self._mission_command_callback,
             MISSION_QOS,
         )

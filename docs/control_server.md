@@ -8,7 +8,7 @@
 
 ## 0. 관제 구현 계약 기준선
 
-관제 코드의 구현 입력은 [v1.0 (`CTRL-IF-2026-09-08`)](decisions/2026-09-08-control-interface-baseline.md)으로 고정한다. 기준 소스는 `main` commit `1cf0059`의 `patrol_interfaces`와 AMR 송수신 구현이다. 이 기준선은 명령·Heartbeat·DriveToken·EStop·RobotStatus 및 이중 Keepout parameter의 확정 범위만 포함하며 코드 구현이나 통합시험 완료를 뜻하지 않는다.
+관제 코드의 구현 입력은 [v1.0 (`CTRL-IF-2026-09-08`)](decisions/2026-09-08-control-interface-baseline.md)과 `patrol_interfaces 1.0.0` 메시지 manifest로 고정한다. 네 팀은 같은 Git commit을 각 PC에서 로컬 빌드하고 manifest SHA-256을 비교한다. 이 기준선은 명령·Heartbeat·DriveToken·EStop·RobotStatus 및 이중 Keepout parameter의 확정 범위만 포함하며 코드 구현이나 통합시험 완료를 뜻하지 않는다.
 
 기준선 밖의 E-stop 원인별 상세 clear 조건, System monitor 요청 API, 관제 운영 상태 토픽, PatrolReport 저장 ACK는 차기 버전 TBD이며 v1.0 구현값으로 확정하지 않는다. 확정 범위의 wire 계약을 바꿀 때는 수정 요청서와 새 기준선을 먼저 작성하고 혼합 버전을 운영하지 않는다.
 
@@ -95,7 +95,7 @@ Drive Token에는 `control_session_id`, `token_id`, `holder_robot_id`, `lease_du
 
 수신 로봇 ID와 namespace를 확인하고 마지막 수신 시각·유효 pose를 추적한다. Q-03을 초과하면 관제의 상태를 STALE로 전환하고 신규 mission과 token 갱신을 중단한다. 결과 미수신 임무는 UNREPORTED로 유지하며 PatrolReport를 대필하지 않는다.
 
-RobotStatus의 권장 의미 필드는 다음과 같다. 실제 ROS 타입·배치는 공용 인터페이스 반영 시 확정한다.
+RobotStatus는 v1.0 공용 계약의 `patrol_interfaces/msg/RobotStatus`를 사용하며, 아래 필드와 실제 ROS 타입·배치는 [interfaces.md](interfaces.md)에 확정돼 있다.
 
 ~~~text
 header                       # RobotStatus snapshot 생성 시각
@@ -178,7 +178,7 @@ AMR은 도킹 실행·센서 성공 판정을 담당하고 관제는 실패를 �
 
 교대 후보는 Battery 상태가 NORMAL, PATROL_READY 또는 FULL이고 pose·safety·통신 게이트를 통과한 로봇이다. 후보 점수는 배터리 60%, 인계 지점까지 거리 30%, 최근 장애·도킹 실패 이력 10%로 계산한다. 동점이면 유휴 시간이 긴 로봇, 다시 같으면 robot1 순으로 선택한다. 실제 점수 정규화와 장애 이력 구간은 구현 전에 시험 fixture로 고정한다.
 
-도킹 성공은 DOCKED 센서와 CHARGING 상태가 모두 2초 연속 유지될 때로 한다. 이 결정은 interfaces.md의 Q-09·Q-12와 integration.md의 통합시험 기준에 반영했으며 AMR 기능 반영은 수정 요청서로 추적한다.
+도킹 성공은 DOCKED 완료 센서와 도킹 기능의 별도 충전 감지 신호가 활성인 조건이 모두 2초 연속 유지될 때로 한다. 충전 감지는 `BatteryState` enum과 독립적이므로 `PATROL_READY`·`FULL`인 동안에도 활성일 수 있다. 이 결정은 interfaces.md의 Q-09·Q-12와 integration.md의 통합시험 기준에 반영했으며 AMR 기능 반영은 수정 요청서로 추적한다.
 
 기존 AMR token 회수 후 새 command_id로 인계한다. 기존 임무 종료/대체와 새 임무의 연결 관계를 기록한다. 이전 로봇이 도킹하기 위한 주행과 새 로봇 순찰의 시간 관계는 TBD-INT-001에서 결정한다.
 
@@ -194,7 +194,7 @@ E-stop 대상은 `robot1`, `robot6`, `all`이다. 관제는 대상별 활성 원
 
 화재 Detection이 확정되면 신규 순찰 구간을 추가하지 않고 현재 mission ID로 순찰·복귀·도킹까지 완료한다. 해당 mission의 기존 Drive Token은 도킹 완료 또는 실패까지 갱신·유지하고 종료 시 회수한다. 이후 다른 로봇에 새로운 Drive Token을 발급하지 않고 전체 순찰을 중단한다. 기존 token이 만료되거나 E-stop이 발생하면 화재 mission도 즉시 안전 정지하며 만료된 token을 새 token ID로 재발급해 자동 복구하지 않는다.
 
-화재 부저는 확정 event에서 ON하고 DOCKED와 CHARGING이 2초 연속 유지되면 OFF한다. 도킹 timeout 또는 실패가 확정되면 부저를 OFF하고 `FIRE_DOCKING_FAILED` 관제 경고를 활성화한다. 단, 다른 활성 화재 event가 남아 있으면 부저를 끄지 않는다. 부저 OFF 전달 실패도 관제 경고로 남긴다. 기존 mission의 정상 완료 여부와 별개로 FIRE_DETECTED=702는 reason code로만 사용하고 PatrolReport 결과 enum이나 Detection event_type 수치로 혼용하지 않는다.
+화재 부저는 확정 event에서 ON하고 DOCKED 완료 센서와 별도 충전 감지 신호 활성이 2초 연속 유지되면 OFF한다. 도킹 timeout 또는 실패가 확정되면 부저를 OFF하고 `FIRE_DOCKING_FAILED` 관제 경고를 활성화한다. 단, 다른 활성 화재 event가 남아 있으면 부저를 끄지 않는다. 부저 OFF 전달 실패도 관제 경고로 남긴다. 기존 mission의 정상 완료 여부와 별개로 FIRE_DETECTED=702는 reason code로만 사용하고 PatrolReport 결과 enum이나 Detection event_type 수치로 혼용하지 않는다.
 
 ## 7. 기록과 검증
 
@@ -212,13 +212,13 @@ AMR 적용 검토와 robot1·robot6 반영 상태는 [관제 수정 요청서](c
 - 2026-09-07 사용자 결정: MissionCommand 확인은 CommandCheck의 ACCEPTED·EXECUTING·REJECTED로 구분하고 최종 결과는 PatrolReport로 반환한다. Check timeout은 5초, 동일 ID·payload 최대 재전송은 2회다. START/RESUME과 STOP/CANCEL의 의미, command 중재 우선순위, ID 보존은 2.2절을 따른다. 영향: 관제·AMR, TBD-CTRL-001·TBD-IF-001·003.
 - 2026-09-07 사용자 결정: Drive Token은 control session, grant ID와 발행 sequence를 구분하고 회수 대상 holder를 명시한다. 교대는 실제 정지 확인 후 신규 token을 발급하며 정지 기준은 2.3절을 따른다. 영향: 관제·AMR, TBD-IF-002·TBD-INT-001·TBD-AMR-006.
 - 2026-09-07 사용자 결정: Keepout·안전구역 세부 설계는 AMR 팀이 먼저 제시하고 관제 담당자가 확인한다. 검토 전에는 미정 계약을 구현값으로 추측하지 않는다. 영향: 관제·AMR, TBD-CTRL-002·TBD-INT-003.
-- 2026-09-07 사용자 결정: LOW는 새 mission을 시작하지 않고 현재 mission의 순찰·복귀·도킹까지 완료하며, CRITICAL은 즉시 복귀 또는 도킹 판단으로 전환한다. 영향: 관제·AMR, TBD-CTRL-003·TBD-AMR-003·005.
-- 2026-09-07 사용자 결정: 화재 확정 후 현재 mission의 순찰·복귀·도킹까지 완료하고 기존 token을 그 종료까지 유지한다. 도킹 후 다른 로봇에 새 token을 발급하지 않는다. DOCKED와 CHARGING 2초 연속을 도킹 완료와 화재 부저 OFF 조건으로 하며, 도킹 실패 시 다른 활성 화재가 없는 경우 부저를 끄고 관제 경고를 발생시킨다. 영향: 관제·AMR, TBD-INT-004·TBD-AMR-004 및 Q-09·Q-12. 공용 기준 반영 완료, AMR 검토 대기.
-- 2026-09-08 사용자 결정 및 AMR 회신: CommandCheck 0~3, 정상 ACCEPTED→EXECUTING과 제한된 ACCEPTED 누락 복구, 명령별 mission·target, `parameters_json` 제거, reason code 203~206, RobotStatus safety_state 0~5를 확정했다. ID 3종이 일치하는 ACCEPTED 누락 EXECUTING을 수락하면 재전송을 즉시 중단한다. 공용 `.msg`와 AMR 코드는 `main` commit `1cf0059`에 반영됐고 관제 코드는 미반영이다. 근거: [AMR 확정 회신](change_requests/CR-AMR_09-08_17-00_명령_Heartbeat_E-stop_상태_계약_확정_회신.md).
+- 2026-09-07 사용자 결정: LOW는 새 mission을 시작하지 않고 현재 mission의 순찰·복귀·도킹까지 완료하며, CRITICAL은 즉시 복귀 또는 도킹 판단으로 전환한다. 영향: 관제·AMR. 배터리 입력 정책은 TBD-AMR-003 결정으로 v1.0에 반영됐고, 상세 임무 전이는 TBD-CTRL-003·TBD-AMR-005에 남는다.
+- 2026-09-07 사용자 결정, 2026-09-08 용어 명확화: 화재 확정 후 현재 mission의 순찰·복귀·도킹까지 완료하고 기존 token을 그 종료까지 유지한다. 도킹 후 다른 로봇에 새 token을 발급하지 않는다. DOCKED 완료 센서와 `BatteryState` enum과 독립적인 충전 감지 신호 활성 2초 연속을 도킹 완료와 화재 부저 OFF 조건으로 한다. 도킹 실패 시 다른 활성 화재가 없는 경우 부저를 끄고 관제 경고를 발생시킨다. 영향: 관제·AMR, TBD-INT-004·TBD-AMR-004 및 Q-09·Q-12. 공용·AMR 설계 문서 반영 완료이며 실제 센서·부저 연결은 잔여 TBD와 구현 검증으로 추적한다.
+- 2026-09-08 사용자 결정 및 AMR 회신: CommandCheck 0~3, 정상 ACCEPTED→EXECUTING과 제한된 ACCEPTED 누락 복구, 명령별 mission·target, `parameters_json` 제거, reason code 203~206, RobotStatus safety_state 0~5를 확정했다. ID 3종이 일치하는 ACCEPTED 누락 EXECUTING을 수락하면 재전송을 즉시 중단한다. 당시 공용 `.msg`와 AMR 코드의 중간 반영 커밋은 `1cf0059`였으며, 현재 빌드 기준은 [v1.0 기준선](decisions/2026-09-08-control-interface-baseline.md)의 패키지 버전·15개 메시지 manifest다. 관제 동작 코드는 아직 미구현이다. 근거: [AMR 확정 회신](change_requests/CR-AMR_09-08_17-00_명령_Heartbeat_E-stop_상태_계약_확정_회신.md).
 - 2026-09-08 사용자 결정: Heartbeat 타입·필드·QoS, UI E-stop reason 0~6, 전체 대상 `all`, 대표 원인 발행, 우선순위 `SYSTEM_FAULT → UNKNOWN → OPERATOR → KEEPOUT_FAILURE → COMMUNICATION → OBSTACLE → TOKEN`, 3초 해제 조건을 v1.0으로 확정하고 하드웨어 E-stop·manual reset은 제외한다. UI 요청 경로와 원인별 상세 조건은 차기 버전으로 이관한다. 영향: 관제·AMR·시스템 모니터.
 - 2026-09-08 사용자 결정: Ctrl+C/SIGINT 정상 종료는 `CONTROL_SHUTDOWN` 운영 이벤트로 분류하고, 재기동 후 새 session·상태 게이트·새 token·별도 command 순서를 지킨다. 영향: 관제·AMR·시스템 모니터, TBD-IF-011.
 
-공용 계약과 시험 기준은 interfaces.md·integration.md·scenarios.md에 반영했다. 관제 구현은 [CTRL-IF-2026-09-08 기준선](decisions/2026-09-08-control-interface-baseline.md)을 사용하고, 기준선 밖의 미정 항목은 아래 TBD로 유지한다.
+공용 계약과 시험 기준은 interfaces.md·integration.md·scenarios.md에 반영했다. 관제 구현은 [v1.0 기준선](decisions/2026-09-08-control-interface-baseline.md)을 사용하고, 기준선 밖의 미정 항목은 차기 버전 TBD로 유지한다.
 
 | 계약 항목 | 현재 반영 상태 |
 |---|---|
@@ -227,7 +227,8 @@ AMR 적용 검토와 robot1·robot6 반영 상태는 [관제 수정 요청서](c
 | TBD-IF-003 | RobotStatus safety_state·PatrolReport ID 관계 확정 부분 반영, ACK·안전구역 도착 보고는 미정 |
 | TBD-IF-004 | v1.0에 ControlHeartbeat와 E-stop 타입·대상·대표 원인·우선순위·3초 해제를 반영. 원인별 상세 clear 조건은 차기 버전 |
 | TBD-IF-008 | 이중 Keepout parameter 경계 확정, 관제 transaction·실환경 검증 미반영 |
-| TBD-IF-005·006·007·011 | 공통 ID 형식과 source session·sequence 반영 |
+| TBD-IF-005 | v1.0 CameraState 타입·enum·camera ID·source session·sequence 확정 및 비전 호환 시험 반영 |
+| TBD-IF-006·007·011 | 공통 ID 형식과 source session·sequence 반영, 잔여 의미·운영 이벤트 계약은 차기 버전 |
 | TBD-INT-001 | 실제 정지 확인 후 신규 holder token 발급 |
 | TBD-INT-004 | 화재 mission 완료·도킹·token 중단·부저 정책 |
 | Q-09·Q-12 | 공용 기준은 2초로 변경 완료, AMR 기능·시험 반영 필요 |

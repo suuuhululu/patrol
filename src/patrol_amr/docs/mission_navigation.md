@@ -436,9 +436,11 @@ flowchart TD
 
 ## 이벤트 기능 기초
 
-DetectionCandidate/Event와 증적 계약이 미정이므로 ROS event node는 아직
-생성하지 않았다. 실제 robot6에서 성공한 `audio_note_sequence` Action과
-Q-12의 다중 활성 화재 규칙만 독립 모듈로 구현했다.
+DetectionCandidate/Event와 증적의 v1.0 wire 필드·상수는 고정됐지만 정식
+토픽·event_type 의미·중재·재전송 계약은 차기 버전 TBD-IF-006·007이다.
+따라서 ROS event node는 아직 생성하지 않았다. 실제 robot6에서 성공한
+`audio_note_sequence` Action과 Q-12의 다중 활성 화재 규칙만 독립 모듈로
+구현했다.
 
 `fire_event_registry.py`
 
@@ -604,7 +606,7 @@ flowchart TD
 | outbox 선저장 | ROS subscriber가 없을 때도 임무 결과를 보존한다. | 수신 애플리케이션 ACK와 최종 삭제 기준은 TBD-IF-003이다. |
 | 원자 교체·fsync | 전원 중단 시 부분 JSON을 정상 상태로 오인하지 않는다. | 디스크 자체 장애에서는 주행을 차단하고 오류를 남긴다. |
 | subscriber 확인 후 drain | 명백히 수신자가 없는 상태에서 VOLATILE report를 버리지 않는다. | 연결만으로 DB 저장 완료를 보장하지 않으며 검토 요청서에서 ACK를 요청했다. |
-| REJECTED 비발행 | PatrolReport의 확정 enum은 SUCCEEDED/FAILED/CANCELED 세 개뿐이다. | 명령 거부 ACK가 필요하면 TBD-IF-001·003에서 별도 계약을 정한다. |
+| REJECTED 비발행 | PatrolReport의 확정 enum은 SUCCEEDED/FAILED/CANCELED 세 개뿐이다. | 명령 거부는 v1.0 `CommandCheck.REJECTED`로 전달하고 PatrolReport를 만들지 않는다. |
 
 `command_store.py`
 
@@ -666,7 +668,7 @@ flowchart TD
 
 ## 2026-09-08 검증 결과
 
-- `colcon build --packages-select patrol_interfaces patrol_amr --symlink-install`: PASS
+- 당시 패키지 분리 전 `colcon build --packages-select patrol_interfaces patrol_amr --symlink-install`: PASS. 현재 검증 명령은 `colcon build --packages-select patrol_interfaces patrol_amr patrol_amr_safety --symlink-install`이다.
 - 전체 Python 단위시험 207개: PASS
 - AMR-07 격리 ROS 스모크: `/robot6/robot_status` 미션 실패 상태와
   `/robot6/patrol_report`의 ID·result·reason code·시각·최종 W4 수신,
@@ -679,19 +681,18 @@ flowchart TD
 - 신규 reporter 코드·시험 `ament_flake8`, reporter `ament_pep257`, 전체
   Python compileall: PASS
 - ROS launch 파일 로드와 프로세스 생성: PASS
-- 2026-09-08 격리 domain의 `/robot6/mission_command` 공개 구독 시험은 PASS였으나,
-  2026-09-09 계약 반영으로 현재 입력은 내부 `/robot6/mission_dispatch`로 대체됨
+- 격리 domain의 `/robot6/mission_command` 구독 1개와 구조화 ID 실제
+  pub/sub PASS; `safety_path_ready=false` 주행 차단 PASS
 - 공용 `MissionCommand` 5종이 있는 팀 브랜치 사본의 패키지 메타데이터를
   `patrol_interfaces`로 바로잡은 격리 작업공간에서 두 패키지 동시 빌드: PASS
-- 현재 `/robot6/mission_dispatch` 타입
-  `patrol_interfaces/msg/MissionCommand`, RELIABLE/VOLATILE 구독 1개: 단위 wiring PASS,
-  ROS 통합 재시험 PENDING
+- `/robot6/mission_command` 타입
+  `patrol_interfaces/msg/MissionCommand`, RELIABLE/VOLATILE 구독 1개: PASS
 - 유효한 `START_PATROL` 실제 토픽 발행 → `mission_supervisor` 콜백 수신 →
   `safety_path_ready=false` 주행 차단: PASS
-- 공용 패키지의 main/AMR 브랜치 병합과 패키지 메타데이터 통일: PENDING
+- 공용 패키지와 패키지 메타데이터의 v1.0 통일: 완료. 각 PC 설치본의 manifest SHA-256 비교는 통합시험 시작 전에 수행한다.
 - `hardware_patrol.launch.py --show-args`: PASS
 - 토큰 누락 시 프로세스 기동 후 주행 차단 로그: PASS
 - 첫 robot6 실기 기동: `Executor is already spinning` 재현, 원인 확인 및
   executor 분리 수정 완료; 수정 빌드 후 실제 장비 재시험 PENDING
 - 실제 Nav2·도킹·robot1/robot6 실기 주행: NOT_RUN
-- 최종 local safety 속도 경로 IT-16: TBD-IF-009로 BLOCKED
+- 최종 local safety 속도 경로 IT-16: TBD-IF-009 계약·로컬 게이트 반영 완료. 실제 Nav2·yaw 후보 결합과 robot1·robot6 실기 검증은 NOT_RUN

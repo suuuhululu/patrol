@@ -11,6 +11,13 @@ from ..models import cctv as cctv_model
 from . import vehicle_access_service
 
 
+# [계약 event_id] 비전 팀 확정 형식(vision.md, CameraState.msg 헤더 주석):
+#   cam-<camera_id>-<YYYYMMDDTHHMMSS>-<restart_sequence 2자리 이상>-<state 소문자>-<source_sequence 4자리 이상>
+# 수신 쪽은 event_id를 파싱해 의미를 꺼내지 않고 식별자로만 쓴다. 시연 HTTP 도구가 쓰는
+# UUID v4도 계속 받는다.
+CONTRACT_EVENT_ID_PATTERN = re.compile(
+    r"^cam-(gate_cam|center_cam)-\d{8}T\d{6}-\d{2,}-(entering|exited|parked|exiting)-\d{4,}$"
+)
 UUID_V4_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
@@ -34,16 +41,20 @@ class CctvValidationError(ValueError):
     """PC 4 CCTV 계약 필드가 확정 형식과 다를 때 사용한다."""
 
 
-def _uuid_v4(value):
-    if not isinstance(value, str) or not UUID_V4_PATTERN.fullmatch(value):
-        raise CctvValidationError("event_id는 소문자 UUID v4여야 합니다.")
-    try:
-        parsed = uuid.UUID(value, version=4)
-    except ValueError as exc:
-        raise CctvValidationError("event_id는 소문자 UUID v4여야 합니다.") from exc
-    if str(parsed) != value:
-        raise CctvValidationError("event_id는 소문자 UUID v4여야 합니다.")
-    return value
+def _event_id(value):
+    if not isinstance(value, str):
+        raise CctvValidationError("event_id는 문자열이어야 합니다.")
+    if CONTRACT_EVENT_ID_PATTERN.fullmatch(value):
+        return value
+    if UUID_V4_PATTERN.fullmatch(value):
+        try:
+            if str(uuid.UUID(value, version=4)) == value:
+                return value
+        except ValueError:
+            pass
+    raise CctvValidationError(
+        "event_id는 계약 형식(cam-<camera_id>-<시각>-<재시작번호>-<state>-<순번>) 또는 소문자 UUID v4여야 합니다."
+    )
 
 
 def _timestamp(value, now):
@@ -79,7 +90,7 @@ def validate_camera_state(payload, now=None):
     ):
         raise CctvValidationError("confidence는 0.0에서 1.0 사이의 유한한 숫자여야 합니다.")
     return {
-        "event_id": _uuid_v4(payload.get("event_id")),
+        "event_id": _event_id(payload.get("event_id")),
         "camera_id": camera_id,
         "state": state,
         "confidence": float(confidence),

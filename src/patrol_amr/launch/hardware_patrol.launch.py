@@ -27,20 +27,7 @@ def generate_launch_description():
     start_command_gateway = LaunchConfiguration('start_command_gateway')
     motion_enable_token = LaunchConfiguration('motion_enable_token')
     source_session_id = LaunchConfiguration('source_session_id')
-
-    command_gateway = Node(
-        package='patrol_amr_safety',
-        executable='command_gateway',
-        name='command_gateway',
-        namespace=robot_id,
-        condition=IfCondition(start_command_gateway),
-        parameters=[{
-            'robot_id': ParameterValue(robot_id, value_type=str),
-            'source_session_id': ParameterValue(
-                source_session_id, value_type=str),
-        }],
-        output='screen',
-    )
+    safety_state = LaunchConfiguration('safety_state')
 
     local_safety = Node(
         package='patrol_amr_safety',
