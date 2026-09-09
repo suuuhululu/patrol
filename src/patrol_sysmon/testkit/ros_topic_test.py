@@ -524,9 +524,6 @@ def build_virtual_publisher(config):
                 estop.active = active
                 estop.reason = 4 if active else 0
                 estop.sequence = self._safety_sequence
-                if hasattr(estop, "latched"):
-                    # 공용 .msg에 아직 남은 필드다. 계약에서 제거됐으므로 의미 없는 기본값만 둔다.
-                    estop.latched = False
                 self._estop_publisher.publish(estop)
                 self.published_counts["/control/estop"] += 1
 

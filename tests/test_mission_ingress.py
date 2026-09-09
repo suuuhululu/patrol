@@ -32,9 +32,7 @@ def args(**overrides):
 
 
 def ingress(store):
-    return MODULE.MissionIngress(
-        store, invalid_reason_code=200, conflict_reason_code=200
-    )
+    return MODULE.MissionIngress(store)
 
 
 class DecisionTests(unittest.TestCase):
@@ -75,21 +73,26 @@ class DecisionTests(unittest.TestCase):
         self.assertFalse(decision.dispatch_new)
         self.assertEqual(decision.replay_report, report)
 
-    def test_conflicting_retry_is_rejected_with_injected_code(self):
+    def test_conflicting_retry_uses_fixed_v1_code(self):
         with STORE.CommandStore(':memory:', 'robot1') as store:
             store.register(**args())
-            decision = MODULE.MissionIngress(
-                store, invalid_reason_code=201, conflict_reason_code=987
-            ).observe(**args(target_id='P2'))
+            decision = MODULE.MissionIngress(store).observe(
+                **args(target_id='P2'))
         self.assertIs(decision.check_meaning, CHECKS.CheckMeaning.REJECTED)
-        self.assertEqual((decision.reason_code, decision.reason), (987, 'COMMAND_ID_CONFLICT'))
+        self.assertEqual(
+            (decision.reason_code, decision.reason),
+            (int(REPORTS.ReasonCode.COMMAND_ID_CONFLICT), 'COMMAND_ID_CONFLICT'),
+        )
 
     def test_invalid_command_is_rejected_without_persistence(self):
         with STORE.CommandStore(':memory:', 'robot1') as store:
             decision = ingress(store).observe(**args(command=99))
             self.assertEqual(store.count(), 0)
         self.assertIs(decision.check_meaning, CHECKS.CheckMeaning.REJECTED)
-        self.assertEqual(decision.reason_code, 200)
+        self.assertEqual(
+            decision.reason_code,
+            int(REPORTS.ReasonCode.INVALID_PARAMETERS),
+        )
 
 
 class WireCopyTests(unittest.TestCase):

@@ -8,6 +8,13 @@ def store_keepout(record):
     db = get_db()
     try:
         db.execute("BEGIN IMMEDIATE")
+        # [도착 순서 독립] KeepoutStatus가 첫 RobotStatus보다 먼저 와도 외래 키가
+        # 저장을 막지 않게, 계약에서 허용된 로봇의 기본 행을 함께 준비한다.
+        robot_name = "로봇 1" if record["robot_id"] == "AMR1" else "로봇 2"
+        db.execute(
+            "INSERT OR IGNORE INTO robots (robot_id, name) VALUES (?, ?)",
+            (record["robot_id"], robot_name),
+        )
         existing = db.execute(
             "SELECT observed_at FROM keepout_latest WHERE robot_id = ?",
             (record["robot_id"],),

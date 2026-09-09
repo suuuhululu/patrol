@@ -453,8 +453,7 @@ def keepout_status_payload(topic, message):
 def estop_payload(message):
     """계약 EStop(/control/estop)을 안전 상태 저장 입력으로 바꾼다.
 
-    interfaces.md 3.1절(2026-09-08): header·target_robot_id·active·reason·sequence만 쓴다.
-    아직 공용 .msg에 남아 있는 latched는 계약에서 제거됐으므로 읽지 않는다.
+    interfaces.md v1.0: header·target_robot_id·active·reason·sequence만 쓴다.
     """
     try:
         observed_at = _stamp_iso(message.header.stamp)

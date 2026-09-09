@@ -677,7 +677,6 @@ def main():
                 "amr_safety_status.launch.py",
                 f"robot_id:={ROBOT_ID}",
                 f"source_session_id:={SOURCE_SESSION_ID}",
-                "safety_state:=0",
             ],
             stdout=launch_log,
             stderr=subprocess.STDOUT,

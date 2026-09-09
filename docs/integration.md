@@ -16,7 +16,7 @@ UC별 목표·사전 조건·기본/예외 흐름·완료 조건과 W 흐름의 
 
 다음은 권장 점검 순서이며 정확한 실행 명령·서비스 의존성은 TBD-ARCH-001에서 확정한다.
 
-1. [AGENTS.md](../AGENTS.md)의 승인 범위와 개발 단위별 반영 버전을 확인한다.
+1. [AGENTS.md](../AGENTS.md)의 승인 범위와 개발 단위별 반영 버전을 확인한다. 모든 PC에서 같은 Git commit의 `patrol_interfaces 1.0.0`을 로컬 빌드하고 `scripts/verify_interface_v1.py --installed`의 `message_manifest_sha256`이 v1.0 기준값 `5db7945d3495d954c195935e96a499535f052578d6755be622cd3a223b6816d6`과 일치하지 않으면 통합시험을 시작하지 않는다. 이 값은 주석·빈 줄을 제외한 ROS 선언 기준이다.
 2. robot1/robot6, /robot1·/robot6, AMR1/AMR2 매핑 및 대상 장비를 확인한다.
 3. 기존 TB4 Onboard 서버 ID 1·6 설정이 유지되는지 확인한다. 단일 서버로 통합하지 않는다.
 4. PC 3 Offboard 서버 ID 0, UDP 11811의 접속 주소와 서비스를 확인한다.
@@ -49,7 +49,7 @@ PARKED 또는 EXITED → permit=true → 관제가 상태·E-stop 등 재개 조
 
 AMR의 Battery 상태 보고 → 관제의 도킹/교대 판단 → AMR의 도킹 실행·상태 보고 → 성공 또는 실패 보고로 진행한다. CRITICAL은 현재 waypoint 완료를 기다리지 않고 관제가 즉시 복귀 또는 도킹을 판단한다. LOW는 새 mission을 시작하지 않고 현재 mission의 순찰·복귀·도킹까지 완료하며, 중간에 CRITICAL로 전환되면 즉시 복귀 또는 도킹 판단으로 바꾼다. UNKNOWN은 신규 순찰과 교대 투입에서 제외한다.
 
-도킹은 DOCKING 진입 후 60초 안에 DOCKED 완료 센서와 CHARGING 상태가 모두 2초 연속 유지되면 성공이다. 실패 시 관제가 Battery 상태, 인계 지점까지 거리, 최근 장애·도킹 실패 이력을 기준으로 가용 로봇을 선정한다.
+도킹은 DOCKING 진입 후 60초 안에 DOCKED 완료 센서와 도킹 기능의 별도 충전 감지 신호가 활성인 조건이 모두 2초 연속 유지되면 성공이다. 충전 감지는 `BatteryState` enum과 독립적이다. 실패 시 관제가 Battery 상태, 인계 지점까지 거리, 최근 장애·도킹 실패 이력을 기준으로 가용 로봇을 선정한다.
 
 교대는 기존 token 회수 후 새 command ID를 사용한다. 회수는 빈 token ID와 이전 holder robot ID로 발행한다. 기존 AMR의 회수 수락 뒤 odometry 선속도 ≤ 0.05 m/s, 각속도 ≤ 0.1 rad/s가 0.5초 연속이고 측정 age ≤ 0.5초인 실제 정지를 확인한 다음 신규 holder token을 발급한다. 이전 로봇의 도킹 주행과 신규 출발의 세부 중재는 동일한 단일 holder 원칙을 지키며 AMR 반영 검토에서 확정한다.
 
@@ -77,7 +77,7 @@ AMR 탑재 카메라의 detecting node는 비전팀이 개발하고 각 AMR PC�
 
 화재 확정 시 부저를 ON하고 신규 순찰 구간을 추가하지 않은 채 현재 mission ID로 순찰·복귀·도킹까지 완료한다. 기존 Drive Token은 도킹 완료 또는 실패까지 유지하고 종료 시 회수한다. 이후 다른 로봇에 새 token을 발급하지 않고 전체 순찰을 중단한다. token 만료나 E-stop은 이 흐름보다 우선하며 새 token ID를 자동 발급해 복구하지 않는다.
 
-DOCKED 완료 센서와 CHARGING 상태가 2초 연속이면 도킹 성공과 부저 OFF로 판정한다. 도킹 timeout 또는 실패 시 다른 활성 화재가 없으면 부저를 OFF하고 FIRE_DOCKING_FAILED 관제 경고를 발생시킨다. 다른 활성 화재가 있으면 부저를 유지한다. 화재 확정만으로 mission을 FAILED로 바꾸지 않으며 FIRE_DETECTED=702는 reason code로만 사용한다.
+DOCKED 완료 센서와 별도 충전 감지 신호 활성이 2초 연속이면 도킹 성공과 부저 OFF로 판정한다. 도킹 timeout 또는 실패 시 다른 활성 화재가 없으면 부저를 OFF하고 FIRE_DOCKING_FAILED 관제 경고를 발생시킨다. 다른 활성 화재가 있으면 부저를 유지한다. 화재 확정만으로 mission을 FAILED로 바꾸지 않으며 FIRE_DETECTED=702는 reason code로만 사용한다.
 
 ## 4. 통합시험 명세
 
@@ -89,7 +89,7 @@ DOCKED 완료 센서와 CHARGING 상태가 2초 연속이면 도킹 성공과 �
 | IT-02 명령 확인·중복 | check_state 0~3과 미정의 값, 정상 ACCEPTED→EXECUTING, ACCEPTED 누락 EXECUTING, 역방향 전이, 각 5초 Check timeout, 동일 ID·payload 재전송, 동일 ID·다른 payload, 중간 Check가 누락된 최종 report를 검사 | 미정의·역방향 폐기; ID 3개가 같은 ACCEPTED 누락 EXECUTING만 수락하고 ACCEPTED_MISSING 기록 후 해당 명령 재전송 즉시 중단; timeout마다 동일 ID로 최대 2회 재전송; 중복 실행 없음; ID 충돌 거절; 유효 최종 report 수락 | Q-14·15, TBD-IF-001·011 |
 | IT-03 토큰 검증 | 유효 token 이후 낮은/동일 message sequence·오래된 메시지·다른 holder·새 control session을 각각 주입 | AMR이 잘못된 권한을 수락하지 않고 lease가 부당 연장되지 않음; 새 control session에서 이전 token 폐기 | Q-01, TBD-IF-002 |
 | IT-04 토큰 만료·회수 | 활성 mission에서 갱신 중단, 이전 holder를 지정한 빈 token ID 회수, 실제 정지 조건 경계 시험 | 만료/회수 시 AMR 안전 정지·신규 주행 차단; 새 token만으로 자동 출발 없음; odometry 정지 조건 전 신규 holder 금지 | Q-01, TBD-AMR-006·INT-001 |
-| IT-05 CCTV 정상·중복 | gate_cam·center_cam별 구조화 event ID와 source session·sequence, enum 0~4, 허용 상태를 검사한다. ENTERING·EXITED·EXITING은 0.2초 직전·경계·직후, 중간 조건 이탈·미검출을 주입한다. PARKED는 5초 체류와 confidence 계산 구간을 검사한다. 동일 ID 반복과 topic별 금지 enum도 발행한다. | `patrol_interfaces/msg/CameraState`, camera_id `gate_cam`·`center_cam`, 상태별 enum과 ID가 요청 계약에 일치한다. 0.2초 미만 또는 중간 단절에서는 이벤트가 없고 조건을 연속 충족한 경우에만 1회 발행한다. confidence는 일반 상태의 유효 0.2초 평균, PARKED의 마지막 유효 0.2초 평균이다. 중복은 1회만 처리하고 금지 enum은 폐기·기록한다. | [비전 P0 요청](change_requests/CR-관제_09-07_17-53_비전_CameraState와_permit_반영.md), Q-13, TBD-IF-005 |
+| IT-05 CCTV 정상·중복 | gate_cam·center_cam별 구조화 event ID와 source session·sequence, enum 0~4, 허용 상태를 검사한다. ENTERING·EXITED·EXITING은 0.2초 직전·경계·직후, 중간 조건 이탈·미검출을 주입한다. PARKED는 5초 체류와 confidence 계산 구간을 검사한다. 동일 ID 반복과 topic별 금지 enum도 발행한다. | `patrol_interfaces/msg/CameraState`, camera_id `gate_cam`·`center_cam`, 상태별 enum과 ID가 v1.0 계약에 일치한다. 0.2초 미만 또는 중간 단절에서는 이벤트가 없고 조건을 연속 충족한 경우에만 1회 발행한다. confidence는 일반 상태의 유효 0.2초 평균, PARKED의 마지막 유효 0.2초 평균이다. 중복은 1회만 처리하고 금지 enum은 폐기·기록한다. | [v1.0 기준선](decisions/2026-09-08-control-interface-baseline.md), [비전 P0 요청](change_requests/CR-관제_09-07_17-53_비전_CameraState와_permit_반영.md), Q-13 |
 | IT-06 CCTV permit·단절·복구 | permit true/false 각각에서 상태 변경 즉시 발행과 5 Hz 반복 주기를 측정한다. 이후 permit 통신을 5초 미만·이상 중단하고, 동일 Bool 3회 수신의 간격·전체 경과 조건을 경계값으로 시험한다. | 변경 값은 즉시 전달되고 반복 주기는 5 Hz다. 5초 미만 단절은 timeout이 아니며 5초 도달 시 관제가 경고하고 마지막 permit을 유지한다. 동일 값 3회, 각 간격 ≤0.5초, 전체 경과 ≥0.3초를 모두 만족한 경우에만 정상 복구한다. 모니터는 관제 판단 결과를 표시·기록하고 임의로 permit을 반전하지 않는다. | [비전 P0 요청](change_requests/CR-관제_09-07_17-53_비전_CameraState와_permit_반영.md), TBD-IF-010 |
 | IT-07 대피·재개 | 순찰 중 permit false, 대피 완료 후 true | 관제·AMR W-02 순서 일치, 대피 중 token 유지, 도착 후 회수 | Q-08, TBD-INT-002·003 |
 | IT-08 Keepout 실패 | global/local 일부 적용 실패와 rollback 실패를 각각 주입 | 전체 snapshot 복구 또는 UNKNOWN·Safety Arbiter 정지 요청; 부분 성공을 commit하지 않음 | Q-07, TBD-CTRL-002 |
@@ -97,10 +97,10 @@ DOCKED 완료 센서와 CHARGING 상태가 2초 연속이면 도킹 성공과 �
 | IT-10 상태·복구 | RobotStatus 중단 후 복구, ControlHeartbeat 1초 timeout, Ctrl+C 정상 종료와 비정상 종료, 새 control session 이후 각 재개 조건을 하나씩 실패시킴 | 관제 Q-03 STALE·갱신 중단, AMR heartbeat·token lease 안전 정지, CONTROL_SHUTDOWN 기록은 정상 종료에서만 best-effort, 이전 token 폐기, Q-04·05와 전체 게이트·새 token·별도 command 전 자동 재개 없음 | Q-03~06·16, TBD-CTRL-003, TBD-IF-011 |
 | IT-11 E-stop | UI OPERATOR 정지·해제, robot1·robot6·all, 각 비물리 reason의 동시 활성, 대표 reason, 3초 해제 조건 유지·중단을 시험 | UI 직접 발행 없음; Safety Arbiter 단일 발행·즉시 활성; 대표 원인은 `SYSTEM_FAULT → UNKNOWN → OPERATOR → KEEPOUT_FAILURE → COMMUNICATION → OBSTACLE → TOKEN` 순서와 일치; 조건 시작·초기화·해제 로그; 해제 후 새 token·command 전 이동 없음; 물리/manual reset 경로 없음 | v1.0 Q-10, 상세 조건은 차기 버전 TBD-IF-004·TBD-CTRL-004 |
 | IT-12 pose·보고 | 무효 pose, snapshot/pose 시각 차이, 결과 전 단절, 복구 후 같은 report ID 재전달 | 마지막 유효 pose와 age 구분; UNREPORTED 유지·대필 없음; command·mission·report ID 연결과 중복 제거 | TBD-IF-003 |
-| IT-13 배터리·도킹·교대 | SOC 경계, LOW mission 완료, LOW→CRITICAL, UNKNOWN, DOCKED·CHARGING 2초 경계, 도킹 timeout | enum·Q-11 일치; LOW는 현재 mission 도킹까지 완료; CRITICAL은 즉시 전환; Q-09 성공 조건; 실제 정지 뒤 교대 token | Q-09·11, TBD-INT-001 |
+| IT-13 배터리·도킹·교대 | SOC 경계, LOW mission 완료, LOW→CRITICAL, UNKNOWN, DOCKED·별도 충전 감지 신호 2초 경계, 도킹 timeout | enum·Q-11 일치; SOC 기반 `BatteryState`와 도킹용 충전 감지를 독립 판정; LOW는 현재 mission 도킹까지 완료; CRITICAL은 즉시 전환; Q-09 성공 조건; 실제 정지 뒤 교대 token | Q-09·11, TBD-AMR-004·TBD-INT-001 |
 | IT-14 Detection·정렬·화재 | 비전팀 detecting node를 robot1·robot6 AMR PC에서 각각 실행한다. 후보 발생 후 AMR yaw 정렬, 정지 확인, 같은 candidate의 정렬 완료 통지, 정렬 상태 1초 연속 탐지를 순서대로 시험한다. 1초 도중 탐지 단절·정렬 상태 해제·일반 명령·permit 반전·새 후보를 각각 주입하고, 별도로 token 만료·E-stop·장애물 차단을 주입한다. 화재 확정 뒤 현재 mission·도킹 흐름도 시험한다. | detecting node는 속도를 발행하지 않고 AMR만 yaw를 수행한다. 정지 확인 전에는 정렬 완료나 DetectionEvent가 없으며, 정렬 완료 후 같은 대상이 1초 연속 유효할 때 한 번만 확정한다. 일반 명령·permit·새 후보로 정렬을 교체하지 않는다. 안전 원인은 즉시 정렬 중단·정지하며 자동 재개하지 않는다. DetectionEvent에 severity enum·필드가 없고 event_type은 비전팀 제시 후 합의된 값과 일치한다. 화재 확정 후 부저·mission·token·도킹 결과는 기존 정책과 일치한다. | [Detection 정렬 요청](change_requests/CR-관제_09-07_20-26_AMR_비전_Detection_정렬_계약.md), Q-12, TBD-AMR-001·004, TBD-IF-006, TBD-INT-004 |
 | IT-15 증적·DB | 이벤트/이미지 순서 변경·전송 실패·DB 실패·복구 | 합의된 중복/재시도·불완전 상태·복구 결과, 읽기 전용 조회 | TBD-IF-007, TBD-MON-001·002 |
-| IT-16 최종 속도 경계 | Nav2·AMR yaw 후보와 E-stop·token 만료·장애물 차단을 함께 발생시킨다. detecting node가 속도 토픽을 발행하지 않는지도 확인한다. | 최종 출력 발행권은 local_safety_supervisor 하나이며 yaw 정렬과 "정렬 중 일반 중단 금지" 정책이 안전 차단을 우회하지 않는다. | [Detection 정렬 요청](change_requests/CR-관제_09-07_20-26_AMR_비전_Detection_정렬_계약.md), TBD-IF-009, TBD-AMR-006 |
+| IT-16 최종 속도 경계 | Nav2·AMR yaw 후보와 E-stop·token 만료·장애물 차단을 함께 발생시킨다. detecting node가 속도 토픽을 발행하지 않는지도 확인한다. | 최종 출력 발행권은 local_safety_supervisor 하나이며 yaw 정렬과 "정렬 중 일반 중단 금지" 정책이 안전 차단을 우회하지 않는다. | [Detection 정렬 요청](change_requests/CR-관제_09-07_20-26_AMR_비전_Detection_정렬_계약.md), [TBD-IF-009 결정](change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md), TBD-AMR-006 |
 
 IT-13의 배터리 경계는 interfaces.md 8절의 모든 임계값을 사용한다. 도킹 접점 유지가 짧게 끊기는 경우와 timeout 경계도 포함한다. 반복 시험 결과는 실행 일자·대상 robot_id·각 PC 버전·실제 값·로그 위치와 함께 기록한다.
 
@@ -131,6 +131,6 @@ AMR·관제·시스템 모니터·비전 적용 버전:
 | TBD-INT-001 | 교대 시 회수 전달·실제 정지 확인·새 token·이전 로봇 도킹 순서 | AMR·관제 | 일부 결정: 실제 정지 뒤 신규 token; 이전 로봇 도킹과 신규 출발 세부 중재는 AMR 검토 대기 |
 | TBD-INT-002 | permit 빠른 반전·중복, 대피 도착 확인, 진행 중 명령 재중재 | AMR·관제·비전 | OPEN |
 | TBD-INT-003 | Keepout ON과 탈출 경로 검증 순서·실패 처리 | AMR·관제 | OPEN |
-| TBD-INT-004 | 화재 확정 후 임무 결과·정지·도킹·부저 책임의 종단 순서 | AMR·관제 | 관제 결정 완료, [AMR 반영 요청](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) 검토 대기 |
+| TBD-INT-004 | 화재 확정 후 임무 결과·정지·도킹·부저 책임의 종단 순서 | AMR·관제 | v1.0 정책과 AMR 설계 문서 반영 완료; 실제 센서·부저 제어 위치와 종단 구현·시험은 TBD-AMR-004와 함께 차기 버전에서 추적 |
 
 TBD 상세 중 메시지 정의나 알고리즘 수치는 각각 interfaces.md와 기능 문서에 남긴다.

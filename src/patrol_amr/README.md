@@ -1,8 +1,11 @@
 # patrol_amr
 
-`robot1`과 `robot6`이 함께 사용하는 AMR ROS 2 패키지다. `robot_id` 하나로
-ROS namespace와 메시지의 로봇 식별자를 정한다. 현재 구현은 DriveToken과
-MissionCommand를 받은 뒤 언독하고 W1~W7을 차례로 이동한 다음 도킹한다.
+공용 wire 계약은 `patrol_interfaces 1.0.0`이다. 각 AMR PC는 네 팀이 합의한 같은 Git commit을 로컬 빌드하고 `scripts/verify_interface_v1.py --installed` 결과의 manifest SHA-256을 비교한 뒤 통합시험을 시작한다.
+
+`robot1`과 `robot6`이 함께 사용하는 AMR ROS 2 구현은 `patrol_amr`와
+`patrol_amr_safety` 두 패키지로 구성된다. `robot_id` 하나로 ROS namespace와
+메시지의 로봇 식별자를 정한다. 현재 구현은 DriveToken과 MissionCommand를
+받은 뒤 언독하고 W1~W7을 차례로 이동한 다음 도킹한다.
 
 ## 실행 흐름
 
@@ -45,14 +48,17 @@ Nav2 후보의 `header.stamp` age가 Q-17 0.5초를 초과해도 최종 속도�
 - `navigation_adapter.py`, `nav2_goal_runner.py`, `docking_runner.py`: Action 실행
 - `drive_token_callback.py`, `mission_drive_token.py`: 미션 측 token 상태와 취소
 - `motion_permission.py`: local safety의 권한 콜백
-- `local_safety_supervisor.py`: token·E-stop·후보 신선도와 최종 `cmd_vel`
+- `patrol_amr_safety/local_safety_supervisor.py`: token·heartbeat·E-stop·후보 신선도와 최종 `cmd_vel`
+- `patrol_amr_safety/command_gateway.py`: 공용 MissionCommand 수신·CommandCheck 발행과 중복 저장
+- `patrol_amr_safety/status_reporter.py`: Q-02 RobotStatus와 AMR-07 PatrolReport 발행
+- `patrol_amr_safety/battery_monitor.py`, guard·상태 모듈: 배터리·로컬 안전·상태 보고의 순수 로직
+- `patrol_amr/heartbeat_guard.py`: safety 패키지에서 가져다 쓰는 heartbeat 순수 로직
 - `waypoint_repository.py`, `command_store.py`: 좌표 검증과 중복·checkpoint 저장
 - `robot_readiness_callbacks.py`, `motion_gate.py`: AMCL·scan·odom 준비 상태
 - `mission_state.py`, `mission_status_store.py`, `status_mission_bridge.py`:
   미션 상태의 프로세스 간 전달과 RobotStatus 미션 필드 변환
 - `mission_reporter.py`, `patrol_report_outbox.py`,
   `patrol_report_adapter.py`: 종료 결과 검증·영속 큐·ROS 메시지 발행
-- `status_reporter.py`: Q-02 RobotStatus와 AMR-07 PatrolReport 발행
 
 파일별 callback·분기·실패 흐름은
 [mission_navigation.md](docs/mission_navigation.md)에 있다.
@@ -70,7 +76,7 @@ source /opt/ros/jazzy/setup.bash
 source /home/mu-06/turtlebot4_ws/install/setup.bash
 source /home/mu-06/rokey_ws/install/setup.bash
 
-colcon build --packages-select patrol_interfaces patrol_amr --symlink-install
+colcon build --packages-select patrol_interfaces patrol_amr patrol_amr_safety --symlink-install
 source /home/mu-06/patrol/install/setup.bash
 ```
 

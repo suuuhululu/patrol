@@ -1,14 +1,16 @@
 # 시스템 모니터 구현 기록
 
-최종 갱신: 2026-09-06, 11단계. 최초 작성은 2026-09-05이며 1~3단계는 대화의 구현·검증 기록과 당시 파일을 바탕으로 정리했다. 분 단위 작업 시간이나 Git 커밋은 추정하지 않았다. 이후 단계는 이 문서 아래에 이어서 기록한다.
+최종 갱신: 2026-09-08, 36단계. 최초 작성은 2026-09-05이며 1~3단계는 대화의 구현·검증 기록과 당시 파일을 바탕으로 정리했다. 분 단위 작업 시간이나 Git 커밋은 추정하지 않았다. 이후 단계는 이 문서 아래에 이어서 기록한다.
+
+> 이 문서는 단계별 이력이다. 과거 절의 `parking_interfaces`, 당시 메시지 수·경로와 “미구현” 표기는 그 단계 시점의 기록이며 현행 계약이 아니다. 현재 계약은 [공용 인터페이스](../../../docs/interfaces.md)와 [v1.0 기준선](../../../docs/decisions/2026-09-08-control-interface-baseline.md), 현재 구현 상태는 [README](../README.md)와 이 문서의 마지막 단계를 따른다.
 
 ## 1. 무엇을 만드는가
 
 지하주차장의 AMR1·AMR2를 관제하고 상태·지도·이벤트·순찰·교대 이력을 기록하는 Flask + SQLite 웹 시스템이다. 관제·기록 담당자의 구현 범위는 웹 화면, 서버 API, 데이터 저장, 외부 모듈과의 연결이다.
 
-현재 완료: 서버 기본 구조, DB 초기화, 인증·권한, 기본 대시보드, AMR 상태 수신·저장·표시, 점유 지도 수신·PNG·로봇 위치와 최근 경로 표시, 화재 이벤트·증거 이미지 수신·저장, 이벤트 목록·상세·처리 상태·메모 이력 UI, 네 카메라 최신 프레임 수신·표시·단절 감지, 사건·처리·상태·순찰·교대 통합 이력 검색.
+현재 완료: 서버 기본 구조, DB 초기화, 인증·권한, 기본 대시보드, AMR 상태·지도·감지·증적·CCTV·순찰·Keepout·E-stop의 ROS 수신·검증·저장·표시, 증적 ACK, 통합 이력 검색과 로컬 별도 프로세스 DDS 시험.
 
-아직 미구현: 실제 ROS·Nav2·TF·costmap·영상 토픽 연결과 실제 환경 전체 통합. 운영 명령 요청은 시스템 모니터 범위에서 제외한다. 관련 DB 테이블과 화면이 존재하는 것과 데이터 처리 기능의 완성은 구분한다.
+아직 미검증: 실제 상대 PC publisher, 여러 PC DDS 네트워크, Nav2·TF·costmap·카메라 장비와 실제 환경 전체 통합. 운영 명령 요청은 시스템 모니터 범위에서 제외한다. 관련 DB 테이블과 로컬 소비 경로가 존재하는 것과 장비 통합 완료는 구분한다.
 
 ## 2. 회의에서 정한 구현 원칙
 
@@ -921,7 +923,7 @@ LT-13-06은 5.2초 write lock을 주입했다. 상태 저장 한 건이 SQLite 5
 
 ### 범위와 책임 경계
 
-사용자가 [CR-001](../../docs/change_requests/CR-001_09-07_11-09_parking_interfaces_v1_구현.md)을 승인한 범위에서 프로젝트 루트에 공용 `parking_interfaces` 패키지를 추가했다. `interfaces.md` 계약 v1.0의 필드·타입·상수·enum 번호는 변경하지 않았다. AMR·비전 생산자 코드, launch·YAML, 실제 장비 배포와 publisher 송수신은 변경하거나 실행하지 않았다.
+사용자가 당시 작업 기록 `CR-001`(현재 저장소에 파일 없음)을 승인한 범위에서 프로젝트 루트에 공용 `parking_interfaces` 패키지를 추가했다. `interfaces.md` 계약 v1.0의 필드·타입·상수·enum 번호는 변경하지 않았다. AMR·비전 생산자 코드, launch·YAML, 실제 장비 배포와 publisher 송수신은 변경하거나 실행하지 않았다.
 
 ### 변경 내용
 
@@ -1096,7 +1098,7 @@ Bool patrol_allowed → 최신 1행 UPSERT (반복 수신은 시각만 갱신)
 - 변경 파일: `app/services/event_service.py`(허용 목록·오류 문구), `app/services/detection_service.py`(허용 목록·거부 문구), `app/ros_topic_test.py`(가상 publisher가 세 종류를 번갈아 발행), `tests/test_detection_ingestion.py`(기존 3곳의 종류·라벨 기대값 수정, 범위 밖 거부 시험 1개 추가).
 - 표시 라벨 표에는 조명 이상·시설물 파손을 남겼다. 범위 축소 전에 저장된 이력을 화면과 통합 이력에서 읽을 때 필요하다.
 - 계약 문서의 enum 정의·번호는 바꾸지 않았다. 범위 밖 값은 저장하지 않고 `IngestionAck.REJECTED`로 회신한다.
-- **미해결**: `interfaces.md` 327행의 재전송 종료 조건은 STORED·DUPLICATE뿐이라 REJECTED만으로는 AMR 재전송이 멈추지 않는다. 처리 방안은 [CR-002](../../docs/change_requests/CR-002_09-07_15-40_관제_이벤트_범위_3종_제한.md)에서 AMR 담당과 확정한다.
+- **당시 미해결**: `interfaces.md` 327행의 재전송 종료 조건은 STORED·DUPLICATE뿐이라 REJECTED만으로는 AMR 재전송이 멈추지 않았다. 처리 방안은 당시 작업 기록 `CR-002`(현재 저장소에 파일 없음)에서 AMR 담당과 확정 대상으로 남겼다. 현행 계약은 TBD-IF-006·007을 따른다.
 - 검증: ROS를 source한 전체 시험 **98개 통과**. 도메인 87의 별도 프로세스 DDS 시험에서 DetectionEvent 12건 저장·거부 0건으로, 가상 publisher가 범위 안 종류만 발행하는 것을 확인했다.
 - 남은 일: 범위 축소 전에 실제 DB에 저장된 조명 이상 182건·시설물 파손 182건의 처리(보존 또는 삭제)는 사용자 결정 대기 중이다.
 
@@ -1208,20 +1210,53 @@ EStopState ───→ 최신 1행 + 활성·해제가 바뀐 시점만 이력
 - 배경: 관제 설계 제안(Sysmon 팀 소통사항 3.1~3.7)을 현재 구현과 대조했다. 3.3 STALE·UNREPORTED 분리, 3.6 TRANSIENT_LOCAL 복원, 3.7 Dashboard 제외 목록은 이미 같은 방식이었다.
 - **증적 지연·누락(3.5 일부) 반영**: 저장값 `INCOMPLETE`·`STORED`·`REJECTED`는 그대로 두고, 조립이 끝나지 않은 경과 시간으로 화면에서 `DELAYED`(기본 30초)·`MISSING`(기본 300초)을 계산한다. 관제가 없는 결과를 만들어 저장하지 않는다는 원칙을 지키기 위해 파생 표시로만 구분했다.
   - 변경 파일: `app/__init__.py`(임계값 2개), `app/models/event.py`(목록·상세 조회에 조립 상태 join), `app/services/event_service.py`(`evidence_state`, 라벨), `app/static/js/events.js`·`dashboard.css`(주황 표시), `tests/test_detection_ingestion.py`.
-- **[CR-003](../../docs/change_requests/CR-003_09-07_18-10_관제_판단_토픽_2종_도입.md) 작성**: `/control/operational_state`·`/control/operational_event` 도입에 동의하되 21단계 이후 반영을 제안했다. 새 메시지 두 개가 계약 v1.1과 네 PC 재빌드를 요구하고, 현재 자체 계산 중인 STALE·UNREPORTED·CCTV timeout과 판단 주체가 겹치기 때문이다. 필드명 `event_id` 충돌과 전환 시점도 확정 대상으로 적었다.
+- **당시 작업 기록 `CR-003` 작성(현재 저장소에 파일 없음)**: `/control/operational_state`·`/control/operational_event` 도입에 동의하되 21단계 이후 반영을 제안했다. 새 메시지 두 개가 계약 v1.1과 네 PC 재빌드를 요구하고, 현재 자체 계산 중인 STALE·UNREPORTED·CCTV timeout과 판단 주체가 겹치기 때문이다. 필드명 `event_id` 충돌과 전환 시점도 확정 대상으로 적었다. 현행 공용 전달 계약은 [TBD-IF-011](../../../docs/interfaces.md#tbd)이다.
   - 같은 요청서에 PostgreSQL 전환은 13단계 측정치를 근거로 운영 전환 과제로 남기고, durable spool은 계약 3.8절의 생산자 재전송과 중복이라는 검토 결과를 함께 남겼다.
 - 검증: `.venv` 115개 통과, ROS를 source한 전체 시험도 통과. 새 시험은 조각이 하나만 도착한 증적이 시간 경과에 따라 `INCOMPLETE → DELAYED → MISSING`으로 바뀌고, 나머지 조각이 도착하면 `STORED`가 되는 것을 확인한다.
 
 ## 34. E-stop 계약 EStop 전환과 RobotStatus safety_state 표시 (2026-09-08)
 
 - 배경: main에 병합된 interfaces.md 3.1·4절(2026-09-08 결정)과 관제 요청서 [CR-관제_09-08_15-15_System_monitor_E-stop_UI_운영상태_연계](../../../docs/change_requests/CR-관제_09-08_15-15_System_monitor_E-stop_UI_운영상태_연계.md)를 반영했다. 기존 구독 타입 `EStopState`는 계약 타입 `EStop`과 달라 DDS 매칭 자체가 되지 않는 상태였다.
-- **EStop 전환**: `/control/estop`을 `patrol_interfaces/msg/EStop`으로 구독한다. 계약 필드 `target_robot_id`(robot1·robot6·all)·`active`·`reason`(0~6)·`sequence`만 쓰고, 공용 `.msg`에 아직 남은 `latched`는 읽지 않는다. `estop_id`·`message_id`·`manual_reset_required`·`source_id` 의존을 제거했다.
+- **EStop 전환**: `/control/estop`을 `patrol_interfaces/msg/EStop`으로 구독한다. 계약 필드 `target_robot_id`(robot1·robot6·all)·`active`·`reason`(0~6)·`sequence`만 쓴다. `estop_id`·`message_id`·`manual_reset_required`·`source_id` 의존을 제거했다.
 - 저장: `estop_latest`를 대상별 한 행(PK `target_robot_id`)으로, `estop_history`를 활성·해제·대표 원인이 바뀐 시점만 남기는 구조로 바꿨다. 옛 구조 표는 `_migrate_estop_contract`가 기록이 있으면 `_legacy`로 이름을 바꿔 보존하고 없으면 지운다. 옛 열은 새 계약에 대응 값이 없어 옮기지 않는다.
 - 표시: `/api/safety/status`의 `estop`은 전체 요약(`active`·`state_label`·대표 원인 라벨)과 `targets`(대상별 수신 여부·활성·stale)를 준다. `all` 활성은 두 로봇 모두 정지 대상이라는 뜻이며, 정지 명령이 있었다는 사실만 보여 준다. 실제 정지 여부는 RobotStatus 쪽에서 따로 표시한다. `manual_reset_required`·`latched`는 응답에서 제거했다.
 - **safety_state 표시**: RobotStatus의 `safety_state`(UNKNOWN=0…ERROR=5)·`motion_stopped`·`reason_code`·`reason`을 `robot_latest_status`·`robot_status_history`에 저장한다(`_migrate_safety_state`, 열 추가만). 로봇 카드에 "안전 상태" 줄을 추가해 `E-stop 활성 · 이동 가능 상태 · 원인 702`처럼 safety_state와 실제 정지 확인을 함께 적는다. ESTOPPED만으로 정지를 단정하지 않는다는 계약 문구를 그대로 따른 것이다. 임시 HTTP 입력은 값이 없으면 UNKNOWN이다.
 - 통합 이력: ESTOP 검색이 대상·대표 원인 라벨을 요약에 넣고, 로봇 필터(AMR1·AMR2)로 검색하면 해당 로봇과 `all` 대상 기록을 함께 보여 준다.
 - 요청서 회신 근거: `MissionCommandAck.msg`·`ControlHeartbeat.msg`·`CommandCheck`·`parameters_json`은 시스템 모니터가 구독·발행하지 않아 코드 변경이 없다. `EStopState.msg`는 이번 전환으로 소비처가 없어졌다. UI 정지·해제 버튼과 `active_reasons`·CONTROL_SHUTDOWN 표시는 PM 결정과 TBD-CTRL-004·IF-011 계약이 없어 착수하지 않았다.
 - **공용 `.msg`를 interfaces.md대로 맞췄다.** `EStop.msg`에서 `latched`를 제거하고 `ESTOP_REASON_*`(0~6)·`TARGET_ALL` 상수를 넣었다. `ControlHeartbeat.msg`를 `header`·`control_session_id`·`uint64 sequence`로 바꿨다. `MissionCommand.msg`에서 `parameters_json`을 제거하고 명령별 필수값 표를 주석으로 옮겼다. `CommandCheck.msg`에 `CHECK_*`(0~3), `RobotStatus.msg`에 `SAFETY_*`(0~5) 상수를 추가했다. `MissionCommandAck.msg`·`EStopState.msg`는 삭제했다. `colcon build --packages-select patrol_interfaces` 성공.
-- AMR 후속 작업(AMR 담당): `local_safety_supervisor.py`가 `message.latched`를 읽고 `estop_guard.observe()`가 `latched` 인자를 받는다. 새 `EStop`에는 이 필드가 없으므로 수신 콜백에서 AttributeError가 난다. `estop_guard`가 `target_robot_id == 'all'`을 자기 대상으로 처리하지 않는 점도 계약과 다르다. `mission_command_parser.py`는 `getattr(msg, 'parameters_json', '')`이라 빌드·실행은 되지만 내부 지문·저장 열은 정리 대상이다.
+- 당시 AMR 후속 작업 기록은 이후 AMR 반영으로 해소됐다. 현행 AMR은 `latched`를 읽지 않고 `all`을 자기 대상으로 처리하며 `parameters_json` wire 필드를 사용하지 않는다.
 - 변경 파일: `app/ros/registry.py`, `app/ros/payloads.py`, `app/ros/node.py`, `app/models/safety.py`, `app/models/robot.py`, `app/models/history.py`, `app/services/safety_service.py`, `app/services/robot_service.py`, `app/schema.sql`, `app/database.py`, `app/templates/index.html`, `app/static/js/dashboard.js`, `app/static/css/dashboard.css`, `tests/test_patrol_safety.py`, `tests/test_ros_adapter.py`, `testkit/ros_topic_test.py`.
 - 검증: `.venv` 119개 통과(ROS 7개 skip), ROS를 source한 전체 **119개 통과**. 별도 프로세스 DDS 시험(도메인 격리)에서 `/control/estop`이 `EStop`으로 매칭돼 대상별 최신 행과 변경 이력이 저장되는 것을 확인했다. 이 시험이 첫 구현의 migration 결함(재초기화 때마다 `estop_history`를 legacy로 넘김)을 잡아내 고쳤다.
+
+## 35. patrol_interfaces v1.0.0 통일 (2026-09-08)
+
+- 공용 wire schema는 `patrol_interfaces 1.0.0`의 15개 메시지로 고정했다. 의미 계약이 남은 메시지도 v1.0 안에서는 필드를 임의로 바꾸지 않는다.
+- Sysmon 현행 구독은 `EStop`을 사용하며 테스트 fixture와 가상 publisher에서 폐기된 `latched` 호환 분기를 제거했다. TRANSIENT_LOCAL 상태 QoS 변수는 물리 latch와 혼동되지 않도록 `state_snapshot`으로 변경했다.
+- 현재 활성 입력은 25개, IngestionAck 출력은 2개다. 실제 상대 PC publisher·운영 도메인 통합 결과는 별도로 기록한다.
+- 각 PC는 같은 Git commit을 로컬 빌드하고 `scripts/verify_interface_v1.py --installed`의 manifest SHA-256을 비교한다. 주석·빈 줄을 제외한 v1.0 선언 기준값은 `5db7945d3495d954c195935e96a499535f052578d6755be622cd3a223b6816d6`이다.
+
+## 36. KeepoutStatus 최초 도착 순서 독립화 (2026-09-08)
+
+- 목적: v1.0 별도 프로세스 검증에서 첫 `KeepoutStatus`가 첫 `RobotStatus`보다 먼저 도착하면 `keepout_latest.robot_id` 외래 키가 아직 없는 `robots` 행을 참조해 저장이 실패하는 문제를 제거한다. DDS는 서로 다른 토픽의 도착 순서를 보장하지 않으므로 RobotStatus 선행을 전제로 두지 않는다.
+- 변경 파일·함수: `app/models/safety.py::store_keepout`이 검증을 통과한 AMR1·AMR2의 기본 `robots` 행을 같은 transaction에서 `INSERT OR IGNORE`한 뒤 최신 Keepout 상태를 저장한다. `tests/test_patrol_safety.py::test_keepout_can_arrive_before_first_robot_status`가 RobotStatus 없는 초기 DB 순서를 고정해 회귀 검증한다.
+- 설계 이유: 허용 robot ID 검증은 `safety_service.validate_keepout`이 먼저 수행하므로 임의 장비를 등록하지 않는다. 기본 행 생성과 Keepout UPSERT를 같은 transaction에 넣어 저장 중간 상태도 남기지 않는다.
+
+구현 대조 완료 — `patrol_interfaces 1.0.0`, 2026-09-08 로컬 working tree:
+
+```mermaid
+flowchart TD
+    A[app/ros/node.py::_receive_keepout] --> B[ros/payloads.py::keepout_status_payload]
+    B --> C[services/safety_service.py::validate_keepout]
+    C -->|계약 오류| R[rejected 카운트·경고]
+    C -->|유효 AMR1·AMR2| D[models/safety.py::store_keepout]
+    D --> E[BEGIN IMMEDIATE]
+    E --> F[robots 기본 행 INSERT OR IGNORE]
+    F --> G{기존 최신값보다 과거인가?}
+    G -->|예| H[commit 후 stale]
+    G -->|아니오| I[keepout_latest UPSERT]
+    I --> J[commit 후 accepted]
+    E -->|DB 예외| K[rollback 후 failed 로그]
+```
+
+- 검증: `tests/test_patrol_safety.py` 11개 통과. 별도 프로세스 DDS 시험 6개 통과. ROS 환경 전체 `tests/`는 **120개 시험과 86개 subtest 통과**했으며 callback 처리 실패와 DB 외래 키 오류는 0이었다.
+- 남은 일: 실제 상대 PC publisher·운영 domain 6·PC 간 네트워크 시험은 **NOT_RUN**이다.

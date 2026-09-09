@@ -3,7 +3,7 @@ std_msgs/Header header
 string robot_id
 string candidate_id
 
-# Vision team proposal - final enum values require interface approval
+# v1.0 wire constants. Detection semantics and AMR arbitration remain TBD-IF-006.
 uint8 FIRE=0
 uint8 LEAK=1
 uint8 OBSTACLE=2
@@ -11,7 +11,7 @@ uint8 event_type
 
 float32 confidence
 
-# Vision team proposal - AMR agreement required
+# Signed horizontal error is fixed on the wire; control thresholds remain TBD-AMR-001.
 # negative : target is left
 # 0.0      : target is center
 # positive : target is right

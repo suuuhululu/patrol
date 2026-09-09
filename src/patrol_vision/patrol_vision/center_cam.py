@@ -30,7 +30,7 @@ CR-관제_09-07_17-53_비전_CameraState와_permit_반영(P0) 반영판. TBD-VIS
   TBD-IF-005(확정 반영)
 
 TBD:
-- 장애를 관제/모니터링에 실제로 어떻게 알릴지(별도 토픽 등)는 TBD-IF-008
+- 장애를 관제/시스템 모니터에 실제로 알리는 공용 전달은 차기 버전 TBD-IF-010
 """
 import os
 import time

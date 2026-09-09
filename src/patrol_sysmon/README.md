@@ -1,5 +1,7 @@
 # 지하주차장 시스템 모니터
 
+공용 ROS wire 계약은 `patrol_interfaces 1.0.0`이다. 통합시험 전 네 팀이 같은 Git commit을 로컬 빌드하고 저장소의 `scripts/verify_interface_v1.py --installed`가 출력하는 manifest SHA-256을 비교한다.
+
 ## 20단계까지 완료 범위
 
 Flask 기본 구조, SQLite 초기화, 인증·권한, 대시보드, AMR1·AMR2 상태, Nav2 점유 지도, 이상 이벤트, 네 카메라 최신 영상, 차량 입출차 로그와 통합 이력 검색을 구현했다. 12~17단계에서 ROS adapter, 부하 측정, 계약 메시지, 별도 프로세스 가상 DDS와 네 costmap을 연결했다. 18단계는 두 AMR의 `DetectionEvent`·`EvidenceChunk`를 활성화하고, 순서가 뒤바뀐 chunk 재조립·크기/SHA-256/이미지 검증·사건 연결과 `IngestionAck` 회신까지 구현했다. 19단계는 CCTV `CameraState`와 순찰 허용 조건 Bool을 수신해 상태 카드·통합 이력에 연결하고, 반복 수신 중 값이 바뀐 시점만 이력에 남긴다. 20단계는 관측점 방문·순찰 결과와 Keepout·E-stop을 받아 순찰 진행과 안전 상태를 표시하고, 결과 보고가 없는 순찰은 대필하지 않고 UNREPORTED로 구분한다. 실제 상대 PC publisher와 PC 간 통합은 아직 실행하지 않았다.
@@ -15,7 +17,7 @@ Flask 기본 구조, SQLite 초기화, 인증·권한, 대시보드, AMR1·AMR2 
 ## 실행
 
 ```bash
-cd /home/hun/finalpjtdb/finalproject/sysmon
+cd <patrol-workspace>/src/patrol_sysmon
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python -m flask --app run create-admin
@@ -29,7 +31,7 @@ python3 -m venv .venv
 이미 만들어 둔 가상환경을 사용한다면 다음 명령으로 관리자 계정을 생성할 수 있다.
 
 ```bash
-cd /home/hun/finalpjtdb/finalproject/sysmon
+cd <patrol-workspace>/src/patrol_sysmon
 .venv/bin/python -m flask --app run create-admin
 .venv/bin/python run.py
 ```
@@ -153,16 +155,17 @@ cd /home/hun/finalpjtdb/finalproject/sysmon
 ROS adapter는 Flask 웹 서버와 분리된 프로세스로 실행한다. 토픽명과 타입은 `app/ros_adapter.py`의 등록표에 모아 두었고, callback은 기존 상태·지도·영상 서비스를 호출하므로 검증·DB·화면 로직을 다시 만들지 않는다.
 
 ```bash
-cd /home/hun/finalpjtdb/finalproject/sysmon
-source /opt/ros/jazzy/setup.bash
-source /home/hun/rokey_ws/install/setup.bash
-.venv/bin/python ros_adapter.py --check
-.venv/bin/python ros_adapter.py
+cd <patrol-workspace>/src/patrol_sysmon
+source tools/ros_env.sh 6
+python3 ros_adapter.py --check
+python3 ros_adapter.py
 ```
 
 현재 가상환경에는 `PyYAML`·`numpy`를 설치했고 PC 3 ROS workspace에는 `patrol_interfaces` v1.0을 빌드했다. workspace source 후 `--check`는 `rclpy`, `patrol_interfaces`, `nav_msgs`, `sensor_msgs`를 모두 찾아 종료 코드 0을 반환한다. 실제 AMR·비전 publisher 수신은 아직 실행하지 않았다.
 
-현재 활성 입력은 RobotStatus 2개, `/map`, 압축 영상 4개, costmap 4개, DetectionEvent 2개, EvidenceChunk 2개로 총 15개다. 저장 결과는 로봇별 `ingestion_ack` 2개 토픽으로 회신한다. CameraState·patrol_allowed는 같은 등록표에 후속 항목으로만 두었으며 아직 구독하거나 저장하지 않는다. `pose_valid=false`와 유효하지 않은 battery SOC는 현재 DB가 의미를 보존할 수 없어 migration 전에는 저장하지 않는다.
+현재 활성 입력은 RobotStatus 2개, `/map` 1개, 압축 영상 4개, costmap 4개, DetectionEvent 2개, EvidenceChunk 2개, CameraState 2개, patrol_allowed 1개, PatrolVisit 2개, PatrolReport 2개, KeepoutStatus 2개, EStop 1개로 총 25개다. 저장 결과는 로봇별 `ingestion_ack` 2개 토픽으로 회신한다. 실제 상대 PC publisher와 운영 도메인의 종단 통합시험은 아직 실행하지 않았다.
+
+2026-09-08 v1.0 통일 검증에서는 전체 120개 시험과 86개 subtest가 통과했다. 별도 프로세스 DDS 시험 중 첫 `KeepoutStatus`가 첫 `RobotStatus`보다 먼저 도착하는 경우도 저장하도록 소비부를 보완했으며, 격리 DDS 시험 6개가 모두 통과했다. 실제 상대 PC publisher 시험은 여전히 **NOT_RUN**이다.
 
 ## 13단계 부하·다중 접속·SQLite 경합 검증
 
@@ -185,7 +188,7 @@ source /home/hun/rokey_ws/install/setup.bash
 기본 측정 예시:
 
 ```bash
-cd /home/hun/finalpjtdb/finalproject/sysmon
+cd <patrol-workspace>/src/patrol_sysmon
 .venv/bin/python tools/run_load_test.py \
   --duration 3 --readers 4 --read-hz 3 \
   --status-hz 4 --map-hz 1 --camera-hz 20 \
@@ -223,7 +226,7 @@ SQLite 5초 timeout과 해제 후 복구를 확인하려면 운영 DB가 아닌 
 - 중간 파일 노출, 손상 이미지, 잘못된 최신 상태, 사용자 세션 혼선 여부
 - 동일 설정을 다시 실행할 수 있는 명령과 결과 파일 보존
 
-처리량·응답시간의 최종 합격 수치는 아직 확정하지 않는다. 실제 동시 사용자 수와 보존 데이터 규모는 [TBD-MON-001·003](../docs/monitoring_and_data.md#tbd) 결정 후 PASS 기준으로 고정한다. 그 전 실행 결과는 수치 측정과 병목 확인에 사용하고 임의로 전체 성능 PASS를 선언하지 않는다.
+처리량·응답시간의 최종 합격 수치는 아직 확정하지 않는다. 실제 동시 사용자 수와 보존 데이터 규모는 [TBD-MON-001·003](../../docs/monitoring_and_data.md#tbd) 결정 후 PASS 기준으로 고정한다. 그 전 실행 결과는 수치 측정과 병목 확인에 사용하고 임의로 전체 성능 PASS를 선언하지 않는다.
 
 2026-09-07 기본 로컬 측정은 이력 1,000건, 조회자 4명, 상태 총 4 Hz, 지도 1 Hz, 영상 총 20 Hz, 이벤트·입출차 각 1 Hz로 3초간 실행했다. 상태 12건, 지도 3건, 영상 59건, 이벤트 3건, 입출차 3건과 조회 36건이 모두 HTTP 200·201이었고 예외는 없었다. 대시보드 조회 p95는 54.355 ms, 통합 이력 조회 p95는 31.552 ms였다. DB integrity는 `ok`, 외래 키 오류와 잔여 임시 파일은 0이었으며 시험 저장소는 종료 후 삭제됐다.
 
@@ -231,16 +234,16 @@ SQLite 5초 timeout과 해제 후 복구를 확인하려면 운영 DB가 아닌 
 
 ## 14단계 공용 메시지 패키지
 
-계약 v1.0의 공용 메시지 14개는 [patrol_interfaces](../patrol_interfaces/README.md)에 구현했다. PC 3 `/home/hun/rokey_ws`에서 빌드하고 source한 뒤 모든 메시지 import와 adapter `--check` 통과를 확인했다. AMR·비전 workspace 적용 상태는 [CR-001](../docs/change_requests/CR-001_09-07_11-09_patrol_interfaces_v1_구현.md)에서 추적한다.
+계약 v1.0의 공용 메시지 15개는 [patrol_interfaces](../patrol_interfaces/README.md)에 구현했다. 현재 workspace에서 빌드하고 source한 뒤 15개 메시지 import와 adapter `--check` 통과를 확인했다. 팀별 적용 상태는 [2026-09-08 v1.0 기준선](../../docs/decisions/2026-09-08-control-interface-baseline.md)과 AMR·비전·System monitor 통일 요청서에서 추적한다.
 
 ## 15단계 가상 ROS 토픽 종단시험
 
 상대 개발 단위의 publisher가 없어도 실제 `rclpy` publisher와 subscriber 사이의 DDS 전달을 시험할 수 있도록 격리형 도구를 추가했다. 도구는 운영 도메인 6을 거부하고 지정한 별도 도메인과 localhost discovery만 사용한다. Flask 앱·SQLite·지도·최신 영상·ROS 로그는 모두 임시 폴더에 만들고 종료 후 삭제한다.
 
 ```bash
-cd /home/hun/finalpjtdb/finalproject/sysmon
+cd <patrol-workspace>/src/patrol_sysmon
 source /opt/ros/jazzy/setup.bash
-source /home/hun/rokey_ws/install/setup.bash
+source <patrol-workspace>/install/setup.bash
 .venv/bin/python tools/run_ros_topic_test.py \
   --duration 3 --domain-id 79 \
   --status-hz 4 --map-hz 1 --image-hz 2 \
@@ -262,9 +265,9 @@ source /home/hun/rokey_ws/install/setup.bash
 `interfaces.md` v1.0에 확정된 네 `nav_msgs/msg/OccupancyGrid` 토픽을 RELIABLE·VOLATILE·KEEP_LAST(1) QoS로 구독한다. 고주기 격자를 이력으로 무제한 누적하지 않고 `costmap_latest`에 AMR1·AMR2의 global/local 최신 네 행만 유지하며, PNG도 source별 최신 한 장으로 교체한다. 화면에서는 정적 `/map`과 합성하지 않고 선택형 동적 미리보기로 분리해 좌표·해상도 차이를 숨기지 않는다.
 
 ```bash
-cd /home/hun/finalpjtdb/finalproject/sysmon
+cd <patrol-workspace>/src/patrol_sysmon
 source /opt/ros/jazzy/setup.bash
-source /home/hun/rokey_ws/install/setup.bash
+source <patrol-workspace>/install/setup.bash
 .venv/bin/python tools/run_ros_process_test.py \
   --duration 3 --domain-id 83 \
   --status-hz 8 --map-hz 2 --image-hz 5 --costmap-hz 5 \
@@ -278,9 +281,9 @@ source /home/hun/rokey_ws/install/setup.bash
 두 로봇의 DetectionEvent와 EvidenceChunk는 RELIABLE·VOLATILE·KEEP_LAST(20) QoS로 구독한다. `location_valid=false`이면 pose의 숫자를 화면 좌표로 사용하지 않으며, 조명 이상과 시설물 파손 enum도 기존 이벤트 화면 흐름으로 연결한다. 증적은 최대 5 MiB, chunk당 최대 64 KiB로 제한하고 event와 evidence 중 어느 쪽이 먼저 와도 받는다. 모든 chunk가 모이면 전체 크기, SHA-256, 실제 PNG/JPEG 형식을 확인해 원자적으로 저장하고 완료 뒤 DB의 chunk BLOB은 비운다.
 
 ```bash
-cd /home/hun/finalpjtdb/finalproject/sysmon
+cd <patrol-workspace>/src/patrol_sysmon
 source /opt/ros/jazzy/setup.bash
-source /home/hun/rokey_ws/install/setup.bash
+source <patrol-workspace>/install/setup.bash
 .venv/bin/python tools/run_ros_process_test.py \
   --duration 3 --domain-id 84 \
   --status-hz 8 --map-hz 2 --image-hz 5 --costmap-hz 5 \
@@ -332,7 +335,7 @@ source /home/hun/rokey_ws/install/setup.bash
 ## 2단계 검증
 
 ```bash
-cd /home/hun/finalpjtdb/finalproject/sysmon
+cd <patrol-workspace>/src/patrol_sysmon
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
@@ -383,7 +386,7 @@ cd /home/hun/finalpjtdb/finalproject/sysmon
 서버를 실행하기 전에 로봇 입력 전용 토큰을 환경변수로 설정한다. 값은 로봇·adapter와 서버에만 두며 HTML이나 JavaScript에 넣지 않는다.
 
 ```bash
-cd /home/hun/finalpjtdb/finalproject/sysmon
+cd <patrol-workspace>/src/patrol_sysmon
 export SYSMON_ROBOT_API_KEY='<시연용 토큰>'
 .venv/bin/python run.py
 ```
@@ -439,7 +442,7 @@ curl -X POST http://127.0.0.1:5000/api/robots/status \
 실제 지도가 없을 때는 다음 수동 시연 도구로 임시 지도를 한 건 전송할 수 있다. 서버와 명령을 실행하는 터미널에 동일한 환경변수가 있어야 한다.
 
 ```bash
-cd /home/hun/finalpjtdb/finalproject/sysmon
+cd <patrol-workspace>/src/patrol_sysmon
 export SYSMON_ROBOT_API_KEY='<시연용 토큰>'
 .venv/bin/python tools/send_demo_map.py
 ```
@@ -467,7 +470,7 @@ export SYSMON_ROBOT_API_KEY='<시연용 토큰>'
 실제 이벤트 토픽 없이 수동 시연하려면 서버와 시연 터미널에 같은 ASCII 토큰을 설정한다.
 
 ```bash
-cd /home/hun/finalpjtdb/finalproject/sysmon
+cd <patrol-workspace>/src/patrol_sysmon
 export SYSMON_ROBOT_API_KEY='<시연용 토큰>'
 .venv/bin/python tools/send_demo_event.py --robot AMR1 --risk HIGH
 ```
@@ -506,7 +509,7 @@ export SYSMON_ROBOT_API_KEY='<시연용 토큰>'
 서버를 실행한 상태에서 네 영역을 30초 동안 시험하는 명령은 다음과 같다. 생성되는 움직이는 격자 이미지는 실제 카메라 영상이 아니다.
 
 ```bash
-cd /home/hun/finalpjtdb/finalproject/sysmon
+cd <patrol-workspace>/src/patrol_sysmon
 export SYSMON_ROBOT_API_KEY='<시연용 토큰>'
 .venv/bin/python tools/send_demo_video.py
 ```

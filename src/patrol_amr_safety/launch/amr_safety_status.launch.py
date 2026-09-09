@@ -7,8 +7,8 @@ mandatory on purpose:
 * ``robot_id`` differs per robot, so no default is assumed here.
 * ``source_session_id`` must change on every run so that consumers can
   tell one status_reporter run from the next.
-* ``safety_state`` carries an enum whose numbers are still TBD-IF-003,
-  so this file transports the operator's value instead of inventing one.
+* ``safety_state`` is not a launch parameter. status_reporter receives the
+  fixed v1.0 enum from local_safety_supervisor's internal state topic.
 
 Namespace (13단계): the nodes run under ``/<robot_id>``. architecture.md
 2절 fixes robot1 -> /robot1 and robot6 -> /robot6, and both robots share
@@ -23,7 +23,7 @@ status_reporter publishes an absolute ``/<robot_id>/robot_status`` that
 does not double. That mix is quiet and half-wrong, so a caller that pushes
 its own namespace must pass ``push_namespace:=false``.
 
-The two topic arguments below exist because those endpoints are owned by
+The four topic arguments below exist because those endpoints are owned by
 code that is not in this repository yet. They default to the agreed
 contract name and can be pointed elsewhere without editing this file:
 
@@ -31,7 +31,7 @@ contract name and can be pointed elsewhere without editing this file:
   TBD-ARCH-001 (device placement), so it may not sit inside the robot
   namespace.
 * ``candidate_topic`` -- TBD-IF-009 puts Nav2's collision_monitor output on
-  ``cmd_vel_safe``, but 관제's launch has not been merged and confirmed yet.
+  the fixed ``cmd_vel_safe`` input path.
 * ``odom_topic`` -- the drive base publishes odometry, and like the battery
   driver its placement is part of TBD-ARCH-001.
 * ``pose_topic`` -- Nav2 AMCL's standard ``amcl_pose`` output. The argument
@@ -49,7 +49,6 @@ from launch_ros.parameter_descriptions import ParameterValue
 def _nodes(
     robot_id,
     source_session_id,
-    safety_state,
     battery_state_topic,
     candidate_topic,
     odom_topic,
@@ -89,7 +88,6 @@ def _nodes(
                 'source_session_id': ParameterValue(
                     source_session_id, value_type=str
                 ),
-                'safety_state': ParameterValue(safety_state, value_type=int),
             }],
             remappings=[
                 ('battery_state', battery_state_topic),
@@ -103,7 +101,6 @@ def _nodes(
 def generate_launch_description():
     robot_id = LaunchConfiguration('robot_id')
     source_session_id = LaunchConfiguration('source_session_id')
-    safety_state = LaunchConfiguration('safety_state')
     battery_state_topic = LaunchConfiguration('battery_state_topic')
     candidate_topic = LaunchConfiguration('candidate_topic')
     odom_topic = LaunchConfiguration('odom_topic')
@@ -119,10 +116,6 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'source_session_id',
             description='Identifies this status_reporter run; change on restart',
-        ),
-        DeclareLaunchArgument(
-            'safety_state',
-            description='uint8 safety state to transport (enum TBD-IF-003)',
         ),
         DeclareLaunchArgument(
             'battery_state_topic',
@@ -169,14 +162,14 @@ def generate_launch_description():
         ),
         GroupAction(
             [PushRosNamespace(robot_id), *_nodes(
-                robot_id, source_session_id, safety_state,
+                robot_id, source_session_id,
                 battery_state_topic, candidate_topic, odom_topic, pose_topic,
             )],
             condition=IfCondition(push_namespace),
         ),
         GroupAction(
             _nodes(
-                robot_id, source_session_id, safety_state,
+                robot_id, source_session_id,
                 battery_state_topic, candidate_topic, odom_topic, pose_topic,
             ),
             condition=UnlessCondition(push_namespace),
