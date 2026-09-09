@@ -1,14 +1,15 @@
 """Bring up the AMR nodes whose input contracts already exist.
 
-Starts battery_monitor, local_safety_supervisor and status_reporter for a
+Starts command_gateway, battery_monitor, local_safety_supervisor and
+status_reporter for a
 single robot inside that robot's namespace. Every identity argument is
 mandatory on purpose:
 
 * ``robot_id`` differs per robot, so no default is assumed here.
 * ``source_session_id`` must change on every run so that consumers can
   tell one status_reporter run from the next.
-* ``safety_state`` carries an enum whose numbers are still TBD-IF-003,
-  so this file transports the operator's value instead of inventing one.
+* ``safety_state`` is produced by local_safety_supervisor and consumed by
+  status_reporter; launch does not inject a second source for that state.
 
 Namespace (13단계): the nodes run under ``/<robot_id>``. architecture.md
 2절 fixes robot1 -> /robot1 and robot6 -> /robot6, and both robots share
@@ -23,7 +24,7 @@ status_reporter publishes an absolute ``/<robot_id>/robot_status`` that
 does not double. That mix is quiet and half-wrong, so a caller that pushes
 its own namespace must pass ``push_namespace:=false``.
 
-The two topic arguments below exist because those endpoints are owned by
+The topic arguments below exist because those endpoints are owned by
 code that is not in this repository yet. They default to the agreed
 contract name and can be pointed elsewhere without editing this file:
 
@@ -49,25 +50,53 @@ from launch_ros.parameter_descriptions import ParameterValue
 def _nodes(
     robot_id,
     source_session_id,
-    safety_state,
     battery_state_topic,
+    battery_status_topic,
     candidate_topic,
+    output_topic,
     odom_topic,
     pose_topic,
+    drive_token_topic,
+    heartbeat_topic,
+    estop_topic,
+    motion_allowed_topic,
+    safety_state_topic,
+    accepted_token_topic,
+    database_path,
+    mission_status_path,
+    report_outbox_path,
 ):
     """Build a fresh set of node actions.
 
-    Two GroupActions need the same three nodes under mutually exclusive
+    Two GroupActions need the same four nodes under mutually exclusive
     conditions, and a launch action object cannot be reused across both,
     so this returns new ones each call.
     """
     return [
         Node(
             package='patrol_amr_safety',
+            executable='command_gateway',
+            name='command_gateway',
+            output='screen',
+            parameters=[{
+                'robot_id': ParameterValue(robot_id, value_type=str),
+                'source_session_id': ParameterValue(
+                    source_session_id, value_type=str
+                ),
+                'database_path': ParameterValue(
+                    database_path, value_type=str
+                ),
+            }],
+        ),
+        Node(
+            package='patrol_amr_safety',
             executable='battery_monitor',
             name='battery_monitor',
             output='screen',
-            remappings=[('battery_state', battery_state_topic)],
+            remappings=[
+                ('battery_state', battery_state_topic),
+                ('battery_status', battery_status_topic),
+            ],
         ),
         Node(
             package='patrol_amr_safety',
@@ -77,7 +106,17 @@ def _nodes(
             parameters=[{
                 'robot_id': ParameterValue(robot_id, value_type=str),
             }],
-            remappings=[('cmd_vel_safe', candidate_topic)],
+            remappings=[
+                ('/control/drive_token', drive_token_topic),
+                ('/control/heartbeat', heartbeat_topic),
+                ('/control/estop', estop_topic),
+                ('cmd_vel_safe', candidate_topic),
+                ('cmd_vel', output_topic),
+                ('odom', odom_topic),
+                ('motion_allowed', motion_allowed_topic),
+                ('safety_state', safety_state_topic),
+                ('accepted_token_id', accepted_token_topic),
+            ],
         ),
         Node(
             package='patrol_amr_safety',
@@ -89,12 +128,20 @@ def _nodes(
                 'source_session_id': ParameterValue(
                     source_session_id, value_type=str
                 ),
-                'safety_state': ParameterValue(safety_state, value_type=int),
+                'mission_status_path': ParameterValue(
+                    mission_status_path, value_type=str
+                ),
+                'report_outbox_path': ParameterValue(
+                    report_outbox_path, value_type=str
+                ),
             }],
             remappings=[
                 ('battery_state', battery_state_topic),
+                ('battery_status', battery_status_topic),
                 ('odom', odom_topic),
                 ('amcl_pose', pose_topic),
+                ('safety_state', safety_state_topic),
+                ('accepted_token_id', accepted_token_topic),
             ],
         ),
     ]
@@ -103,11 +150,21 @@ def _nodes(
 def generate_launch_description():
     robot_id = LaunchConfiguration('robot_id')
     source_session_id = LaunchConfiguration('source_session_id')
-    safety_state = LaunchConfiguration('safety_state')
     battery_state_topic = LaunchConfiguration('battery_state_topic')
+    battery_status_topic = LaunchConfiguration('battery_status_topic')
     candidate_topic = LaunchConfiguration('candidate_topic')
+    output_topic = LaunchConfiguration('output_topic')
     odom_topic = LaunchConfiguration('odom_topic')
     pose_topic = LaunchConfiguration('pose_topic')
+    drive_token_topic = LaunchConfiguration('drive_token_topic')
+    heartbeat_topic = LaunchConfiguration('heartbeat_topic')
+    estop_topic = LaunchConfiguration('estop_topic')
+    motion_allowed_topic = LaunchConfiguration('motion_allowed_topic')
+    safety_state_topic = LaunchConfiguration('safety_state_topic')
+    accepted_token_topic = LaunchConfiguration('accepted_token_topic')
+    database_path = LaunchConfiguration('database_path')
+    mission_status_path = LaunchConfiguration('mission_status_path')
+    report_outbox_path = LaunchConfiguration('report_outbox_path')
 
     push_namespace = LaunchConfiguration('push_namespace')
 
@@ -121,10 +178,6 @@ def generate_launch_description():
             description='Identifies this status_reporter run; change on restart',
         ),
         DeclareLaunchArgument(
-            'safety_state',
-            description='uint8 safety state to transport (enum TBD-IF-003)',
-        ),
-        DeclareLaunchArgument(
             'battery_state_topic',
             default_value='battery_state',
             description=(
@@ -134,12 +187,61 @@ def generate_launch_description():
             ),
         ),
         DeclareLaunchArgument(
+            'battery_status_topic',
+            default_value='battery_status',
+            description='Internal classified battery status topic.',
+        ),
+        DeclareLaunchArgument(
             'candidate_topic',
             default_value='cmd_vel_safe',
             description=(
                 'Arbitrated drive candidate input (TwistStamped). TBD-IF-009 '
                 'points Nav2 collision_monitor cmd_vel_out_topic here.'
             ),
+        ),
+        DeclareLaunchArgument(
+            'output_topic',
+            default_value='cmd_vel',
+            description='Final velocity output; remap to a test sink off robot.',
+        ),
+        DeclareLaunchArgument(
+            'drive_token_topic',
+            default_value='/control/drive_token',
+        ),
+        DeclareLaunchArgument(
+            'heartbeat_topic',
+            default_value='/control/heartbeat',
+        ),
+        DeclareLaunchArgument(
+            'estop_topic',
+            default_value='/control/estop',
+        ),
+        DeclareLaunchArgument(
+            'motion_allowed_topic',
+            default_value='motion_allowed',
+        ),
+        DeclareLaunchArgument(
+            'safety_state_topic',
+            default_value='safety_state',
+        ),
+        DeclareLaunchArgument(
+            'accepted_token_topic',
+            default_value='accepted_token_id',
+        ),
+        DeclareLaunchArgument(
+            'database_path',
+            default_value='',
+            description='Optional robot-specific command gateway SQLite path.',
+        ),
+        DeclareLaunchArgument(
+            'mission_status_path',
+            default_value='',
+            description='Optional 3A mission_status.json path.',
+        ),
+        DeclareLaunchArgument(
+            'report_outbox_path',
+            default_value='',
+            description='Optional 3A patrol_report_outbox.json path.',
         ),
         DeclareLaunchArgument(
             'push_namespace',
@@ -169,15 +271,23 @@ def generate_launch_description():
         ),
         GroupAction(
             [PushRosNamespace(robot_id), *_nodes(
-                robot_id, source_session_id, safety_state,
-                battery_state_topic, candidate_topic, odom_topic, pose_topic,
+                robot_id, source_session_id,
+                battery_state_topic, battery_status_topic,
+                candidate_topic, output_topic, odom_topic, pose_topic,
+                drive_token_topic, heartbeat_topic, estop_topic,
+                motion_allowed_topic, safety_state_topic, accepted_token_topic,
+                database_path, mission_status_path, report_outbox_path,
             )],
             condition=IfCondition(push_namespace),
         ),
         GroupAction(
             _nodes(
-                robot_id, source_session_id, safety_state,
-                battery_state_topic, candidate_topic, odom_topic, pose_topic,
+                robot_id, source_session_id,
+                battery_state_topic, battery_status_topic,
+                candidate_topic, output_topic, odom_topic, pose_topic,
+                drive_token_topic, heartbeat_topic, estop_topic,
+                motion_allowed_topic, safety_state_topic, accepted_token_topic,
+                database_path, mission_status_path, report_outbox_path,
             ),
             condition=UnlessCondition(push_namespace),
         ),

@@ -38,7 +38,6 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from patrol_interfaces.msg import CommandCheck, MissionCommand
-from std_msgs.msg import String
 
 
 ROBOT_ID = "robot1"
@@ -66,16 +65,20 @@ class Probe(Node):
             COMMAND_QOS,
         )
         self.create_subscription(
-            String,
-            f"{NS}/command_dispatch",
-            lambda m: self.dispatch.append(m.data),
+            MissionCommand,
+            f"{NS}/mission_dispatch",
+            lambda m: self.dispatch.append(m.command_id),
             COMMAND_QOS,
         )
         self.publisher = self.create_publisher(
             MissionCommand, f"{NS}/mission_command", COMMAND_QOS
         )
 
-    def send(self, command_id, mission_id="mis-1"):
+    def send(
+        self,
+        command_id="cmd-ctrl-20260908T180000-robot1-start-0001",
+        mission_id="msn-ctrl-20260908T180000-robot1-0001",
+    ):
         message = MissionCommand()
         message.header.stamp = self.get_clock().now().to_msg()
         message.command_id = command_id
@@ -128,12 +131,15 @@ def wait_for(node, predicate, timeout, description, log_path):
     )
 
 
-def check_restart_persistence(node, database_path, log_file, log_path):
+def check_restart_persistence(
+    node, gateway, database_path, log_file, log_path
+):
     """A command answered before the restart must not run a second time."""
-    node.send("cmd-persist")
+    command_id = "cmd-ctrl-20260908T180000-robot1-start-0001"
+    node.send(command_id)
     wait_for(
         node,
-        lambda: ("cmd-persist", ACCEPTED) in node.checks,
+        lambda: (command_id, ACCEPTED) in node.checks,
         10.0,
         "first ACCEPTED before restart",
         log_path,
@@ -142,12 +148,13 @@ def check_restart_persistence(node, database_path, log_file, log_path):
     # 수 있다. 없다고 단정하기 전에 기다린다.
     wait_for(
         node,
-        lambda: node.dispatch == ["cmd-persist"],
+        lambda: node.dispatch == [command_id],
         5.0,
         "first dispatch before restart",
         log_path,
     )
 
+    stop(gateway)
     restarted = start_gateway(database_path, log_file)
     try:
         node.checks.clear()
@@ -162,10 +169,10 @@ def check_restart_persistence(node, database_path, log_file, log_path):
         # 재시작한 노드의 발행측이 이 probe 와 붙을 시간을 준다. 붙기 전에
         # 보내면 "dispatch 없음"이 계약 때문인지 미연결 때문인지 알 수 없다.
         spin(node, 1.5)
-        node.send("cmd-persist")
+        node.send(command_id)
         wait_for(
             node,
-            lambda: ("cmd-persist", ACCEPTED) in node.checks,
+            lambda: (command_id, ACCEPTED) in node.checks,
             10.0,
             "ACCEPTED again after restart",
             log_path,
@@ -219,7 +226,7 @@ def main():
             )
             spin(node, 1.5)
             check_restart_persistence(
-                node, database_path, log_file, log_file.name
+                node, gateway, database_path, log_file, log_file.name
             )
             retained = check_retention_ran(log_file.name, database_path)
 

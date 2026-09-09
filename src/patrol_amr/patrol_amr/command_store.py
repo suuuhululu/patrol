@@ -225,6 +225,22 @@ class CommandStore:
                 )
         return CommandState.EXECUTING
 
+    def validate_identity(
+        self,
+        command_id: str,
+        mission_id: str,
+        robot_id: str,
+    ) -> CommandState:
+        """Return state only when an internal event matches the stored command."""
+        row = self._required(command_id)
+        if not isinstance(mission_id, str):
+            raise ValueError('mission_id must be a str')
+        if robot_id not in ROBOT_IDS:
+            raise ValueError(f'robot_id must be one of {ROBOT_IDS}')
+        if row['mission_id'] != mission_id or row['robot_id'] != robot_id:
+            raise ValueError('lifecycle identity does not match stored command')
+        return CommandState(row['state'])
+
     def complete(
         self,
         command_id: str,
@@ -275,6 +291,8 @@ class CommandStore:
             raise ValueError('record command_id must match command_id')
         if record.robot_id != self._robot_id:
             raise ValueError('record robot_id must match this CommandStore')
+        self.validate_identity(
+            command_id, record.mission_id, record.robot_id)
         return self.complete(
             command_id,
             report_id=record.report_id,

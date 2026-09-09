@@ -42,6 +42,7 @@ from typing import NamedTuple
 from patrol_amr_safety import drive_token_guard as dtg
 from patrol_amr_safety import estop_guard as eg
 from patrol_amr_safety import motion_guard as mg
+from patrol_amr_safety import robot_status_state as rss
 from patrol_amr import heartbeat_guard as hg
 
 
@@ -89,6 +90,22 @@ class SafetyGate:
         self._motion_guard = mg.MotionGuard()
         self._candidate = None
         self._candidate_stamp = None
+        self._odometry_state = rss.RobotStatusState(robot_id)
+
+    def observe_odometry(self, linear, angular, measured_at):
+        """Reuse the reporter's measured-stop criteria without new thresholds."""
+        return self._odometry_state.observe_odometry(linear, angular, measured_at)
+
+    def safety_state(self, monotonic_now, ros_now):
+        """Report actual stop completion only while output is blocked."""
+        if self.estop_active:
+            return rss.SafetyState.SAFETY_ESTOPPED
+        _, reasons = self.output(monotonic_now, ros_now)
+        if not reasons:
+            return rss.SafetyState.SAFETY_NORMAL
+        if self._odometry_state.snapshot(ros_now).motion_stopped:
+            return rss.SafetyState.SAFETY_STOPPED
+        return rss.SafetyState.SAFETY_STOPPING
 
     @property
     def robot_id(self) -> str:
@@ -231,6 +248,8 @@ def create_node_class():
     from rclpy.node import Node
     from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
     from geometry_msgs.msg import Twist, TwistStamped
+    from nav_msgs.msg import Odometry
+    from rclpy.qos import qos_profile_sensor_data
     from patrol_interfaces.msg import ControlHeartbeat, DriveToken, EStop
     from std_msgs.msg import Bool, String, UInt8
 
@@ -359,6 +378,9 @@ def create_node_class():
             self.create_subscription(
                 TwistStamped, 'cmd_vel_safe', self._on_candidate, velocity_qos
             )
+            self.create_subscription(
+                Odometry, 'odom', self._on_odometry, qos_profile_sensor_data
+            )
             self.create_timer(self.RECHECK_PERIOD_SECONDS, self._recheck)
             self._publish_if_changed()
             self._publish_token_status_if_changed()
@@ -366,29 +388,38 @@ def create_node_class():
 
         def _on_drive_token(self, message) -> None:
             now = time.monotonic()
-            lease_seconds = dtg.duration_to_seconds(
-                message.lease_duration.sec, message.lease_duration.nanosec
-            )
-            self._gate.observe_drive_token(
-                message.control_session_id,
-                message.token_id,
-                message.holder_robot_id,
-                lease_seconds,
-                message.message_sequence,
-                now,
-            )
+            try:
+                lease_seconds = dtg.duration_to_seconds(
+                    message.lease_duration.sec, message.lease_duration.nanosec
+                )
+                self._gate.observe_drive_token(
+                    message.control_session_id,
+                    message.token_id,
+                    message.holder_robot_id,
+                    lease_seconds,
+                    message.message_sequence,
+                    now,
+                )
+            except ValueError as error:
+                self.get_logger().warning(f'ignored invalid DriveToken: {error}')
             self._publish_if_changed()
             self._publish_token_status_if_changed()
             self._publish_output(always=False)
 
         def _on_estop(self, message) -> None:
             previous_stopped = self._gate.estop_active
-            verdict = self._gate.observe_estop(
-                message.target_robot_id,
-                message.active,
-                message.reason,
-                message.sequence,
-            )
+            try:
+                verdict = self._gate.observe_estop(
+                    message.target_robot_id,
+                    message.active,
+                    message.reason,
+                    message.sequence,
+                )
+            except ValueError as error:
+                self.get_logger().warning(f'ignored invalid EStop: {error}')
+                self._publish_if_changed()
+                self._publish_output(always=False)
+                return
             event = estop_transition_event(
                 previous_stopped, self._gate.estop_active, verdict
             )
@@ -404,11 +435,18 @@ def create_node_class():
             self._publish_output(always=False)
 
         def _on_heartbeat(self, message) -> None:
-            verdict = self._gate.observe_heartbeat(
-                message.control_session_id,
-                message.sequence,
-                time.monotonic(),
-            )
+            try:
+                verdict = self._gate.observe_heartbeat(
+                    message.control_session_id,
+                    message.sequence,
+                    time.monotonic(),
+                )
+            except ValueError as error:
+                self.get_logger().warning(f'ignored invalid ControlHeartbeat: {error}')
+                self._publish_if_changed()
+                self._publish_token_status_if_changed()
+                self._publish_output(always=False)
+                return
             if verdict is not hg.HeartbeatVerdict.ACCEPTED:
                 self.get_logger().warning(
                     f'dropped heartbeat: {verdict.value} '
@@ -418,6 +456,17 @@ def create_node_class():
             self._publish_if_changed()
             self._publish_token_status_if_changed()
             self._publish_output(always=False)
+
+        def _on_odometry(self, message) -> None:
+            try:
+                self._gate.observe_odometry(
+                    message.twist.twist.linear.x,
+                    message.twist.twist.angular.z,
+                    self._stamp_seconds(message.header.stamp),
+                )
+            except ValueError as error:
+                self.get_logger().warning(f'ignored odometry sample: {error}')
+            self._publish_if_changed()
 
         def _on_candidate(self, message) -> None:
             accepted = self._gate.observe_candidate(
@@ -431,6 +480,7 @@ def create_node_class():
                     'one to age out under Q-17'
                 )
                 return
+            self._publish_if_changed()
             self._publish_output(always=True)
 
         def _recheck(self) -> None:
@@ -455,7 +505,8 @@ def create_node_class():
         def _publish_if_changed(self) -> None:
             now = time.monotonic()
             allowed = self._gate.motion_allowed(now)
-            safety_state = 4 if self._gate.estop_active else (1 if allowed else 3)
+            safety_state = int(self._gate.safety_state(
+                now, self.get_clock().now().nanoseconds / 1e9))
             if safety_state != self._last_safety_state:
                 self._last_safety_state = safety_state
                 self._safety_state_publisher.publish(UInt8(data=safety_state))

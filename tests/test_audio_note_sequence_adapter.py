@@ -1,6 +1,12 @@
 """Tests for audio goal construction without running a ROS graph."""
 
+from pathlib import Path
+import sys
 import unittest
+
+
+sys.path.insert(0, str(
+    Path(__file__).resolve().parents[1] / 'src/patrol_amr'))
 
 from patrol_amr.audio_note_sequence_adapter import (
     AudioNoteSequenceAdapter, AudioNoteSpec, build_infinite_audio_goal)

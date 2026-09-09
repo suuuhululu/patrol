@@ -67,6 +67,53 @@ class DefaultStateTests(unittest.TestCase):
         self.assertFalse(g.motion_allowed(0.0))
 
 
+class MeasuredSafetyStateTests(unittest.TestCase):
+    def test_blocked_without_measurements_is_stopping(self):
+        g = gate()
+        set_estop(g, False, 1)
+        self.assertEqual(g.safety_state(0.0, 0.0), lss.rss.SafetyState.SAFETY_STOPPING)
+
+    def test_stop_requires_hold_and_freshness_for_both_robots(self):
+        for robot in ('robot1', 'robot6'):
+            with self.subTest(robot=robot):
+                g = gate(robot)
+                set_estop(g, False, 1)
+                g.observe_odometry(0.05, -0.1, 10.0)
+                g.observe_odometry(0.05, -0.1, 10.499)
+                self.assertEqual(g.safety_state(0, 10.499), 2)
+                g.observe_odometry(0.05, -0.1, 10.5)
+                self.assertEqual(g.safety_state(0, 11.0), 3)
+                self.assertEqual(g.safety_state(0, 11.001), 2)
+                g.observe_odometry(0, 0, 11.1)
+                self.assertEqual(g.safety_state(0, 11.1), 2)
+
+    def test_moving_sample_revokes_stopped(self):
+        g = gate()
+        set_estop(g, False, 1)
+        g.observe_odometry(0, 0, 0)
+        g.observe_odometry(0, 0, 0.5)
+        self.assertEqual(g.safety_state(0, 0.5), 3)
+        g.observe_odometry(0.051, 0, 0.6)
+        self.assertEqual(g.safety_state(0, 0.6), 2)
+
+    def test_estop_has_priority_over_measured_stop(self):
+        g = gate()
+        g.observe_odometry(0, 0, 0)
+        g.observe_odometry(0, 0, 0.5)
+        self.assertEqual(g.safety_state(0, 0.5), 4)
+
+    def test_stale_candidate_blocks_output_but_not_permission(self):
+        g = gate()
+        set_estop(g, False, 1)
+        grant_token(g, 0.0)
+        self.assertTrue(g.motion_allowed(0.0))
+        self.assertEqual(g.safety_state(0, 10), 2)
+        g.observe_candidate(0.2, 0, 10)
+        self.assertEqual(g.safety_state(0, 10.5), 1)
+        self.assertEqual(g.safety_state(0, 10.501), 2)
+        self.assertTrue(g.motion_allowed(0.0))
+
+
 class EStopTransitionLogTests(unittest.TestCase):
     def test_estop_active_exposes_reflected_state(self):
         g = gate()

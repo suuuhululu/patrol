@@ -14,9 +14,8 @@ ROS mission node"). It joins three of them:
 What this node does NOT do, on purpose:
 
 * **Execute the command.** Running a MissionCommand means Nav2 goals and
-  the mission transition table, which are TBD-AMR-005 and belong to
-  mission_supervisor (A1). ``command_dispatch`` carries the command_id to
-  that owner instead of being acted on here.
+  belongs to mission_supervisor. ``mission_dispatch`` carries the complete,
+  validated MissionCommand to that owner instead of being acted on here.
 * **Publish PatrolReport.** AMR-07 owns ``/<robot>/patrol_report`` and is
   a different assignment. A completed command arriving again must have its
   retained report re-sent, but two publishers on one report topic is the
@@ -26,14 +25,14 @@ What this node does NOT do, on purpose:
 
 Three internal topics leave this node, each with exactly one meaning:
 
-* ``command_dispatch`` (command_id) -- run this command, once. Emitted
+* ``mission_dispatch`` (MissionCommand) -- run this command, once. Emitted
   only for a genuinely new command, never for a duplicate.
 * ``active_command`` (CommandCheck) -- which command identity is current,
   for status_reporter's ``active_command_id``/``active_mission_id``.
   Emitted for accepted and already-executing commands alike, because both
   mean "this is the command in play".
-* ``report_replay_request`` (command_id) -- re-send this command's
-  retained terminal report.
+* ``report_replay_request`` (PatrolReport) -- re-send this command's exact
+  retained terminal report through the sole public report owner.
 
 Splitting dispatch from active matters: a duplicate of a running command
 is still the active command but must not start a second run.
@@ -53,9 +52,12 @@ CommandCheck values and the command-ID conflict code follow the fixed
 import os
 
 from patrol_amr import command_check as cc
+from patrol_amr import command_lifecycle as cl
 from patrol_amr import command_store as cs
 from patrol_amr import mission_ingress as mi
 from patrol_amr import patrol_report as pr
+from patrol_amr.mission_command_parser import (
+    InvalidMissionCommand, MissionCommandParser)
 
 
 ROBOT_IDS = ('robot1', 'robot6')
@@ -112,7 +114,7 @@ def create_node_class():
         QoSProfile,
         ReliabilityPolicy,
     )
-    from patrol_interfaces.msg import CommandCheck, MissionCommand
+    from patrol_interfaces.msg import CommandCheck, MissionCommand, PatrolReport
     from std_msgs.msg import String
 
     class CommandGateway(Node):
@@ -128,6 +130,7 @@ def create_node_class():
             self.declare_parameter('robot_id', '')
             self.declare_parameter('source_session_id', '')
             self.declare_parameter('database_path', '')
+            self.declare_parameter('patrol_plan_id', '')
 
             robot_id = self.get_parameter('robot_id').value
             source_session_id = self.get_parameter('source_session_id').value
@@ -140,9 +143,12 @@ def create_node_class():
                 self.get_parameter('database_path').value
                 or default_database_path(robot_id)
             )
-            os.makedirs(os.path.dirname(database_path), exist_ok=True)
+            os.makedirs(os.path.dirname(os.path.abspath(database_path)), exist_ok=True)
             self._store = cs.CommandStore(database_path, robot_id)
             self._ingress = mi.MissionIngress(self._store)
+            patrol_plan_id = self.get_parameter('patrol_plan_id').value
+            self._parser = MissionCommandParser(
+                robot_id, patrol_plan_id or f'{robot_id}_default')
             self._checks = cc.CommandCheckFactory(
                 robot_id, source_session_id, mapping
             )
@@ -174,11 +180,17 @@ def create_node_class():
                 reliability=ReliabilityPolicy.RELIABLE,
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
             )
+            lifecycle_qos = QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=20,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            )
             self._check_publisher = self.create_publisher(
                 CommandCheck, 'command_check', cc.command_check_qos()
             )
             self._dispatch_publisher = self.create_publisher(
-                String, 'command_dispatch', edge_qos
+                MissionCommand, 'mission_dispatch', edge_qos
             )
             # status_reporter 가 active_command_id·active_mission_id 를 채우는
             # 입력이다. CommandCheck 타입을 재사용해 새 메시지를 만들지 않았고,
@@ -188,7 +200,7 @@ def create_node_class():
                 CommandCheck, 'active_command', state_qos
             )
             self._replay_publisher = self.create_publisher(
-                String, 'report_replay_request', edge_qos
+                PatrolReport, 'report_replay_request', edge_qos
             )
             self.create_subscription(
                 MissionCommand,
@@ -196,17 +208,54 @@ def create_node_class():
                 self._on_mission_command,
                 command_qos,
             )
+            self.create_subscription(
+                String,
+                'mission_lifecycle',
+                self._on_mission_lifecycle,
+                lifecycle_qos,
+            )
             # 시작 시 한 번 — 저장소에는 지난 세션의 오래된 기록이 남아 있다.
             self._prune()
             self.create_timer(self.PRUNE_PERIOD_SECONDS, self._prune)
 
             self._command_check_type = CommandCheck
-            self._dispatch_type = String
             self.get_logger().info(
                 f'command gateway ready: robot_id={robot_id} '
                 f'source_session_id={source_session_id!r} '
                 f'database_path={database_path!r}'
             )
+
+        def _publish_check(
+            self,
+            command_id: str,
+            mission_id: str,
+            meaning: cc.CheckMeaning,
+            *,
+            reason_code: int = 0,
+            reason: str = '',
+            active: bool = False,
+        ):
+            record = self._checks.create(
+                command_id=command_id,
+                mission_id=mission_id,
+                meaning=meaning,
+                reason_code=reason_code,
+                reason=reason,
+            )
+            cc.publish_record(
+                self._check_publisher,
+                self._command_check_type,
+                record,
+                self._now(),
+            )
+            if active:
+                cc.publish_record(
+                    self._active_publisher,
+                    self._command_check_type,
+                    record,
+                    self._now(),
+                )
+            return record
 
         def _now(self) -> pr.ReportTime:
             stamp = self.get_clock().now().to_msg()
@@ -214,11 +263,28 @@ def create_node_class():
 
         def _on_mission_command(self, message) -> None:
             try:
+                # 1A: gateway가 public 명령의 유일한 검증 입구다. mission 쪽
+                # parser를 같은 설정으로 사용해 target 규칙까지 통과한 원본만
+                # 내부 mission_dispatch에 보낸다.
+                self._parser.parse(message)
                 fields = mi.mission_command_fields(
                     message,
                     received_at=self.get_clock().now().nanoseconds / 1e9,
                 )
                 decision = self._ingress.observe(**fields)
+            except InvalidMissionCommand as error:
+                self._publish_check(
+                    str(getattr(message, 'command_id', '')),
+                    str(getattr(message, 'mission_id', '')),
+                    cc.CheckMeaning.REJECTED,
+                    reason_code=error.reason_code,
+                    reason=str(error),
+                )
+                self.get_logger().warning(
+                    'rejected MissionCommand before persistence: '
+                    f'{error}'
+                )
+                return
             except ValueError as error:
                 # 저장조차 할 수 없는 payload 다. 조용히 버리면 관제가 재전송
                 # 만 반복하므로 로그를 남긴다. CommandCheck 는 command_id 가
@@ -229,40 +295,30 @@ def create_node_class():
                 return
 
             if decision.check_meaning is not None:
-                record = self._checks.create(
-                    command_id=message.command_id,
-                    mission_id=message.mission_id,
-                    meaning=decision.check_meaning,
+                record = self._publish_check(
+                    message.command_id,
+                    message.mission_id,
+                    decision.check_meaning,
                     reason_code=decision.reason_code,
                     reason=decision.reason,
-                )
-                cc.publish_record(
-                    self._check_publisher,
-                    self._command_check_type,
-                    record,
-                    self._now(),
+                    active=(
+                        decision.check_meaning is not cc.CheckMeaning.REJECTED
+                    ),
                 )
                 self.get_logger().info(
                     f'command_check {decision.check_meaning.value} '
                     f'command_id={message.command_id!r} '
                     f'sequence={record.sequence}'
                 )
-                if decision.check_meaning is not cc.CheckMeaning.REJECTED:
-                    # 거절된 명령은 현재 명령이 아니다. 수락·실행 중은 둘 다
-                    # "지금 다루는 명령"이므로 같은 신호를 낸다.
-                    cc.publish_record(
-                        self._active_publisher,
-                        self._command_check_type,
-                        record,
-                        self._now(),
-                    )
-
             if decision.replay_report is not None:
                 # 이미 끝난 명령이 다시 왔다. 중복 실행 대신 기존 결과를
                 # 되돌려줘야 하는데, PatrolReport 발행권은 AMR-07 소유이므로
                 # 여기서는 요청만 낸다.
-                self._replay_publisher.publish(
-                    self._dispatch_type(data=message.command_id)
+                pr.publish_record(
+                    self._replay_publisher,
+                    PatrolReport,
+                    decision.replay_report,
+                    self._now(),
                 )
                 self.get_logger().info(
                     'requested report replay for a completed command: '
@@ -271,9 +327,49 @@ def create_node_class():
                 )
 
             if decision.dispatch_new:
-                self._dispatch_publisher.publish(
-                    self._dispatch_type(data=message.command_id)
+                self._dispatch_publisher.publish(message)
+
+        def _on_mission_lifecycle(self, message) -> None:
+            """Apply mission-owned execution facts to the gateway DB."""
+            try:
+                event = cl.from_json(message.data)
+                state = self._store.validate_identity(
+                    event.command_id, event.mission_id, event.robot_id)
+                if event.kind is cl.LifecycleKind.EXECUTING:
+                    self._store.mark_executing(event.command_id)
+                    record = self._publish_check(
+                        event.command_id,
+                        event.mission_id,
+                        cc.CheckMeaning.EXECUTING,
+                        active=True,
+                    )
+                    self.get_logger().info(
+                        'command execution started: '
+                        f'command_id={event.command_id!r} '
+                        f'sequence={record.sequence}'
+                    )
+                    return
+
+                # A retained completion may be replayed after gateway restart
+                # before the old EXECUTING event is available. Reconstruct the
+                # required forward transition instead of losing completion.
+                if state is cs.CommandState.ACCEPTED:
+                    self._store.mark_executing(event.command_id)
+                    self._publish_check(
+                        event.command_id,
+                        event.mission_id,
+                        cc.CheckMeaning.EXECUTING,
+                        active=True,
+                    )
+                self._store.complete_report(event.command_id, event.report)
+                self.get_logger().info(
+                    'command completion stored: '
+                    f'command_id={event.command_id!r} '
+                    f'report_id={event.report.report_id!r}'
                 )
+            except (KeyError, ValueError) as error:
+                self.get_logger().error(
+                    f'ignored invalid mission lifecycle event: {error}')
 
         def _prune(self) -> None:
             """Apply Q-14 retention to the durable command store.

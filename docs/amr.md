@@ -58,17 +58,17 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 | mission_supervisor | `src/patrol_amr/patrol_amr/mission_supervisor.py:MissionSupervisor`, `mission_command_callback.py:MissionCommandCallback`, `mission_worker.py:MissionWorker`, `mission_controller.py:MissionController` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#명령-콜백과-실행-수명) · CommandCheck 세부 TBD-IF-001 |
 | command_store.py | [src/patrol_amr/patrol_amr/command_store.py](../src/patrol_amr/patrol_amr/command_store.py) · `CommandStore.register`·`mark_executing`·`complete`·`prune` | [2.1절](#21-command_storepy--구현-대조-완료-순수-모듈) 구현 대조 완료 (ROS 연결 대기) |
 | mission_command_store.py | [src/patrol_amr/patrol_amr/mission_command_store.py](../src/patrol_amr/patrol_amr/mission_command_store.py) · `CommandStore.claim`·`finish`·`save_checkpoint` | [미션 내부 상태와 영속성](../src/patrol_amr/docs/mission_navigation.md#내부-상태와-영속성) 구현 대조 완료 |
-| drive_token_guard.py | [src/patrol_amr/patrol_amr/drive_token_guard.py](../src/patrol_amr/patrol_amr/drive_token_guard.py) · `DriveTokenGuard.observe`·`authority` | [3.1절](#31-drive_token_guardpy--구현-대조-완료) 구현 대조 완료 |
-| estop_guard.py | [src/patrol_amr/patrol_amr/estop_guard.py](../src/patrol_amr/patrol_amr/estop_guard.py) · `EStopGuard.observe`·`stopped` | [3.2절](#32-estop_guardpy--구현-대조-완료) 구현 대조 완료 |
-| motion_guard.py | [src/patrol_amr/patrol_amr/motion_guard.py](../src/patrol_amr/patrol_amr/motion_guard.py) · `MotionGuard.evaluate` | [3.3절](#33-motion_guardpy--구현-대조-완료) 구현 대조 완료 (축소 범위) |
-| local_safety_supervisor.py | [src/patrol_amr/patrol_amr/local_safety_supervisor.py](../src/patrol_amr/patrol_amr/local_safety_supervisor.py) · `SafetyGate`·`LocalSafetySupervisor` | [3.4절](#34-local_safety_supervisorpy--구현-대조-완료-축소-범위) 구현 대조 완료 (축소 범위) |
+| drive_token_guard.py | [src/patrol_amr/patrol_amr/drive_token_guard.py](../src/patrol_amr_safety/patrol_amr_safety/drive_token_guard.py) · `DriveTokenGuard.observe`·`authority` | [3.1절](#31-drive_token_guardpy--구현-대조-완료) 구현 대조 완료 |
+| estop_guard.py | [src/patrol_amr/patrol_amr/estop_guard.py](../src/patrol_amr_safety/patrol_amr_safety/estop_guard.py) · `EStopGuard.observe`·`stopped` | [3.2절](#32-estop_guardpy--구현-대조-완료) 구현 대조 완료 |
+| motion_guard.py | [src/patrol_amr/patrol_amr/motion_guard.py](../src/patrol_amr_safety/patrol_amr_safety/motion_guard.py) · `MotionGuard.evaluate` | [3.3절](#33-motion_guardpy--구현-대조-완료) 구현 대조 완료 (축소 범위) |
+| local_safety_supervisor.py | [src/patrol_amr/patrol_amr/local_safety_supervisor.py](../src/patrol_amr_safety/patrol_amr_safety/local_safety_supervisor.py) · `SafetyGate`·`LocalSafetySupervisor` | [3.4절](#34-local_safety_supervisorpy--구현-대조-완료-축소-범위) 구현 대조 완료 (축소 범위) |
 | heartbeat_guard.py | [src/patrol_amr/patrol_amr/heartbeat_guard.py](../src/patrol_amr/patrol_amr/heartbeat_guard.py) · `HeartbeatGuard.observe`·`state` | [3.5절](#35-heartbeat_guardpy--구현-대조-완료-순수-모듈) 구현 대조 완료 (ROS 연결 대기) |
-| battery_monitor.py | [src/patrol_amr/patrol_amr/battery_monitor.py](../src/patrol_amr/patrol_amr/battery_monitor.py) · `classify_observation`·`BatteryStateModel.update` | [5.1절](#51-battery_monitorpy--구현-대조-완료) 구현 대조 완료 |
-| robot_status_state.py | [src/patrol_amr/patrol_amr/robot_status_state.py](../src/patrol_amr/patrol_amr/robot_status_state.py) · `RobotStatusState.update_states`·`observe_pose`·`observe_odometry`·`snapshot` | [7.1절](#71-robot_status_statepy--구현-대조-완료) 구현 대조 완료 |
+| battery_monitor.py | [src/patrol_amr/patrol_amr/battery_monitor.py](../src/patrol_amr_safety/patrol_amr_safety/battery_monitor.py) · `classify_observation`·`BatteryStateModel.update` | [5.1절](#51-battery_monitorpy--구현-대조-완료) 구현 대조 완료 |
+| robot_status_state.py | [src/patrol_amr/patrol_amr/robot_status_state.py](../src/patrol_amr_safety/patrol_amr_safety/robot_status_state.py) · `RobotStatusState.update_states`·`observe_pose`·`observe_odometry`·`snapshot` | [7.1절](#71-robot_status_statepy--구현-대조-완료) 구현 대조 완료 |
 | Nav2 pose 실행 | `src/patrol_amr/patrol_amr/navigation_adapter.py:NavigationAdapter`, `nav2_goal_runner.py:Nav2GoalRunner` | [Nav2와 도킹](../src/patrol_amr/docs/mission_navigation.md#nav2와-도킹) 구현 대조 완료 · IT-16 |
 | 실기 구동 gate | `motion_authorization.py`, `robot_readiness.py`, `robot_readiness_callbacks.py`, `motion_gate.py`, `launch/hardware_patrol.launch.py` | [ROS 구성과 설정](../src/patrol_amr/docs/mission_navigation.md#ros-구성과-설정) 구현 대조 완료 |
 | 미션 내부 상태 | `src/patrol_amr/patrol_amr/mission_state.py:MissionStateTracker`, `mission_status_store.py:MissionStatusStore` | [내부 상태와 영속성](../src/patrol_amr/docs/mission_navigation.md#내부-상태와-영속성) 구현 대조 완료 |
-| status_reporter.py | [src/patrol_amr/patrol_amr/status_reporter.py](../src/patrol_amr/patrol_amr/status_reporter.py) · `PublicationGate`·`StatusReporter` | [7.2절](#72-status_reporterpy--구현-대조-완료) RobotStatus·PatrolReport 결합 구현 대조 완료 |
+| status_reporter.py | [src/patrol_amr/patrol_amr/status_reporter.py](../src/patrol_amr_safety/patrol_amr_safety/status_reporter.py) · `PublicationGate`·`StatusReporter` | [7.2절](#72-status_reporterpy--구현-대조-완료) RobotStatus·PatrolReport 결합 구현 대조 완료 |
 | patrol_report.py | [src/patrol_amr/patrol_amr/patrol_report.py](../src/patrol_amr/patrol_amr/patrol_report.py) · `PatrolReportFactory` | [7.3절](#73-patrol_reportpy--구현-대조-완료) 순수 계약 모듈 구현 대조 완료 |
 | 공통 Nav2 연결·위치·결과 발행 | 위 `navigation_adapter.py`·`nav2_goal_runner.py`·`scenarios/patrol.py`·`robot_status_state.py`·`status_reporter.py` 행으로 분리 | 실제 mission 경로 연결 완료, robot1·robot6 실기 검증 대기 |
 
@@ -201,7 +201,7 @@ local_safety_supervisor가 `/{robot}/cmd_vel`의 최종 속도 발행권을 가�
 
 ### 3.1 drive_token_guard.py — 구현 대조 완료
 
-2026-09-07: 사용자 3단계 진행 요청에 따라 [drive_token_guard.py](../src/patrol_amr/patrol_amr/drive_token_guard.py)에 [인터페이스 3절](interfaces.md#3-drivetoken)의 수락 규칙과 Q-01 로컬 lease를 구현했다. ROS 노드가 아니라 6단계 `local_safety_supervisor`가 사용하는 일반 Python 모듈이며, 이 파일은 속도를 발행하지 않는다.
+2026-09-07: 사용자 3단계 진행 요청에 따라 [drive_token_guard.py](../src/patrol_amr_safety/patrol_amr_safety/drive_token_guard.py)에 [인터페이스 3절](interfaces.md#3-drivetoken)의 수락 규칙과 Q-01 로컬 lease를 구현했다. ROS 노드가 아니라 6단계 `local_safety_supervisor`가 사용하는 일반 Python 모듈이며, 이 파일은 속도를 발행하지 않는다.
 
 - `DriveTokenGuard.observe(control_session_id, token_id, holder_robot_id, lease_seconds, message_sequence, now)`: 새 [인터페이스 3절](interfaces.md#3-drivetoken)의 이름으로 관측 하나를 적용한다. `token_id`가 빈 문자열이면 지정 holder의 회수이며, `now`는 호출자가 전달하는 로컬 monotonic 초다.
 - `message_sequence` 하한은 `control_session_id` 단위다. 같은 관제 세션에서는 token ID가 바뀌어도 하한을 유지하고 역행·중복을 `STALE_MESSAGE_SEQUENCE`로 폐기한다. 관제 세션이 바뀌면 이전 token을 무효화하고 하한을 새로 시작하며, 이미 종료된 세션이 다시 오면 `STALE_CONTROL_SESSION`으로 폐기한다. 앞선 message sequence로 다른 holder가 지정되면 `HOLDER_CHANGED`로 자기 권한을 즉시 끊고, 같은 메시지의 재수신은 `OTHER_HOLDER`로 폐기한다.
@@ -247,7 +247,7 @@ flowchart TD
 
 ### 3.2 estop_guard.py — 구현 대조 완료
 
-2026-09-07: 사용자 4단계 진행 요청에 따라 [estop_guard.py](../src/patrol_amr/patrol_amr/estop_guard.py)에 `/control/estop`의 반영 규칙을 구현했다. [3.1절](#31-drive_token_guardpy--구현-대조-완료)의 `drive_token_guard.py`와 같이 ROS 노드가 아니라 6단계 `local_safety_supervisor`가 사용하는 일반 Python 모듈이며 속도를 발행하지 않는다.
+2026-09-07: 사용자 4단계 진행 요청에 따라 [estop_guard.py](../src/patrol_amr_safety/patrol_amr_safety/estop_guard.py)에 `/control/estop`의 반영 규칙을 구현했다. [3.1절](#31-drive_token_guardpy--구현-대조-완료)의 `drive_token_guard.py`와 같이 ROS 노드가 아니라 6단계 `local_safety_supervisor`가 사용하는 일반 Python 모듈이며 속도를 발행하지 않는다.
 
 - `EStopGuard(robot_id)`는 어느 로봇의 상태인지 명시한다. `observe(target_robot_id, active, reason, sequence)`는 [인터페이스 3.1절](interfaces.md#31-heartbeat와-e-stop)의 필드명을 그대로 사용하고 `ACCEPTED`·`OTHER_TARGET`·`STALE_SEQUENCE`를 반환한다.
 - `active`는 즉시 반영한다. 자동 해제 조건 3초 연속 판정과 활성 원인 집합·대표 원인 선택은 관제(Safety Arbiter)가 담당하므로 AMR은 로컬 해제 타이머나 별도 latch를 두지 않는다.
@@ -277,7 +277,7 @@ flowchart TD
 
 ### 3.3 motion_guard.py — 구현 대조 완료
 
-2026-09-07: 사용자가 5단계 범위를 확인 질문 후 축소 승인해 [motion_guard.py](../src/patrol_amr/patrol_amr/motion_guard.py)에 이미 확정된 두 규칙만 결합하는 최종 출력 게이트를 구현했다. [3.1](#31-drive_token_guardpy--구현-대조-완료)·[3.2절](#32-estop_guardpy--구현-대조-완료)과 같이 ROS 노드가 아닌 일반 Python 모듈이며 6단계 `local_safety_supervisor`가 사용한다.
+2026-09-07: 사용자가 5단계 범위를 확인 질문 후 축소 승인해 [motion_guard.py](../src/patrol_amr_safety/patrol_amr_safety/motion_guard.py)에 이미 확정된 두 규칙만 결합하는 최종 출력 게이트를 구현했다. [3.1](#31-drive_token_guardpy--구현-대조-완료)·[3.2절](#32-estop_guardpy--구현-대조-완료)과 같이 ROS 노드가 아닌 일반 Python 모듈이며 6단계 `local_safety_supervisor`가 사용한다.
 
 원래 파일명이 함의하는 범위(장애물 회피·정지 거리·감속)는 TBD-AMR-006이 "로컬 정지 감속·거리·장애물 및 센서 실패 판정"으로 전부 미정으로 남긴 부분이다. Nav2 후보와 yaw 정렬 후보 사이의 선택은 TBD-AMR-001 "주행 중재"도 미정이다. 두 TBD 모두 실제 로봇 동역학·센서 사양이 필요해 이 저장소의 문서만으로는 근거 없이 숫자를 정할 수 없었다. 사용자에게 확인한 뒤 범위를 좁혀, 이미 문장으로 확정된 것만 구현했다.
 
@@ -331,7 +331,9 @@ flowchart TD
 
 ### 3.4 local_safety_supervisor.py — 구현 대조 완료
 
-2026-09-07: 사용자가 6단계 진행을 요청하기 전 5단계와 같은 이유로 범위를 확인했다. [local_safety_supervisor.py](../src/patrol_amr/patrol_amr/local_safety_supervisor.py)는 3~5단계에서 만든 세 가드를 실제 ROS 노드로 묶은 첫 지점이며, [3.1](#31-drive_token_guardpy--구현-대조-완료)~[3.3절](#33-motion_guardpy--구현-대조-완료)과 달리 `battery_monitor`(5.1절)처럼 진짜 ROS 노드다.
+2026-09-08 후속 사용자 결정: `patrol_amr_safety`의 local_safety_supervisor가 odom을 직접 구독해 실제 정지에 근거한 STOPPING/STOPPED를 단독 발행한다. 기존 공용 정지 기준을 재사용하며, 결정·현재 코드별 flowchart·자동시험·실기 대기는 [안전 패키지 flowchart 3.2·7.0절](amr_patrol_safety_flowchart.md)에 기록한다. 수신 단위 영향은 [검토 요청 초안](change_requests/CR-AMR_09-08_23-02_실제_정지_safety_state_판정.md)을 따른다. 아래는 초기 구현 이력이며 현재 파일 경로는 `src/patrol_amr_safety/patrol_amr_safety/local_safety_supervisor.py`다.
+
+2026-09-07: 사용자가 6단계 진행을 요청하기 전 5단계와 같은 이유로 범위를 확인했다. [local_safety_supervisor.py](../src/patrol_amr_safety/patrol_amr_safety/local_safety_supervisor.py)는 3~5단계에서 만든 세 가드를 실제 ROS 노드로 묶은 첫 지점이며, [3.1](#31-drive_token_guardpy--구현-대조-완료)~[3.3절](#33-motion_guardpy--구현-대조-완료)과 달리 `battery_monitor`(5.1절)처럼 진짜 ROS 노드다.
 
 **구현한 것** — `/control/drive_token`·`/control/heartbeat`·`/control/estop`을 실제로 구독해 세 가드에 반영하고, 결합 결과를 AMR 내부 신호 `motion_allowed`(`std_msgs/Bool`)와 `safety_state`(`std_msgs/UInt8`)로 발행한다. `battery_status`(5.1절)와 같은 성격의 내부 연결이며 공용 인터페이스를 추가한 것이 아니다.
 
@@ -629,7 +631,7 @@ SOC·충전 방향에 따른 Battery enum은 interfaces.md 8절과 Q-11을 따�
 
 ### 5.1 battery_monitor.py — 구현 대조 완료
 
-2026-09-07: 사용자 2단계 진행 요청과 TBD-AMR-003 권장안 승인에 따라 [battery_monitor.py](../src/patrol_amr/patrol_amr/battery_monitor.py)에 분류·상태 전이 모델과 ROS 노드를 구현했다. 이전 워크스페이스의 LOW/CHARGED 문자열 이벤트 코드는 현재 enum·Q-11과 달라 이관하지 않았다. 별도 BatteryEvent 계약은 추가하지 않았다.
+2026-09-07: 사용자 2단계 진행 요청과 TBD-AMR-003 권장안 승인에 따라 [battery_monitor.py](../src/patrol_amr_safety/patrol_amr_safety/battery_monitor.py)에 분류·상태 전이 모델과 ROS 노드를 구현했다. 이전 워크스페이스의 LOW/CHARGED 문자열 이벤트 코드는 현재 enum·Q-11과 달라 이관하지 않았다. 별도 BatteryEvent 계약은 추가하지 않았다.
 
 - `classify_battery(soc, charging)`: 유효성이 확인된 SOC와 명시적인 충전 방향을 입력받아 [인터페이스 8절](interfaces.md#8-battery-enum과-임계값)의 상태를 반환한다. 잘못된 함수 인자는 ValueError이며 센서 오류 정책을 대신하지 않는다.
 - `BatteryStateModel.update(observed, now)`: 초기 UNKNOWN, CRITICAL 즉시, 나머지는 Q-11 유지 후 반영한다. 후보가 바뀌거나 현재 상태로 돌아오면 이전 대기 시간을 버린다. `now`는 호출자가 전달하는 monotonic 초다.
@@ -694,7 +696,7 @@ RobotStatus의 발행·변경 rate는 Q-02다. PatrolReport는 명령과 연결�
 
 ### 7.1 robot_status_state.py — 구현 대조 완료
 
-2026-09-07: 사용자 7단계 진행 요청에 따라 [robot_status_state.py](../src/patrol_amr/patrol_amr/robot_status_state.py)에 8단계 `status_reporter`가 사용할 순수 Python 상태 모델을 구현했다. ROS 토픽을 발행하는 노드가 아니라 로봇 한 대의 상태를 보관하고 snapshot을 만드는 내부 모듈이다.
+2026-09-07: 사용자 7단계 진행 요청에 따라 [robot_status_state.py](../src/patrol_amr_safety/patrol_amr_safety/robot_status_state.py)에 8단계 `status_reporter`가 사용할 순수 Python 상태 모델을 구현했다. ROS 토픽을 발행하는 노드가 아니라 로봇 한 대의 상태를 보관하고 snapshot을 만드는 내부 모듈이다.
 
 - `OperationalState`, `MissionState`, `DockingState`, `BatteryState`: [인터페이스 4·8절](interfaces.md#4-robotstatus)에 확정된 숫자만 `IntEnum`으로 정의했다. 네 축은 독립적으로 갱신한다. 축 조합별 허용 전이는 TBD-AMR-005이므로 이 파일에서 임의로 막지 않는다.
 - `RobotStatusState.update_states(...)`: 전달된 축의 값을 모두 먼저 검증한 뒤 한꺼번에 반영한다. 하나라도 잘못되면 어느 축도 바뀌지 않는다. 실제 변경이 있을 때만 내부 `revision`을 1 증가시킨다. 이 revision은 8단계의 변경 감지용 로컬 값이며 공용 `status_sequence`가 아니다.
@@ -746,7 +748,7 @@ flowchart TD
 
 ### 7.2 status_reporter.py — 구현 대조 완료
 
-2026-09-07: 사용자 8단계 진행 요청에 따라 [status_reporter.py](../src/patrol_amr/patrol_amr/status_reporter.py)를 추가했다. `/{robot}/robot_status`를 새 `RobotStatus.msg` 이름으로 발행하며 Q-02의 정기 2 Hz와 상태 변경 발행 최대 10 Hz를 `PublicationGate`가 관리한다. `StatusSequence`는 프로세스 세션 안에서 1부터 증가하고, `source_session_id`는 실행 시 필수 parameter로 받는다.
+2026-09-07: 사용자 8단계 진행 요청에 따라 [status_reporter.py](../src/patrol_amr_safety/patrol_amr_safety/status_reporter.py)를 추가했다. `/{robot}/robot_status`를 새 `RobotStatus.msg` 이름으로 발행하며 Q-02의 정기 2 Hz와 상태 변경 발행 최대 10 Hz를 `PublicationGate`가 관리한다. `StatusSequence`는 프로세스 세션 안에서 1부터 증가하고, `source_session_id`는 실행 시 필수 parameter로 받는다.
 
 - 입력 연결: 현재 구현된 상대 내부 토픽 `battery_status`를 구독해 `battery_state`를 갱신한다. 원본 `battery_state`도 읽어 유효한 SOC와 센서 측정 시각을 `battery_soc`·`battery_timestamp`로 보존한다. enum 변경은 최대 10 Hz 제한 안에서 즉시 발행 대상으로 표시한다.
 - 필수 설정은 `robot_id`, `source_session_id`다. `safety_state`는 파라미터가 아니라 `local_safety_supervisor`의 내부 transient-local 상태 토픽을 구독해 갱신한다.

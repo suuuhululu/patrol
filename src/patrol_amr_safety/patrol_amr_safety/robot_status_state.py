@@ -431,7 +431,7 @@ class RobotStatusState:
 
     @staticmethod
     def _enum_value(enum_type, value, name):
-        if isinstance(value, bool):
+        if isinstance(value, bool) or not isinstance(value, (int, enum_type)):
             raise ValueError(f'{name} must be a valid {enum_type.__name__}')
         try:
             return enum_type(value)

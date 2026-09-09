@@ -1,8 +1,14 @@
 """Tests for MissionCommand parsing without generated ROS classes."""
 
 import math
+from pathlib import Path
+import sys
 from types import SimpleNamespace
 import unittest
+
+
+sys.path.insert(0, str(
+    Path(__file__).resolve().parents[1] / 'src/patrol_amr'))
 
 from patrol_amr.mission_command_parser import (
     InvalidMissionCommand, MissionCommandParser)
@@ -16,10 +22,11 @@ MISSION_ID = 'msn-ctrl-20260907T160000-robot1-0001'
 def message(**changes):
     """Create a minimal object matching the proposed MissionCommand fields."""
     pose = SimpleNamespace(
-        header=SimpleNamespace(frame_id=''),
+        header=SimpleNamespace(
+            frame_id='', stamp=SimpleNamespace(sec=0, nanosec=0)),
         pose=SimpleNamespace(
             position=SimpleNamespace(x=0.0, y=0.0, z=0.0),
-            orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=0.0),
+            orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
         ),
     )
     values = {
@@ -77,7 +84,8 @@ class MissionCommandParserTest(unittest.TestCase):
     def test_rejects_nonempty_target_pose(self):
         half = math.sqrt(0.5)
         pose = SimpleNamespace(
-            header=SimpleNamespace(frame_id='map'),
+            header=SimpleNamespace(
+                frame_id='map', stamp=SimpleNamespace(sec=0, nanosec=0)),
             pose=SimpleNamespace(
                 position=SimpleNamespace(x=1.25, y=-2.5, z=0.0),
                 orientation=SimpleNamespace(
@@ -87,6 +95,12 @@ class MissionCommandParserTest(unittest.TestCase):
         with self.assertRaises(InvalidMissionCommand) as raised:
             self.parser.parse(message(target_pose=pose))
         self.assertEqual(raised.exception.reason_code, 205)
+
+    def test_unused_pose_requires_the_generated_ros_default(self):
+        candidate = message()
+        candidate.target_pose.pose.orientation.w = 0.0
+        with self.assertRaises(InvalidMissionCommand):
+            self.parser.parse(candidate)
 
     def test_stop_allows_empty_mission_when_idle(self):
         request = self.parser.parse(message(

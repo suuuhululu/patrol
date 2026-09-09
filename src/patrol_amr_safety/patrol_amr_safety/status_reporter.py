@@ -15,13 +15,14 @@ from pathlib import Path
 import time
 
 from patrol_amr_safety import robot_status_state as rss
+from patrol_amr_safety import provisional_status_policy as status_policy
 from patrol_amr.mission_status_store import (
     MissionStatusStore, MissionStatusStoreError)
-from patrol_amr.patrol_report_adapter import (
+from patrol_amr_safety.patrol_report_adapter import (
     PatrolReportDrain, PatrolReportPublishError)
 from patrol_amr.patrol_report_outbox import (
     PatrolReportOutbox, PatrolReportOutboxError)
-from patrol_amr.status_mission_bridge import MissionStatusBridge
+from patrol_amr_safety.status_mission_bridge import MissionStatusBridge
 
 
 UINT64_MAX = 0xFFFFFFFFFFFFFFFF
@@ -190,6 +191,7 @@ def create_node_class():
             )
 
             self._source_session_id = source_session_id
+            self._robot_id = robot_id
             self._state = rss.RobotStatusState(robot_id)
             self._gate = PublicationGate()
             self._sequence = StatusSequence()
@@ -253,6 +255,12 @@ def create_node_class():
                 internal_qos,
             )
             self.create_subscription(
+                PatrolReport,
+                'report_replay_request',
+                self._on_report_replay,
+                report_qos,
+            )
+            self.create_subscription(
                 BatteryState,
                 'battery_state',
                 self._on_battery_observation,
@@ -277,6 +285,9 @@ def create_node_class():
                 f'status reporter ready: robot_id={robot_id} '
                 f'source_session_id={source_session_id!r}'
             )
+            self.get_logger().warning(
+                f'using provisional reporting policy {status_policy.POLICY_VERSION}; '
+                'operational/docking/scan projections must be reviewed at merge')
 
         def _poll_mission_and_reports(self) -> None:
             """Refresh mission fields and retry durable terminal reports."""
@@ -376,6 +387,15 @@ def create_node_class():
                     f'ignored active_command update: {error}'
                 )
 
+        def _on_report_replay(self, message) -> None:
+            """Forward an exact retained report through the sole public owner."""
+            if message.robot_id != self._robot_id:
+                self.get_logger().warning(
+                    'ignored report replay for another robot: '
+                    f'{message.robot_id!r}')
+                return
+            self._report_publisher.publish(message)
+
         def _on_battery_status(self, message) -> None:
             try:
                 changed = self._state.update_states(battery_state=message.data)
@@ -407,6 +427,16 @@ def create_node_class():
 
         def _tick(self) -> None:
             monotonic_now = time.monotonic()
+            snapshot = self._state.snapshot(self.get_clock().now().nanoseconds / 1e9)
+            axes = status_policy.project_axes(
+                snapshot, self._mission_bridge.snapshot,
+                has_mission=self._mission_bridge.has_snapshot)
+            if self._state.update_states(
+                operational_state=axes.operational_state,
+                docking_state=axes.docking_state,
+            ):
+                self._gate.note_change()
+            self._state.update_mission_context(scan_state=axes.scan_state)
             if not self._gate.due(monotonic_now):
                 return
             self._publish(monotonic_now)
@@ -450,7 +480,7 @@ def create_node_class():
                 '' if mission.waypoint_index < 0
                 else f'W{mission.waypoint_index + 1}'
             )
-            message.scan_state = ''
+            message.scan_state = snapshot.scan_state
             message.reason_code = mission.reason_code
             message.reason = mission.reason
 

@@ -41,6 +41,35 @@ class MissionStatusStoreTest(unittest.TestCase):
                 with self.assertRaises(MissionStatusStoreError):
                     MissionStatusStore(self.path).read()
 
+    def test_invalid_revision_and_field_types_are_rejected(self):
+        self.path.parent.mkdir(parents=True)
+        base = {
+            'schema_version': 1,
+            'mission': 'MISSION_NONE',
+            'waypoint_index': -1,
+            'last_waypoint_index': -1,
+            'command_id': '',
+            'mission_id': '',
+            'outcome': '',
+            'reason_code': 0,
+            'reason': '',
+            'updated_monotonic_s': 1.0,
+            'revision': 1,
+        }
+        for field, value in (
+            ('revision', -1),
+            ('revision', '1'),
+            ('reason_code', -1),
+            ('waypoint_index', -2),
+            ('mission', None),
+        ):
+            with self.subTest(field=field, value=value):
+                payload = dict(base)
+                payload[field] = value
+                self.path.write_text(json.dumps(payload))
+                with self.assertRaises(MissionStatusStoreError):
+                    MissionStatusStore(self.path).read()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -66,6 +66,7 @@ class MissionWorkerReportingTest(unittest.TestCase):
         state = MissionStateTracker()
         arbiter = Arbiter()
         snapshots = []
+        started = []
         times = iter((100, 200))
         worker = MissionWorker(
             SimpleNamespace(robot_id='robot6'),
@@ -79,6 +80,7 @@ class MissionWorkerReportingTest(unittest.TestCase):
                 lambda result: outbox.enqueue(
                     result, 'robot6-20260908T100000')),
             state_sink=snapshots.append,
+            execution_started_sink=started.append,
             now_ns=lambda: next(times),
         )
         worker._controller = Controller(
@@ -101,6 +103,38 @@ class MissionWorkerReportingTest(unittest.TestCase):
         self.assertEqual(store.outcome('cmd-1'), 'SUCCEEDED')
         self.assertEqual(snapshots[-1].mission, 'MISSION_COMPLETED')
         self.assertEqual(arbiter.disabled, [])
+        self.assertEqual(started, [request])
+
+    def test_execution_is_blocked_when_gateway_notification_fails(self):
+        store = CommandStore(self.root / 'commands.json')
+        arbiter = Arbiter()
+        logger = Logger()
+        worker = MissionWorker(
+            SimpleNamespace(robot_id='robot6'),
+            '/robot6',
+            store,
+            arbiter,
+            MissionStateTracker(),
+            logger,
+            lambda: False,
+            execution_started_sink=lambda request: (_ for _ in ()).throw(
+                RuntimeError('publisher failed')),
+            now_ns=lambda: 100,
+        )
+        controller = Controller(
+            worker._on_state_change, ExecutionResult('SUCCEEDED'))
+        worker._controller = controller
+        request = MissionRequest(
+            command_id='cmd-notify-fail',
+            mission_id='msn-1',
+            robot_id='robot6',
+            command=MissionType.START_PATROL,
+        )
+
+        worker._execute(request)
+
+        self.assertEqual(arbiter.disabled, ['LIFECYCLE_REPORT_FAILED'])
+        self.assertEqual(store.outcome(request.command_id), 'CLAIMED')
 
     def test_rejected_command_is_not_added_to_patrol_report_outbox(self):
         store = CommandStore(self.root / 'commands.json')
