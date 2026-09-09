@@ -1,20 +1,13 @@
 #!/usr/bin/env python3
 """cam_master: gate/center CameraState를 구독해 patrol_allowed(Bool) 발행."""
-import time
-import rclpy
-from rclpy.duration import Duration
-from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Bool
-from patrol_interfaces.msg import CameraState
-
-# CCTV 이벤트 QoS: 신뢰성 있는 전달, 최근 20개까지 버퍼링(interfaces.md 9절)
-CCTV_EVENT_QOS = QoSProfile(
-    reliability=ReliabilityPolicy.RELIABLE,
-    durability=DurabilityPolicy.VOLATILE,
-    history=HistoryPolicy.KEEP_LAST,
-    depth=20
-)
+import time                                                         # monotonic 시간 측정용
+import rclpy                                                         # ROS2 파이썬 클라이언트
+from rclpy.duration import Duration                                  # QoS deadline 설정용
+from rclpy.node import Node                                          # ROS2 노드 베이스 클래스
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy  # QoS 설정
+from std_msgs.msg import Bool                                        # patrol_allowed 메시지 타입
+from patrol_interfaces.msg import CameraState                        # 구독할 메시지 타입
+from patrol_vision.cam_common import CCTV_EVENT_QOS                  # gate/center와 동일한 이벤트 QoS(중복 정의 방지)
 
 # patrol_allowed QoS: 최근 1개만 유지, 500ms 이내 발행 보장(deadline)
 PATROL_ALLOWED_QOS = QoSProfile(
@@ -22,7 +15,7 @@ PATROL_ALLOWED_QOS = QoSProfile(
     durability=DurabilityPolicy.VOLATILE,
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
-    deadline=Duration(seconds=0, nanoseconds=500_000_000)
+    deadline=Duration(seconds=0, nanoseconds=500_000_000),
 )
 
 GATE_CAMERA_ID = 'gate_cam'          # gate_event 토픽에서 허용할 camera_id
@@ -42,6 +35,7 @@ PATROL_ALLOWED_BY_STATE = {
 EVENT_ID_TTL_SEC = 600.0          # Q-13: event_id 중복 판정 캐시를 10분간 유지
 EVENT_TIMEOUT_WARN_SEC = 5.0      # 이 시간 이상 이벤트 미수신 시 경고 로그(값 자체는 유지)
 PATROL_ALLOWED_PUBLISH_HZ = 5.0   # patrol_allowed를 값 변화와 무관하게 반복 발행하는 주기
+
 
 class CamMaster(Node):
     def __init__(self):
@@ -124,7 +118,6 @@ class CamMaster(Node):
                 f'이벤트보다 과거 시각(순서 역전)이라 폐기')
             return
 
-##############################################################################핵심내용3
         # 5단계를 다 통과했다 -> 이제 실제로 state를 patrol_allowed 값으로 변환한다.
         new_allowed = PATROL_ALLOWED_BY_STATE.get(msg.state)           # state -> patrol_allowed 매핑
         if new_allowed is None:                                        # 매핑표에 없는 state(이론상 도달 안 함)
@@ -133,7 +126,6 @@ class CamMaster(Node):
             return
 
         self._last_accepted_event_stamp = event_stamp                  # 이 이벤트를 "최신"으로 기록
-##############################################################################핵심내용
 
         if new_allowed != self._patrol_allowed:                        # 값이 바뀌는 경우에만 즉시 발행
             self._patrol_allowed = new_allowed

@@ -30,10 +30,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/EvidenceChunk.msg"
   "msg/KeepoutStatus.msg"
   "msg/AlignmentStatus.msg"
-  "msg/DetectionEvent.msg"
   "msg/DetectionEvidence.msg"
   DEPENDENCIES std_msgs sensor_msgs
-  DEPENDENCIES std_msgs geometry_msgs builtin_interfaces
+  DEPENDENCIES std_msgs sensor_msgs geometry_msgs builtin_interfaces
 )
 
 ament_export_dependencies(rosidl_default_runtime)

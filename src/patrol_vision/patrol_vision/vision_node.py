@@ -15,15 +15,19 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 from sensor_msgs.msg import CompressedImage  # OAK-D 압축 영상과 최종 JPEG 증적 이미지 타입
 from ultralytics import YOLO  # 학습한 YOLO 모델 로드 및 추론
 
-from patrol_interfaces.msg import AlignmentStatus, DetectionCandidate, DetectionEvent  # 프로젝트 공용 메시지 타입
+from patrol_interfaces.msg import (  # 프로젝트 공용 메시지 타입
+    DetectionCandidate,
+    DetectionEvent,
+    DetectionEvidence,
+)
 
 
 ROBOT_ID = "robot6"  # 이 비전 노드가 담당하는 로봇 ID
 
 CAMERA_TOPIC = "/robot6/oakd/rgb/image_raw/compressed"  # OAK-D RGB 압축 영상 Subscribe 토픽
 CANDIDATE_TOPIC = "/robot6/vision/detection_candidate"  # 비전 -> AMR Candidate Publish 토픽
-ALIGNMENT_TOPIC = "/robot6/vision/alignment_status"  # AMR -> 비전 정렬 상태 Subscribe 토픽
 EVENT_TOPIC = "/robot6/vision/detection_event"  # 최종 확정 이벤트 Publish 토픽
+EVIDENCE_TOPIC = "/robot6/vision/detection_evidence"  # 최종 JPEG 증적 Publish 토픽
 
 MODEL_PATH = Path(__file__).resolve().parent / "detection_best.pt"  # 현재 코드와 같은 폴더의 YOLO 모델 경로
 
@@ -33,6 +37,9 @@ YOLO_IMAGE_SIZE = 704  # YOLO 추론 입력 이미지 크기
 CANDIDATE_WINDOW_SEC = 0.30  # Candidate 판정에 사용하는 최근 시간 창: 0.3초
 CANDIDATE_MIN_HITS = 2  # 최근 0.3초 안에 최소 2회 검출되면 Candidate 확정
 CANDIDATE_LOST_SEC = 0.60  # 대상이 0.6초 이상 안 보이면 현재 Candidate를 버림
+
+ALIGNMENT_TOLERANCE = 0.05  # 화면 중심 대비 정규화 좌우 오차 허용값
+ALIGNMENT_STABLE_SEC = 0.50  # 허용 오차 안에서 유지되어야 하는 시간
 
 VERIFY_DURATION_SEC = 1.00  # AMR 정렬 완료 후 최종 검증 시간: 1초
 VERIFY_MAX_FRAME_GAP_SEC = 0.30  # 검증 중 프레임 간격이 0.3초 이상 벌어지면 연속 검증 실패
@@ -51,6 +58,12 @@ EVENT_TYPE = {  # YOLO class 이름을 DetectionEvent enum 값으로 변환
     "fire": DetectionEvent.FIRE,  # fire class -> FIRE enum
     "leak": DetectionEvent.LEAK,  # leak class -> LEAK enum
     "obstacle": DetectionEvent.OBSTACLE,  # obstacle class -> OBSTACLE enum
+}
+
+CANDIDATE_EVENT_TYPE = {  # DetectionCandidate는 DetectionEvent와 enum 숫자가 다르므로 별도 변환
+    "fire": DetectionCandidate.FIRE,
+    "leak": DetectionCandidate.LEAK,
+    "obstacle": DetectionCandidate.OBSTACLE,
 }
 
 STATE_TEXT = {  # OpenCV 화면 좌측 상단에 보여줄 상태 문자열
@@ -102,7 +115,7 @@ class DetectingNode(Node):  # ROS2 메인 비전 노드 클래스
             reliability=ReliabilityPolicy.BEST_EFFORT,  # 손실 가능하지만 최신성 우선
             durability=DurabilityPolicy.VOLATILE,  # 늦게 들어온 subscriber에게 과거 메시지를 재전송하지 않음
         )
-        reliable = QoSProfile(  # Alignment/Event용 QoS 생성
+        reliable = QoSProfile(  # Event/Evidence용 QoS 생성
             history=HistoryPolicy.KEEP_LAST,  # 최근 메시지들만 보관
             depth=10,  # 최근 메시지 최대 10개 유지
             reliability=ReliabilityPolicy.RELIABLE,  # 중요한 상태/결과이므로 신뢰성 있게 전달
@@ -124,28 +137,30 @@ class DetectingNode(Node):  # ROS2 메인 비전 노드 클래스
         self.candidate_pub = self.create_publisher(  # DetectionCandidate publisher 생성
             DetectionCandidate, CANDIDATE_TOPIC, best_effort  # 최신 horizontal_error를 AMR에 전달
         )
-        self.alignment_sub = self.create_subscription(  # AlignmentStatus subscriber 생성
-            AlignmentStatus, ALIGNMENT_TOPIC, self.alignment_callback, reliable  # AMR 정렬 상태를 callback으로 전달
-        )
         self.event_pub = self.create_publisher(  # 최종 DetectionEvent publisher 생성
-            DetectionEvent, EVENT_TOPIC, reliable  # 확정 이벤트 + JPEG 이미지를 발행
+            DetectionEvent, EVENT_TOPIC, reliable  # 확정 이벤트 메타데이터를 발행
+        )
+        self.evidence_pub = self.create_publisher(  # 최종 DetectionEvidence publisher 생성
+            DetectionEvidence, EVIDENCE_TOPIC, reliable  # 이벤트와 연결된 JPEG 증적을 발행
         )
 
         self.get_logger().info(  # 비전 노드 시작 상태를 터미널에 표시
             f"Vision READY | robot={ROBOT_ID} | classes={self.model.names}"  # 담당 로봇과 YOLO class 출력
         )
         self.get_logger().info(f"Candidate TX: {CANDIDATE_TOPIC}")  # Candidate 발행 토픽 출력
-        self.get_logger().info(f"Alignment RX: {ALIGNMENT_TOPIC}")  # Alignment 수신 토픽 출력
         self.get_logger().info(f"Event TX: {EVENT_TOPIC}")  # 최종 Event 발행 토픽 출력
+        self.get_logger().info(f"Evidence TX: {EVIDENCE_TOPIC}")  # 최종 증적 발행 토픽 출력
 
     def reset_candidate(self):  # 현재 Candidate 상태만 초기화하는 함수
         self.state = VisionState.SEARCHING  # 다시 새로운 이벤트 탐색 상태로 변경
         self.candidate_id = None  # 현재 Candidate ID 제거
         self.class_name = None  # 현재 추적 class 제거
+        self.confidence = 0.0  # 현재 추적 대상 confidence 초기화
         self.bbox = None  # 현재 bbox 제거
         self.last_seen = 0.0  # 마지막 검출 시각 초기화
         self.verify_start = 0.0  # Verification 시작 시각 초기화
         self.verify_last_frame = 0.0  # Verification 마지막 프레임 시각 초기화
+        self.alignment_centered_since = None  # 화면 중앙 정렬 유지 시작 시각 초기화
         self.hits.clear()  # Candidate 검출 시각 기록 비움
         self.verify_confidences.clear()  # Verification confidence 기록 비움
 
@@ -154,7 +169,7 @@ class DetectingNode(Node):  # ROS2 메인 비전 노드 클래스
         self.candidate_id = (  # 새로운 Candidate ID 생성
             f"cand-{self.session_id}-{self.candidate_sequence:06d}"  # 세션 ID + 순번으로 고유 ID 구성
         )
-        self.class_name, _, self.bbox = detection  # class와 bbox를 현재 추적 대상으로 저장하고 confidence는 여기선 사용하지 않음
+        self.class_name, self.confidence, self.bbox = detection  # class/confidence/bbox를 현재 추적 대상으로 저장
         self.last_seen = now  # 방금 본 시간을 마지막 검출 시각으로 저장
         self.hits.clear()  # 이전 hit 기록 제거
         self.hits.append(now)  # 첫 번째 검출 시각 저장
@@ -262,7 +277,7 @@ class DetectingNode(Node):  # ROS2 메인 비전 노드 클래스
         if self.candidate_id is None:  # 아직 Candidate 추적을 시작하지 않았다면
             self.start_candidate(detection, now)  # 새 Candidate 추적 시작
         else:  # 이미 Candidate를 추적 중이면
-            self.class_name, _, self.bbox = detection  # 최신 class/bbox로 갱신
+            self.class_name, self.confidence, self.bbox = detection  # 최신 class/confidence/bbox로 갱신
             self.last_seen = now  # 마지막 검출 시각 갱신
             self.hits.append(now)  # 현재 검출 시각을 Candidate hit 기록에 추가
 
@@ -295,6 +310,7 @@ class DetectingNode(Node):  # ROS2 메인 비전 노드 클래스
             self.publish_candidate(frame, image_msg)  # 최신 horizontal_error를 매 프레임 계속 발행
 
     def publish_candidate(self, frame, image_msg):  # DetectionCandidate 메시지를 만들어 AMR에 발행
+        now = time.monotonic()
         _, width = frame.shape[:2]  # 이미지 너비 읽기
         x1, _, x2, _ = self.bbox  # 현재 bbox의 x 좌표만 사용
         horizontal_error = (((x1 + x2) / 2.0) - width / 2.0) / (width / 2.0)  # bbox 중심과 화면 중심의 정규화 오차 계산
@@ -303,45 +319,21 @@ class DetectingNode(Node):  # ROS2 메인 비전 노드 클래스
         msg.header = image_msg.header  # 원본 카메라 프레임의 timestamp/frame_id 사용
         msg.robot_id = ROBOT_ID  # 어떤 로봇의 Candidate인지 기록
         msg.candidate_id = self.candidate_id  # 현재 Candidate ID 기록
+        msg.event_type = CANDIDATE_EVENT_TYPE[self.class_name]  # Candidate 전용 enum으로 이벤트 종류 기록
+        msg.confidence = float(self.confidence)  # 최신 YOLO confidence 기록
         msg.horizontal_error = float(horizontal_error)  # AMR yaw 정렬에 사용할 좌우 오차 기록
         self.candidate_pub.publish(msg)  # /robot6/vision/detection_candidate 발행
 
-    def alignment_callback(self, msg):  # AMR의 AlignmentStatus가 들어올 때마다 실행
-        if msg.robot_id != ROBOT_ID or self.candidate_id is None:  # 다른 로봇 메시지거나 현재 Candidate가 없으면
-            return  # 처리하지 않음
+        # 별도 AlignmentStatus 인터페이스가 없으므로 영상 중심 오차가 일정 시간 안정되면 정렬 완료로 판단한다.
+        if abs(horizontal_error) <= ALIGNMENT_TOLERANCE:
+            if self.alignment_centered_since is None:
+                self.alignment_centered_since = now
+            elif now - self.alignment_centered_since >= ALIGNMENT_STABLE_SEC:
+                self.start_verification()
+        else:
+            self.alignment_centered_since = None
 
-        if msg.candidate_id != self.candidate_id:  # AMR이 돌려준 Candidate ID가 현재 ID와 다르면
-            self.get_logger().warning(  # ID mismatch 경고
-                f"Alignment ID mismatch | current={self.candidate_id} | "  # 비전이 현재 기다리는 ID
-                f"received={msg.candidate_id}"  # AMR에서 받은 ID
-            )
-            return  # 다른 Candidate 결과이므로 무시
-
-        if msg.state == AlignmentStatus.ALIGNING:  # AMR이 아직 정렬 중이면
-            return  # 비전은 아무것도 하지 않고 기다림
-
-        if msg.state == AlignmentStatus.ALIGNED_COMPLETE:  # AMR 정렬이 완료됐으면
-            if self.state == VisionState.WAITING_ALIGNMENT:  # 비전도 해당 정렬 결과를 기다리던 상태인지 확인
-                self.start_verification()  # 1초 최종 검증 시작
-            return  # callback 종료
-
-        if msg.state == AlignmentStatus.FAILED:  # AMR 정렬 자체가 실패했으면
-            self.get_logger().warning(  # 실패 로그 출력
-                f"Alignment FAILED | id={self.candidate_id}"  # 실패한 Candidate ID 표시
-            )
-            self.reset_candidate()  # Candidate 폐기 후 다시 탐색
-            return  # callback 종료
-
-        if msg.state == AlignmentStatus.SAFETY_ABORTED:  # 안전 문제로 AMR이 정렬을 중단했으면
-            self.get_logger().warning(  # 안전 중단 로그 출력
-                f"Alignment SAFETY ABORTED | id={self.candidate_id}"  # 해당 Candidate ID 표시
-            )
-            self.reset_candidate()  # Candidate 폐기 후 다시 탐색
-            return  # callback 종료
-
-        self.get_logger().warning(f"Unknown AlignmentStatus state: {msg.state}")  # 정의하지 않은 state가 오면 경고
-
-    def start_verification(self):  # ALIGNED_COMPLETE 수신 직후 1초 검증을 시작
+    def start_verification(self):  # 화면 중심 정렬이 안정된 직후 1초 검증을 시작
         now = time.monotonic()  # 검증 시작 기준 시각
         self.state = VisionState.VERIFYING  # 상태를 VERIFYING으로 변경
         self.verify_start = now  # 1초 측정을 위한 시작 시각 저장
@@ -429,27 +421,36 @@ class DetectingNode(Node):  # ROS2 메인 비전 노드 클래스
         evidence_id = f"evidence-{self.session_id}-{self.event_sequence:06d}"  # 현재 인터페이스의 evidence_id 생성
         stamp = self.get_clock().now().to_msg()  # 최종 Detection 확정 시각을 ROS Time으로 생성
 
-        image = CompressedImage()  # DetectionEvent에 넣을 JPEG 이미지 메시지 생성
+        image = CompressedImage()  # DetectionEvidence에 넣을 JPEG 이미지 메시지 생성
         image.header.stamp = stamp  # 증적 이미지 촬영/확정 시각
         image.header.frame_id = image_msg.header.frame_id  # 원본 카메라 optical frame 유지
         image.format = "jpeg"  # 압축 포맷을 JPEG로 명시
         image.data = encoded.tobytes()  # JPEG 압축 byte 데이터를 메시지에 저장
 
+        message_id = f"msg-{self.session_id}-{self.event_sequence:06d}"  # 전송 메시지 고유 ID 생성
+
         event = DetectionEvent()  # 최종 DetectionEvent 메시지 생성
         event.header.stamp = stamp  # 최종 이벤트 확정 시각
         event.header.frame_id = image_msg.header.frame_id  # 이벤트 기준 카메라 frame
+        event.message_id = message_id  # 전송 메시지 고유 ID
         event.event_id = event_id  # 최종 사건 고유 ID
-        event.source_session_id = self.session_id  # 현재 비전 노드 실행 세션 ID
-        event.source_sequence = self.event_sequence  # 이 세션 내 최종 이벤트 순번
         event.robot_id = ROBOT_ID  # 이벤트를 탐지한 로봇 ID
-        event.mission_id = ""  # 현재 Vision은 mission 정보를 직접 받지 않으므로 빈 문자열
-        event.command_id = ""  # 현재 Vision은 command 정보를 직접 받지 않으므로 빈 문자열
         event.event_type = EVENT_TYPE[self.class_name]  # fire/leak/obstacle을 enum 값으로 기록
         event.confidence = float(avg_conf)  # 1초 Verification 동안의 평균 confidence
+        event.risk_level = DetectionEvent.RISK_UNKNOWN  # 별도 위험도 판정 로직이 없으므로 UNKNOWN
+        event.location_valid = False  # 이 노드는 map 좌표를 산출하지 않으므로 위치 무효
+        event.detected_at = stamp  # 최종 이벤트 확정 시각
         event.evidence_id = evidence_id  # 현재 인터페이스 호환을 위해 evidence_id 기록
-        event.image = image  # bbox 표시 JPEG 이미지를 DetectionEvent 안에 직접 포함
 
-        self.event_pub.publish(event)  # 모든 정보가 준비된 최종 DetectionEvent를 한 번 발행
+        evidence = DetectionEvidence()  # JPEG 증적용 별도 메시지 생성
+        evidence.header = event.header
+        evidence.robot_id = ROBOT_ID
+        evidence.event_id = event_id
+        evidence.evidence_id = evidence_id
+        evidence.image = image
+
+        self.event_pub.publish(event)  # 최종 이벤트 메타데이터 발행
+        self.evidence_pub.publish(evidence)  # event_id/evidence_id로 연결된 JPEG 증적 발행
 
         if signature is not None:  # 현재 이벤트 dHash가 정상 생성됐다면
             self.confirmed_hashes[EVENT_TYPE[self.class_name]].append(signature)  # 같은 event_type의 확정 hash 목록에 저장

@@ -96,7 +96,7 @@ class CenterCam(Node):
     def _detect_and_track(self, frame):
         h, w = frame.shape[:2]                                         # 프레임 크기
         roi_dict = {                                                   # 비율 ROI를 픽셀 좌표로 변환
-            'TOP': ratio_to_pixel_rect((0.2, 0.15, 0.62, 0.32), w, h),      # 상단 주차 ROI(설치 기준 확정값)
+            'TOP': ratio_to_pixel_rect((0.25, 0.15, 0.62, 0.32), w, h),      # 상단 주차 ROI(설치 기준 확정값)
             'BOTTOM': ratio_to_pixel_rect((0.05, 0.76, 0.7, 1.00), w, h),   # 하단 주차 ROI(설치 기준 확정값)
         }
 
