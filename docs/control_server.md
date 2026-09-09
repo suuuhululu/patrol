@@ -204,6 +204,69 @@ E-stop 대상은 `robot1`, `robot6`, `all`이다. 관제는 대상별 활성 원
 
 검증은 [integration.md](integration.md)의 token·상태·Keepout·교대·E-stop 시험을 따른다. Dashboard는 현재 읽기 전용이다. E-stop 정지·해제 요청 UI 추가는 System monitor 팀과 PM 검토가 필요한 경계 변경이며, UI는 합의 후에도 관제 소유 요청 API만 호출하고 판단·직접 발행을 수행하지 않는다. 구체 API는 TBD-CTRL-004다.
 
+### 7.1 1단계 관제 코드 Flowchart
+
+구현 대조 완료: `patrol_control` 0.1.0, 2026-09-08 작업 트리. 1단계는 Robot Command Manager와 명령 경로의 ROS 2 Gateway를 `command_control_node`에 묶는다. Drive Token·안전·교대·Keepout은 아직 이 노드에 넣지 않았으며 각 계약이 준비된 다음 통합 단위를 결정한다.
+
+#### `src/patrol_control/patrol_control/command_control.py`
+
+~~~mermaid
+flowchart TD
+    A[create_command: robot·command·mission·target] --> B[session 기반 mission·command ID 생성]
+    B --> C{명령별 필수값 유효}
+    C -->|아니오| D[CommandValidationError / 200~206]
+    C -->|예| E[CommandRecord WAITING·원 payload 보관]
+    E --> F[poll_retries]
+    F -->|5초 전| E
+    F -->|5초·2회 이내| G[동일 ID·payload RETRANSMIT]
+    G --> E
+    F -->|2회 이후| H[COMMAND_CHECK_TIMEOUT 1회]
+
+    I[handle_check] --> J{command·mission·robot ID 일치}
+    J -->|아니오| K[폐기·진단]
+    J -->|예| L{check_state 0~3}
+    L -->|UNKNOWN·미정의| K
+    L -->|WAITING→ACCEPTED| M[ACCEPTED]
+    L -->|ACCEPTED→EXECUTING| N[EXECUTING]
+    L -->|WAITING→EXECUTING| O[EXECUTING + ACCEPTED_MISSING]
+    O --> P[POLICY_PENDING / 재전송 여부 TBD-CTRL-001]
+    L -->|WAITING→REJECTED| Q[REJECTED]
+    L -->|역방향·terminal 변경| K
+
+    R[handle_report] --> S{ID·report_id 유효}
+    S -->|아니오| K
+    S -->|중복 report_id| T[중복 수락·상태 유지]
+    S -->|새 최종 결과| U[COMPLETED]
+    R -. 중간 Check 누락 .-> V[경고 후 최종 결과 수락]
+    V --> U
+~~~
+
+#### `src/patrol_control/patrol_control/command_control_node.py`
+
+~~~mermaid
+flowchart TD
+    A[main / CommandControlNode.__init__] --> B[robot1·robot6 publisher/subscriber 생성]
+    B --> C[0.1초 retry timer]
+    D[submit_command 내부 진입점] --> E[CommandControl.create_command]
+    E -->|검증 실패| F[오류 로그·발행 안 함]
+    E -->|성공| G[MissionCommand 발행]
+    H[CommandCheck callback] --> I{topic robot과 payload robot 일치}
+    I -->|아니오| J[폐기·경고]
+    I -->|예| K[CommandControl.handle_check]
+    L[PatrolReport callback] --> M{topic robot과 payload robot 일치}
+    M -->|아니오| J
+    M -->|예| N[CommandControl.handle_report]
+    C --> O[CommandControl.poll_retries]
+    O -->|RETRANSMIT| G
+    O -->|TIMEOUT| P[COMMAND_CHECK_TIMEOUT 로그]
+    O -->|POLICY_PENDING| Q[AMR 합의 대기 진단]
+    R[Ctrl+C] --> S[CONTROL_SHUTDOWN 로컬 로그]
+    S --> T[노드 종료]
+    S -. token 회수 .-> U[후속 safety-control 구현]
+~~~
+
+외부 명령 service/action은 TBD-CTRL-004이므로 생성하지 않았다. `submit_command()`는 이후 관제 소유 API가 호출할 내부 진입점이다. `CONTROL_SHUTDOWN`의 공용 운영 이벤트 발행과 token best-effort 회수는 TBD-IF-011 및 후속 안전 제어 구현 전까지 로컬 로그로만 남긴다.
+
 ## 8. 결정 기록과 공동 반영 대기
 
 AMR 적용 검토와 robot1·robot6 반영 상태는 [관제 수정 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md)로 추적한다.
