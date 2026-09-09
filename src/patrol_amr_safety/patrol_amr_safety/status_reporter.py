@@ -244,7 +244,7 @@ def create_node_class():
                 internal_qos,
             )
             # 19단계: command_gateway 가 판정을 끝낸 뒤 내보내는 내부 신호다.
-            # 여기서는 check_state 정수 매핑(TBD-IF-001)을 알 필요가 없다 --
+            # 여기서는 v1.0 check_state 정수 매핑을 다시 해석할 필요가 없다.
             # 이 토픽에 올라온 것은 이미 거절이 아닌 현재 명령이다.
             self.create_subscription(
                 CommandCheck,

@@ -1,6 +1,6 @@
 # [AMR] 최종 cmd_vel 경로와 Nav2·yaw 주행 후보 토픽
 
-- 상태: 합의 (2026-09-08 관제 회신으로 5건 전부 확정) · AMR 반영 완료 · 관제 반영 대기
+- 상태: 합의 (2026-09-08 관제 회신으로 5건 전부 확정) · TBD-IF-009 해결 · AMR 로컬 반영 완료 · 관제 launch·실기 검증 대기
 - 최초 작성 시각: 2026-09-08 08:31 KST
 - 요청자: 조정묵 (AMR)
 - 요청 단위: AMR
@@ -90,7 +90,6 @@ mission_supervisor yaw 정렬            → /robotN/cmd_vel_yaw       ★ 신�
 - **Nav2 후보와 yaw 후보 사이의 중재**(둘이 동시에 올 때 무엇을 고르는가). TBD-AMR-001이며 `mission_supervisor` 담당이다. `local_safety_supervisor`는 중재하지 않고, 합의 전까지 후보 하나만 구독한다.
 - 속도 상한·clamp·감속 프로파일·장애물 판정. TBD-AMR-006이다. `MotionGuard`는 지금처럼 통과 또는 `STOP=(0.0, 0.0)`만 한다.
 - `/robotN` namespace를 Nav2 노드에 적용하는 **방식**(launch `namespace` 인자 대 topic prefix remap). namespace를 쓴다는 것 자체는 [architecture.md 2절](../architecture.md)에서 이미 확정됐고, 적용 방법만 박성현 launch 구조에 달려 있다.
-- `/robotN/cmd_vel_yaw`의 **발행 주체**. 토픽 이름·타입만 계약에 예약하고 누가 발행하는지는 미정으로 둔다. `mission_supervisor`는 이 저장소에 없고 조정묵 작업 범위(AMR Python 7개·ROS 노드 3개) 밖이라, 근거 없이 배정하지 않는다.
 - 실기 Create 3·TurtleBot4가 실제로 구독하는 토픽·타입. 위 확인은 시뮬레이션 설정 파일 기준이다.
 
 ## 요청 작업
@@ -153,4 +152,3 @@ mission_supervisor yaw 정렬            → /robotN/cmd_vel_yaw       ★ 신�
 | 2026-09-08 | AMR | 확정 내용을 11~13단계로 구현·검증 완료. 관제 Nav2 설정은 건드리지 않았다 | 단위시험 114건 OK, 확장 스모크 `AMR_SMOKE_PASS`, 사용자 ROS 토픽 시험 통과 |
 | 2026-09-08 | 관제 | 5개 질의에 모두 제안대로 회신. **합의 성립** | 위 회신 표 |
 | 2026-09-08 | AMR | 회신 반영: interfaces.md 7절에 확정 경로, 9절에 Q-17 등재, TBD-IF-009 결정 처리. launch에 `push_namespace` 인자 추가 | namespace 중복을 실측 재현한 뒤 대응 |
-| | 관제 | 회신 대기 | |

@@ -163,6 +163,25 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertTrue(view["keepouts"][0]["warning"])
         self.assertEqual(view["keepout_warning_count"], 1)
 
+    def test_keepout_can_arrive_before_first_robot_status(self):
+        """DDS 메시지 도착 순서와 무관하게 첫 Keepout 상태를 저장한다."""
+        with self.app.app_context():
+            db = get_db()
+            db.execute("DELETE FROM robots WHERE robot_id = 'AMR1'")
+            db.commit()
+            self.assertEqual(
+                safety_service.receive_keepout(self.keepout(), self.now)[0],
+                "accepted",
+            )
+            robot = db.execute(
+                "SELECT name FROM robots WHERE robot_id = 'AMR1'"
+            ).fetchone()
+            keepout = db.execute(
+                "SELECT state FROM keepout_latest WHERE robot_id = 'AMR1'"
+            ).fetchone()
+        self.assertEqual(robot["name"], "로봇 1")
+        self.assertEqual(keepout["state"], "APPLIED")
+
     def test_estop_records_only_state_changes_and_keeps_last_value(self):
         first = self.estop()
         with self.app.app_context():

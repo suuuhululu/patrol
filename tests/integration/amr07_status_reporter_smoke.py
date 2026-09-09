@@ -85,7 +85,6 @@ def main():
         '-r', '__ns:=/robot6',
         '-p', 'robot_id:=robot6',
         '-p', 'source_session_id:=robot6-20260908T100001',
-        '-p', 'safety_state:=0',
         '-p', f'mission_status_path:={status_path}',
         '-p', f'report_outbox_path:={outbox_path}',
     ]

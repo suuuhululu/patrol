@@ -69,14 +69,17 @@ class RosAdapterTests(unittest.TestCase):
     def test_estop_payload_uses_contract_fields_only(self):
         message = ns(
             header=header(""), target_robot_id="all", active=True, reason=2,
-            latched=True, sequence=12,
+            sequence=12,
         )
         payload = ros_adapter.estop_payload(message)
         self.assertEqual(payload["target_robot_id"], "all")
         self.assertTrue(payload["active"])
         self.assertEqual(payload["reason"], 2)
         self.assertEqual(payload["sequence"], 12)
-        self.assertNotIn("latched", payload)
+        self.assertEqual(
+            set(payload),
+            {"target_robot_id", "active", "reason", "sequence", "observed_at"},
+        )
         with self.assertRaises(ros_adapter.RosMessageMappingError):
             ros_adapter.estop_payload(ns(header=header(""), target_robot_id="AMR1", active=True, reason=0, sequence=1))
 

@@ -29,10 +29,10 @@ Two outputs, deliberately separate (11단계 split the gates):
 * Speed limits, deceleration profiles and obstacle judgment stay absent
   (TBD-AMR-006). A permitted candidate passes through unshaped.
 
-Import note: 9단계 turned src/patrol_amr into an installed ament_python
-package, so the sibling guard modules below are imported as members of
-patrol_amr. Run this node with `ros2 run patrol_amr local_safety_supervisor`;
-running the file directly no longer resolves those imports.
+The safety guards live in `patrol_amr_safety`; the heartbeat pure-logic guard
+is currently imported from `patrol_amr`. Run this node with
+`ros2 run patrol_amr_safety local_safety_supervisor`; running the file directly
+does not provide the installed package import environment.
 """
 
 import math
@@ -72,8 +72,8 @@ class SafetyGate:
     when no new message arrives (Q-01 lease elapses on the clock, not on
     message receipt), and output() to catch Q-17 candidate staleness the
     same way. EStopGuard has no such timer: it holds no lease and amr.md
-    forbids adding an arbitrary local timeout for it (heartbeat/staleness
-    is the separate, still-undecided TBD-IF-004).
+    forbids adding an arbitrary local timeout for it. Heartbeat staleness is
+    handled separately by the fixed ControlHeartbeat 1.0-second contract.
 
     Two clocks reach this class and they are not interchangeable, so the
     caller passes both rather than letting this class pick one. Q-01 lease
