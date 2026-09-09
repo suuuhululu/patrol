@@ -1,6 +1,8 @@
 # AMR 개발 워크스페이스 인수인계
 
-작성일: 2026-09-07 · 최종 갱신: 2026-09-08 11:11 KST · 작업 브랜치: `feat/amr-safety-status`
+> **과거 구현 이력 — 현행 계약 판단·실행 금지:** 이 문서에는 폐기된 `latched`·물리 E-stop·수동 reset 및 구형 메시지 예제가 남아 있다. 해당 내용과 명령은 재사용하지 않는다. 현행 계약과 실행 입력은 [관제 인터페이스 v1.0](../decisions/2026-09-08-control-interface-baseline.md), [interfaces.md](../interfaces.md), [patrol_amr README](../../src/patrol_amr/README.md)만 따른다. 충돌 시 이 문서는 근거가 아니다.
+
+작성일: 2026-09-07 · 최종 갱신: 2026-09-08 11:48 KST · 로컬 작업 브랜치: `codex/amr-row-completion`
 
 ## 1. 작업 범위와 현재 상태
 
@@ -8,7 +10,7 @@
 
 사용자 지시로 현재 구현은 로컬 `codex/amr-row-completion` 브랜치에서만 진행한다. 사용자가 다시 요청하기 전에는 commit·push·fetch·merge를 하지 않고 `main`을 변경하지 않는다.
 
-조정묵 담당 범위는 공용 메시지 기반과 기존 AMR Python 파일 7개, ROS 노드 3개였다. 2026-09-08 사용자가 업무표 전 행 100%를 목표로 로컬 구현을 승인해 순수 모듈 `patrol_report.py`, `command_store.py`, `heartbeat_guard.py`가 추가되어 현재 Python 파일은 10개다. ROS 노드는 여전히 3개다. 과거 업무 분장 자료의 `parking_interfaces`와 `final_turtlebot_pkg`는 현재 저장소 경로가 아니다. 현재 이름은 `patrol_interfaces`와 `patrol_amr`이며, 옛 이름의 패키지를 새로 만들지 않는다.
+조정묵 담당 범위는 공용 메시지 기반과 기존 AMR Python 파일 7개, ROS 노드 3개였다. 2026-09-08 사용자가 업무표 전 행 100%를 목표로 로컬 구현을 승인해 순수 모듈 6개가 추가되어 현재 Python 파일은 13개다. ROS 노드는 여전히 3개다. 과거 업무 분장 자료의 `parking_interfaces`와 `final_turtlebot_pkg`는 현재 저장소 경로가 아니다. 현재 이름은 `patrol_interfaces`와 `patrol_amr`이며, 옛 이름의 패키지를 새로 만들지 않는다.
 
 | 단계 | 대상 | 상태 |
 |---|---|---|
@@ -53,6 +55,13 @@
 - 2026-09-08 업무표 100% 계획 착수: `command_store.py`에 SQLite 영속 command ID, 동일/충돌 재수신 판정, 실행 상태와 완료 report 보존, Q-14의 24시간+오래된 최신 1,000개 유지를 구현했다. 단위시험 14건 통과. public CommandCheck 숫자와 mission ROS adapter가 없어 AMR-05는 아직 전체 완료가 아니다.
 - 2026-09-08 AMR-20 확정 부분 구현: `heartbeat_guard.py`에 control session·증가 sequence와 Q-16의 1초 초과 timeout을 구현했다. 단위시험 10건, 전체 `Ran 190 tests`/`OK`, 두 패키지 빌드 성공. wire 메시지 타입과 `local_safety_supervisor` ROS 연결이 없어 AMR-20은 아직 전체 완료가 아니다.
 - 2026-09-08 AMR-07 확정 부분 확장: `PatrolReportRecord`를 실제 wire 필드로 변환하고 caller-owned publisher로 1회 발행하는 helper와 RELIABLE·VOLATILE·KEEP_LAST(20) QoS helper를 추가했다. 전용 22건, 전체 `Ran 196 tests`/`OK`, 실제 QoS 객체 확인과 두 패키지 빌드 성공. mission 입력과 영속 재전송 trigger가 없어 AMR-07은 아직 전체 완료가 아니다.
+- 2026-09-08 AMR-05·07 영속 연결: PatrolReport canonical JSON codec과 `CommandStore.complete_report()`·`completed_report()`를 추가했다. command/robot ID가 일치하는 report만 저장하고 재시작 뒤 같은 record로 복원한다. PatrolReport 24건, CommandStore 16건, 전체 `Ran 200 tests`/`OK`, 두 패키지 빌드 성공.
+- 2026-09-08 AMR-06 mission context 준비: `robot_status_state`에 active command/mission ID, waypoint, scan, reason code/detail 원자 저장을 추가하고 `status_reporter`의 wire 필드에 매핑했다. 전용 39+17건, 전체 `Ran 208 tests`/`OK`, 두 패키지 빌드 성공. mission 입력 adapter가 없어 기본값은 비어 있으며 AMR-06은 아직 전체 완료가 아니다.
+- 2026-09-08 20단계 확정 부분 확장: `command_check.py`·`mission_ingress.py`·`report_replay.py`를 추가해 신규 명령 1회 dispatch, 중복 ACK, 충돌 거절, 완료 report 재전달, 재연결 epoch replay를 연결했다. 전체 `Ran 231 tests`/`OK`. 종단 ROS 연결의 미정 5항목은 [수정 요청서](../change_requests/CR-AMR_09-08_11-48_명령_상태_보고_종단_계약.md)에 분리했다. 현재는 사용자 직접 ROS 시험 대상이 아니다.
+- 2026-09-08 21단계 첫 구현: 저장소에 Nav2 map YAML/이미지, Keepout mask, P1~P7·도크·안전구역 좌표가 없음을 확인했다. `safe_zone_selector.py`는 외부에서 측정된 후보에 Q-08의 map/free/Keepout/0.5m/1.0m/path/비중첩 게이트를 적용하고, 차량 동선 거리→경로 비용 순으로 선택한다. 무후보는 `SAFE_ZONE_NOT_FOUND=400`이며 좌표를 임의 생성하지 않는다.
+- 2026-09-08 map·Keepout 자료 반영: 사용자 제공 `final_project_map` 원본과 WP1~WP7 실측 pose를 package share 자산으로 추가했다. 원본/복사 PGM SHA-256은 `c07df922bb4b520f9a20a9098a507786eb790646d51c98d95443f19e02efa1e6`으로 일치한다. 빨간 기본 Keepout은 `P1-P2-P3-P4`·`P5-P6-P7-P8`, 노란 중앙통로 Keepout은 `P2-P5-P8-P3`으로 분리해 126×90 binary PGM mask 2장을 생성했다. 실제 Nav2 filter 연결 전에 기본/중앙 mask의 활성 정책을 확정해야 한다.
+- 사용자 확인으로 빨간 기본 mask는 상시, 노란 중앙통로 mask는 관제가 `/vision/cctv/patrol_allowed=false`를 받았을 때 활성하는 정책으로 기록했다. AMR이 비전 상태를 직접 판단하지 않는다. 전체 자동시험 `Ran 250 tests`/`OK`, 두 패키지 빌드 성공. 다음 기능은 Nav2 dual-filter parameter·launch·read-back 연결이다.
+- 사용자 지시: 다음 기능 구현은 항상 현재 결과를 보고한 뒤 사용자의 `진행` 확인을 받고 시작한다. 자동시험은 구현 묶음 마무리 시 1회로 통합한다.
 - 실제 Nav2 후보 연동은 성현님 launch 병합이 선행된다. 그 전까지 AMR 자체 항목을 먼저 채운다.
 - 아래 이력 항목의 `0efa7fa` 언급은 당시 기록이며 현재 HEAD가 아니다.
 - 2026-09-07 20:32 KST 재검증에서 `patrol_interfaces` 빌드는 `1 package finished`, 전체 단위시험은 `Ran 89 tests`와 `OK`, `git diff --check`는 출력 없이 통과했다.
@@ -282,7 +291,7 @@ python3 -m unittest discover -s tests -p test_estop_guard.py -v
 `src/patrol_amr/patrol_amr/motion_guard.py`는 3·4단계와 같은 일반 Python 모듈이다. 원래 파일명이 함의하는 장애물 회피·정지 거리·감속은 TBD-AMR-006이 전부 미정으로 남긴 부분이라, 진행 전 사용자에게 확인하고 범위를 좁혔다.
 
 - 구현한 것: token 미부여 또는 E-stop 활성 중 하나라도 해당하면 속도 후보를 버리고 정지(0.0, 0.0)를 출력하는 AND 게이트. 3·4단계 가드의 판정을 그대로 입력받는다.
-- 구현하지 않은 것: Nav2·yaw 후보 중 선택(TBD-AMR-001), 장애물 감지·감속·정지 거리·센서 고장 판정(TBD-AMR-006), 속도 상한, 최종 발행 타입(TBD-IF-009). 실제 로봇 사양·물리량이 필요해 근거 없이 구현하면 안전성이 검증되지 않은 채 "구현됨"으로 보일 위험이 있었다.
+- 당시 구현하지 않은 것: Nav2·yaw 후보 중 선택(TBD-AMR-001), 장애물 감지·감속·정지 거리·센서 고장 판정(TBD-AMR-006), 속도 상한, 최종 발행 타입. 최종 발행 타입과 경로는 이후 TBD-IF-009 합의로 `Twist`·`/robotN/cmd_vel`로 확정하고 11~13단계에 반영했다. 나머지 안전 수치는 실제 로봇 사양·물리량이 필요해 근거 없이 구현하지 않았다.
 
 단위시험:
 
@@ -300,7 +309,7 @@ python3 -m unittest discover -s tests -p test_motion_guard.py -v
 `src/patrol_amr/patrol_amr/local_safety_supervisor.py`는 3~5단계 가드를 실제 ROS 노드로 묶은 첫 지점이다. 5단계와 같은 이유로 진행 전 범위를 확인했다.
 
 - 구현한 것: `/control/drive_token`·`/control/estop`을 실제 구독해 3·4단계 가드에 반영하고, 결합 결과를 AMR 내부 신호 `motion_allowed`(`std_msgs/Bool`)로 발행한다. drive_token의 Q-01 lease가 메시지 없이도 시계로 만료되도록 0.1초 재확인 타이머를 둔다(`battery_monitor`의 신선도 검사와 같은 간격).
-- 구현하지 않은 것: 실제 속도 후보 입력과 최종 속도 발행. Nav2·yaw 후보 중재(TBD-AMR-001)는 `mission_supervisor` 담당이며 이 작업 범위(AMR Python 파일 7개·ROS 노드 3개) 밖이고, 최종 발행 타입(TBD-IF-009)도 미정이다. `MotionGuard.evaluate()`는 준비돼 있지만 아직 실제 후보로 호출되지 않는다.
+- 당시 구현하지 않은 것: 실제 속도 후보 입력과 최종 속도 발행. Nav2·yaw 후보 중재(TBD-AMR-001)는 `mission_supervisor` 담당으로 남았고, 최종 발행 타입은 이후 TBD-IF-009 합의로 `Twist`로 확정해 11~13단계에 반영했다. `MotionGuard.evaluate()`는 이 단계 시점에는 준비됐지만 실제 후보로 호출되지 않았다.
 - `robot_id`는 필수 ROS parameter다. 미지정·오지정 시 노드가 시작하지 않는다.
 
 단위시험 (ROS 불필요, `SafetyGate`는 순수 Python):
@@ -825,7 +834,7 @@ TBD-AMR-003은 사용자의 권장안 승인으로 AMR 코드에 반영했으며
 |---|---|---|
 | 1 | `final_turtlebot_pkg` → `patrol_amr` 이관 방식 확정 | 이 브랜치는 `patrol_amr` 사용 완료. 박성현 launch·브랜치와 즉시 합의·병합 확인 필요 |
 | 2 | 업무분장표의 I-02 패키지 등록 | 9단계 완료: package.xml·setup.py·entry point 3개·launch 등록. 아래 시스템 통합 I-02와 같은 이름인지 구분 필요 |
-| 3 | cmd_vel 경로 확정(TBD-IF-009) | 미정·미구현. Nav2 출력 → local_safety_supervisor → 최종 발행 계약과 박성현 launch remap 합의 필요 |
+| 3 | cmd_vel 경로 확정(TBD-IF-009) | **해결·AMR 로컬 반영 완료.** Nav2 출력 → local_safety_supervisor → 최종 발행 계약과 상세는 10.3·10.4절 참조. 관제 launch·실기 검증은 별도 |
 | 4 | AMR-18·19 `recovery_supervisor.py` | 미착수. 현재 파일 없음. 박성현의 nav2_client·mission 코드가 현재 브랜치에 병합된 뒤 goal/spin 취소·30초 재개를 연결해야 함 |
 | 5 | AMR-07 PatrolReport 발행 | 메시지 정의만 있음. publisher 없음. 박성현 체크포인트/mission 결과 입력과 연결 필요 |
 | 6 | AMR-11 물리 E-stop latch | 부분 완료: 수신한 `latched`는 반영. 로컬 물리 latch·수동 reset 경로는 TBD-IF-004 해소 전 미구현 |
@@ -895,7 +904,7 @@ PYTHONDONTWRITEBYTECODE=1 PATROL_SMOKE_DOMAIN_ID=127 \
 |---|---|---|---|
 | 1 | `final_turtlebot_pkg` → `patrol_amr` 이관 | TBD 아님. 이 브랜치는 이미 `patrol_amr`로 완료. 박성현 코드를 어디에 넣을지 **사람 합의**만 남음 | 합의 |
 | 2 | I-02 패키지 등록 | 없음. 9단계에서 `package.xml`·`setup.py`·entry point 3개·launch 등록 완료 | 완료 |
-| 3 | cmd_vel 경로 | **TBD-IF-009 OPEN** | TBD |
+| 3 | cmd_vel 경로 | **TBD-IF-009 해결·AMR 로컬 반영 완료** | 계약 완료 / 통합·실기 검증 별도 |
 | 4 | AMR-18·19 `recovery_supervisor.py` | **TBD-AMR-005 OPEN**(STOP/CANCEL 차이·재개 지점) + `nav2_client.py` 미병합 | TBD + 병합 |
 | 5 | AMR-07 PatrolReport 발행 | **TBD-IF-003 잔여**(waypoint·visit·scan 타입, safety enum 수치) + 박성현 체크포인트 입력 | TBD + 병합 |
 | 6 | AMR-11 물리 E-stop latch | **TBD-IF-004 잔여**(수동 reset 요청 경로, reason enum) | TBD |
@@ -1056,7 +1065,7 @@ python3 tests/integration/publish_drive_token.py
 
 여기가 이 시험의 핵심이다. 주행이 허용됐는데도 속도는 0이다. 권한 게이트(`motion_allowed`)와 출력 게이트(`cmd_vel`)를 나눈 결과이며, 후보가 없으면 내보낼 값 자체가 없다.
 
-**`ros2 topic pub -r 5`를 쓰지 않는 이유.** `ros2 topic pub`은 고정된 메시지 하나를 반복하므로 `message_sequence`가 계속 같은 값이다. [drive_token_guard.py](../../src/patrol_amr/patrol_amr/drive_token_guard.py)는 `message_sequence <= 직전 값`을 `STALE_MESSAGE_SEQUENCE`로 폐기하고 **lease를 연장하지 않는다.** 첫 메시지만 수락되므로 발행 주기와 무관하게 정확히 `lease_duration` 뒤에 권한을 잃는다.
+**`ros2 topic pub -r 5`를 쓰지 않는 이유.** `ros2 topic pub`은 고정된 메시지 하나를 반복하므로 `message_sequence`가 계속 같은 값이다. 현재 위치의 [drive_token_guard.py](../../src/patrol_amr_safety/patrol_amr_safety/drive_token_guard.py)는 `message_sequence <= 직전 값`을 `STALE_MESSAGE_SEQUENCE`로 폐기하고 **lease를 연장하지 않는다.** 첫 메시지만 수락되므로 발행 주기와 무관하게 정확히 `lease_duration` 뒤에 권한을 잃는다.
 
 이는 의도된 동작이며 [DriveToken 요청서](../change_requests/CR-AMR_09-07_15-12_DriveToken_sequence_epoch와_holder_교체.md)에서 "같은 token의 역행·중복은 폐기, 폐기 메시지는 lease 미연장"으로 확정한 것이다. 2026-09-08 사용자 시험에서 실제로 재현됐다 — `motion allowed: True` 8.000초 뒤 정확히 `drive_token_not_granted`가 떴고, 그 8초는 당시 절차의 `lease_duration: {sec: 8}`이었다.
 
@@ -1146,7 +1155,7 @@ python3 tests/integration/publish_drive_token.py --revoke
 | 인자 | 기본값 | 이유 |
 |---|---|---|
 | `battery_state_topic` | `battery_state` | 실제 배터리 드라이버 위치는 TBD-ARCH-001(장치 배치)이라 robot namespace 안에 없을 수 있다 |
-| `candidate_topic` | `cmd_vel_safe` | TBD-IF-009가 Nav2 `collision_monitor` 출력을 여기로 두지만 관제 launch가 아직 병합·확인되지 않았다 |
+| `candidate_topic` | `cmd_vel_safe` | TBD-IF-009 합의로 Nav2 `collision_monitor` 출력을 여기로 확정했다. 관제 launch 병합·통합 확인은 별도 검증 항목이다 |
 
 **스모크 확장.** `amr_safety_status_smoke.py`가 최종 속도 경로를 함께 검증한다. 후보는 이 스크립트가 20 Hz(Nav2 `controller_server`와 같은 주기)로 직접 발행한다 — Nav2가 아니므로 **IT-16이 아니라 게이트 시험**이다.
 
@@ -1440,7 +1449,7 @@ ROS에 의존하지 않으며 위 노드들이 import해서 쓴다.
 
 **절반만 어긋나므로 조용히 통과했다가 통합 시점에 드러난다.** launch에 `push_namespace` 인자(기본 `true`)를 추가했다. 관제 launch가 자체 `PushRosNamespace`로 감싸면 **`push_namespace:=false`를 전달해야 한다.** 전달했을 때 모든 토픽이 `/robot1/` 하나로 정리되는 것을 확인했다.
 
-#### 통합 위험 2 — 최종 `cmd_vel` 타입 (관제 확인 필요)
+#### 통합 위험 2 — 최종 `cmd_vel` 타입 (계약 확정·실기 호환성 검증 필요)
 
 AMR은 최종 출력을 미stamped `geometry_msgs/Twist`로 발행한다. 근거는 `irobot_create_control/config/control.yaml`의 `use_stamped_vel: false`인데 **이는 시뮬레이션 설정 파일**이다.
 
@@ -1499,3 +1508,21 @@ ros2 topic info /robot1/cmd_vel --verbose
 **AMR-07** — `PatrolReport.msg`의 `result` 3종과 `reason_code` 29종, `interfaces.md` 1.2절의 report ID 형식을 확인해 18단계 순수 모듈을 완료했다. `command_id`·`mission_id`·`started_at`·`finished_at`을 채울 mission 결과가 없으므로 **ROS 발행 호출자는 병합 후에 붙인다.** 미전송 report의 저장·ACK·삭제 정책도 확정한 뒤 영속 outbox를 연결해야 재시작 뒤 같은 report ID 재전송까지 충족한다.
 
 **AMR-11** — 15단계로 완료했다. 위 15단계 절에 상세가 있다.
+
+## 14. 업무표 21단계 실제 mission Nav2 경로 연결 — 2026-09-08
+
+별도 순수 모듈에서 끝내지 않고 병합된 production 경로 `mission_supervisor → MissionWorker → MissionController → PatrolScenario → NavigationAdapter → Nav2GoalRunner → TurtleBot4Navigator`에 AMR-16 정책을 직접 연결했다. 앞서 임시로 추가했던 비연결 `nav2_client.py`·`waypoint_route.py`는 중복 정책이 남지 않도록 제거했다.
+
+- `navigation_types.MAX_GOAL_RETRIES=3`을 공통 수치로 두고 최초 시도까지 총 최대 4회 실행한다.
+- 일반 Nav2 실패·goal 거절·알 수 없는 결과만 재시도한다.
+- STOP/CANCEL·DriveToken 상실·`motion_allowed=false`는 즉시 cancel하고 재시도하지 않는다.
+- 중간 W1~W6가 네 번 실패하면 checkpoint를 다음 index로 영속 저장하고 다음 WP로 진행한다.
+- 마지막 W7가 네 번 실패하면 순찰 경로를 실패로 종료한다.
+- 실제 navigator feedback을 읽어 마지막 값을 보존한다.
+- 각 실패 시도와 재시도·최종 소진을 ROS 로그에 남겨 실기 증거를 수집한다.
+
+코드 흐름은 [amr.md 4.5절](../amr.md#45-실제-mission-nav2-재시도waypoint-skip-경로--구현-대조-완료-실기-대기)과 [mission_navigation.md](../../src/patrol_amr/docs/mission_navigation.md)에 기록한다. 자동시험 후 [AMR-16 실제 로봇 시험](amr16-robot-test.md)에서 robot1의 START_PATROL·재시도·skip·cancel·최종 `cmd_vel`을 사용자가 확인해야 이 기능을 완료로 판정한다.
+
+자동검증은 `Ran 352 tests` / `OK`이고 `patrol_interfaces`·`patrol_amr`
+symlink 빌드가 성공했다. 실기 결과표는 아직 `미실행`이며 AMR-16은 70%를
+유지한다.

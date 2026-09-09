@@ -35,7 +35,7 @@ def build_node(app, node_name="sysmon_ros_adapter"):
 
     from nav_msgs.msg import OccupancyGrid
     from patrol_interfaces.msg import (
-        CameraState, DetectionEvent, EStopState, EvidenceChunk, IngestionAck,
+        CameraState, DetectionEvent, EStop, EvidenceChunk, IngestionAck,
         KeepoutStatus, PatrolReport, PatrolVisit, RobotStatus,
     )
     from rclpy.node import Node
@@ -139,7 +139,7 @@ def build_node(app, node_name="sysmon_ros_adapter"):
                     )
                 elif spec.handler == "estop":
                     self.create_subscription(
-                        EStopState, spec.topic, self._receive_estop, qos["estop"],
+                        EStop, spec.topic, self._receive_estop, qos["estop"],
                     )
             self.get_logger().info(
                 f"sysmon ROS adapter 구독 준비: {len(active_subscriptions())}개"
@@ -434,10 +434,10 @@ def build_node(app, node_name="sysmon_ros_adapter"):
                 self.processing_counts[f"estop_{outcome}"] += 1
             except (RosMessageMappingError, safety_service.SafetyValidationError) as exc:
                 self.processing_counts["estop_rejected"] += 1
-                self.get_logger().warning(f"EStopState 처리 거부: {exc}")
+                self.get_logger().warning(f"EStop 처리 거부: {exc}")
             except Exception as exc:
                 self.processing_counts["estop_failed"] += 1
-                self.get_logger().error(f"EStopState 처리 실패: {exc}")
+                self.get_logger().error(f"EStop 처리 실패: {exc}")
 
         def ack_publisher_matches(self):
             return {

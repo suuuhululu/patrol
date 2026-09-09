@@ -203,13 +203,11 @@ flowchart TD
     A[MissionCommand callback] --> B[MissionCommandParser.parse]
     B --> C{구조화 command·mission ID<br/>robot_id·enum 유효}
     C -->|아니오| R[거부 로그]
-    C -->|예| D{parameters_json이 빈 값 또는 유효 JSON}
+    C -->|예| D{명령별 target_id 계약 일치}
     D -->|아니오| R
-    D -->|예| E{MOVE_TO_SAFE_ZONE인가}
-    E -->|예| F{유한한 map pose·유효 quaternion}
-    F -->|아니오| R
-    F -->|예| G[MissionRequest]
-    E -->|아니오| G
+    D -->|예| E{target_pose가 기본값인가}
+    E -->|아니오| R
+    E -->|예| G[MissionRequest]
     G --> H[MissionArbiter.submit]
     H -->|허용| I[즉시 callback 종료]
     H -->|busy·safety 미준비·종료 중| R
@@ -303,9 +301,12 @@ flowchart TD
     B -->|해제| C{남은 waypoint}
     C -->|없음| D[checkpoint 삭제·SUCCEEDED]
     C -->|있음| E[MISSION_PATROLLING·현재 W]
-    E --> F[Nav2 go_to]
+    E --> F[Nav2 go_to / 최초 1회 + 재시도 최대 3회]
     F -->|성공| G[다음 W index 원자 저장]
-    F -->|실패·거부·취소| H[해당 checkpoint 유지·종료]
+    F -->|중간 W 일반 실패| S[다음 W index 저장 / skip]
+    F -->|마지막 W 실패| H[해당 checkpoint 유지·종료]
+    F -->|안전 취소| X
+    S --> C
     G --> I[설정된 dwell 동안 cancel 확인]
     I -->|완료| C
     I -->|취소| X
@@ -375,17 +376,27 @@ flowchart TD
 ~~~mermaid
 flowchart TD
     A[Waypoint] --> B{cancel 상태 또는 MotionGate 미준비}
-    B -->|예| X[goal 미전송]
+    B -->|예| X[CANCELED / goal 미전송 / 재시도 없음]
     B -->|아니오| C[map PoseStamped 생성·goToPose]
-    C -->|명시적 goal 거부| Y[REJECTED]
+    C -->|명시적 goal 거부| Y[REJECTED 결과]
     C -->|수락| D{task 완료}
-    D -->|아니오| E{cancel_event 또는 MotionGate 상실}
+    D -->|아니오| FB[getFeedback 보존]
+    FB --> E{cancel_event 또는 MotionGate 상실}
     E -->|예| F[cancelTask 1회]
     E -->|아니오| D
     F --> D
     D -->|예| G[getResult]
     G --> H[SUCCEEDED·FAILED·CANCELED·UNKNOWN]
+    Y --> R{일반 실패이고 총 4회 미만?}
+    H --> R
+    R -->|예| C
+    R -->|아니오| T[최종 NavigationResult]
 ~~~
+
+재시도 수는 `navigation_types.MAX_GOAL_RETRIES=3` 한 곳에서 관리한다. 최초
+시도까지 합쳐 goal당 최대 네 번이다. 안전 권한 상실은 일반 Nav2 실패와
+구분해 `CANCELED`로 반환하므로 재시도 루프에 들어가지 않는다. 중간 waypoint
+skip 뒤 최종 PatrolReport에 어떤 상세를 기록할지는 TBD-AMR-005 잔여다.
 
 `docking_runner.py`
 
@@ -407,9 +418,11 @@ flowchart TD
 
 ## 이벤트 기능 기초
 
-DetectionCandidate/Event와 증적 계약이 미정이므로 ROS event node는 아직
-생성하지 않았다. 실제 robot6에서 성공한 `audio_note_sequence` Action과
-Q-12의 다중 활성 화재 규칙만 독립 모듈로 구현했다.
+DetectionCandidate/Event와 증적의 v1.0 wire 필드·상수는 고정됐지만 정식
+토픽·event_type 의미·중재·재전송 계약은 차기 버전 TBD-IF-006·007이다.
+따라서 ROS event node는 아직 생성하지 않았다. 실제 robot6에서 성공한
+`audio_note_sequence` Action과 Q-12의 다중 활성 화재 규칙만 독립 모듈로
+구현했다.
 
 `fire_event_registry.py`
 
@@ -574,7 +587,7 @@ flowchart TD
 | outbox 선저장 | ROS subscriber가 없을 때도 임무 결과를 보존한다. | 수신 애플리케이션 ACK와 최종 삭제 기준은 TBD-IF-003이다. |
 | 원자 교체·fsync | 전원 중단 시 부분 JSON을 정상 상태로 오인하지 않는다. | 디스크 자체 장애에서는 주행을 차단하고 오류를 남긴다. |
 | subscriber 확인 후 drain | 명백히 수신자가 없는 상태에서 VOLATILE report를 버리지 않는다. | 연결만으로 DB 저장 완료를 보장하지 않으며 검토 요청서에서 ACK를 요청했다. |
-| REJECTED 비발행 | PatrolReport의 확정 enum은 SUCCEEDED/FAILED/CANCELED 세 개뿐이다. | 명령 거부 ACK가 필요하면 TBD-IF-001·003에서 별도 계약을 정한다. |
+| REJECTED 비발행 | PatrolReport의 확정 enum은 SUCCEEDED/FAILED/CANCELED 세 개뿐이다. | 명령 거부는 v1.0 `CommandCheck.REJECTED`로 전달하고 PatrolReport를 만들지 않는다. |
 
 `command_store.py`
 
@@ -595,8 +608,8 @@ flowchart TD
 
 - `patrol_interfaces/msg/MissionCommand`는 공용 패키지 의존성으로 사용한다.
   공용 패키지를 먼저 빌드·source한 뒤 ROS 노드를 기동한다. 구조화 ID,
-  mission ID, 충돌 fingerprint와 보관 규칙은 반영했고 CommandCheck 수치와
-  명령별 target 규칙은 TBD-IF-001에 남아 있다.
+  mission ID, 충돌 fingerprint와 보관 규칙, CommandCheck 수치와
+  명령별 target 규칙은 v1.0 계약에 반영했다.
 - 미션 상태는 AMR 내부 영속 `mission_status.json`으로 프로세스 경계를
   넘기며 공개 ROS 내부 토픽을 새로 만들지 않았다. `status_reporter`가 이를
   읽어 RobotStatus의 mission·command·waypoint·reason 필드를 만든다.
@@ -618,7 +631,7 @@ flowchart TD
 
 ## 2026-09-08 검증 결과
 
-- `colcon build --packages-select patrol_interfaces patrol_amr --symlink-install`: PASS
+- 당시 패키지 분리 전 `colcon build --packages-select patrol_interfaces patrol_amr --symlink-install`: PASS. 현재 검증 명령은 `colcon build --packages-select patrol_interfaces patrol_amr patrol_amr_safety --symlink-install`이다.
 - 전체 Python 단위시험 207개: PASS
 - AMR-07 격리 ROS 스모크: `/robot6/robot_status` 미션 실패 상태와
   `/robot6/patrol_report`의 ID·result·reason code·시각·최종 W4 수신,
@@ -633,16 +646,17 @@ flowchart TD
 - ROS launch 파일 로드와 프로세스 생성: PASS
 - 격리 domain의 `/robot6/mission_command` 구독 1개와 구조화 ID 실제
   pub/sub PASS; `safety_path_ready=false` 주행 차단 PASS
-- 공용 `MissionCommand` 5종이 있는 팀 브랜치 사본의 패키지 메타데이터를
-  `patrol_interfaces`로 바로잡은 격리 작업공간에서 두 패키지 동시 빌드: PASS
+- 당시 safety 패키지 분리 전, 공용 `MissionCommand` 5종이 있는 팀 브랜치
+  사본의 패키지 메타데이터를 `patrol_interfaces`로 바로잡은 격리 작업공간에서
+  두 패키지 동시 빌드: PASS
 - `/robot6/mission_command` 타입
   `patrol_interfaces/msg/MissionCommand`, RELIABLE/VOLATILE 구독 1개: PASS
 - 유효한 `START_PATROL` 실제 토픽 발행 → `mission_supervisor` 콜백 수신 →
   `safety_path_ready=false` 주행 차단: PASS
-- 공용 패키지의 main/AMR 브랜치 병합과 패키지 메타데이터 통일: PENDING
+- 공용 패키지와 패키지 메타데이터의 v1.0 통일: 완료. 각 PC 설치본의 manifest SHA-256 비교는 통합시험 시작 전에 수행한다.
 - `hardware_patrol.launch.py --show-args`: PASS
 - 토큰 누락 시 프로세스 기동 후 주행 차단 로그: PASS
 - 첫 robot6 실기 기동: `Executor is already spinning` 재현, 원인 확인 및
   executor 분리 수정 완료; 수정 빌드 후 실제 장비 재시험 PENDING
 - 실제 Nav2·도킹·robot1/robot6 실기 주행: NOT_RUN
-- 최종 local safety 속도 경로 IT-16: TBD-IF-009로 BLOCKED
+- 최종 local safety 속도 경로 IT-16: TBD-IF-009 계약·로컬 게이트 반영 완료. 실제 Nav2·yaw 후보 결합과 robot1·robot6 실기 검증은 NOT_RUN

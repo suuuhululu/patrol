@@ -5,8 +5,8 @@ from pathlib import Path
 import unittest
 
 
-SOURCE = (Path(__file__).resolve().parents[1] / 'src/patrol_amr/'
-          'patrol_amr/estop_guard.py')
+SOURCE = (Path(__file__).resolve().parents[1] / 'src/patrol_amr_safety/'
+          'patrol_amr_safety/estop_guard.py')
 SPEC = importlib.util.spec_from_file_location('estop_guard', SOURCE)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
@@ -21,13 +21,10 @@ def observe(
     g,
     target_robot_id=None,
     active=True,
-    reason=17,
-    latched=False,
+    reason=1,
     sequence=1,
 ):
-    return g.observe(
-        target_robot_id or g.robot_id, active, reason, latched, sequence
-    )
+    return g.observe(target_robot_id or g.robot_id, active, reason, sequence)
 
 
 class DefaultTests(unittest.TestCase):
@@ -35,7 +32,6 @@ class DefaultTests(unittest.TestCase):
         g = guard()
         self.assertTrue(g.stopped)
         self.assertIsNone(g.reason)
-        self.assertFalse(g.latched)
         self.assertIsNone(g.last_sequence)
 
     def test_robot_id_must_be_known(self):
@@ -53,19 +49,22 @@ class ReflectionTests(unittest.TestCase):
         self.assertIs(observe(g, active=False, sequence=2), V.ACCEPTED)
         self.assertFalse(g.stopped)
 
-    def test_reason_is_opaque_uint8_and_latched_is_reflected(self):
+    def test_reason_uses_confirmed_enum_range(self):
         g = guard()
-        observe(g, reason=240, latched=True)
-        self.assertEqual(g.reason, 240)
-        self.assertTrue(g.latched)
+        observe(g, reason=6)
+        self.assertEqual(g.reason, 6)
 
-    def test_latched_true_keeps_stop_even_when_active_is_false(self):
-        g = guard()
-        observe(g, active=False, latched=True)
-        self.assertTrue(g.stopped)
-        observe(g, active=False, latched=False, sequence=2)
-        self.assertFalse(g.stopped)
+    def test_all_target_applies_to_both_robots(self):
+        for robot_id in MODULE.ROBOT_IDS:
+            with self.subTest(robot_id=robot_id):
+                g = guard(robot_id)
+                self.assertIs(
+                    observe(g, target_robot_id='all', active=False),
+                    V.ACCEPTED,
+                )
+                self.assertFalse(g.stopped)
 
+class TargetTests(unittest.TestCase):
     def test_other_robot_target_is_not_applied(self):
         g = guard('robot1')
         verdict = observe(g, target_robot_id='robot6', active=False)
@@ -99,13 +98,12 @@ class SequenceTests(unittest.TestCase):
 class CallerErrorTests(unittest.TestCase):
     def test_invalid_arguments_raise_without_advancing_sequence(self):
         cases = (
-            ('', True, 0, False, 1),
-            ('robot1', 1, 0, False, 1),
-            ('robot1', True, -1, False, 1),
-            ('robot1', True, 256, False, 1),
-            ('robot1', True, 0, 0, 1),
-            ('robot1', True, 0, False, 0),
-            ('robot1', True, 0, False, True),
+            ('', True, 0, 1),
+            ('robot1', 1, 0, 1),
+            ('robot1', True, -1, 1),
+            ('robot1', True, 7, 1),
+            ('robot1', True, 0, 0),
+            ('robot1', True, 0, True),
         )
         for args in cases:
             with self.subTest(args=args):

@@ -68,7 +68,7 @@ flowchart TD
 
 기본 흐름: ① 후보 생성 ② yaw 정렬 ③ 정렬 상태 1초 연속 탐지 의도 ④ 확정 이벤트·증적 생성 ⑤ 전달·저장 상태 연결 ⑥ 읽기 전용 경보·이력 조회. 화재 확정 시 부저 ON, 도킹 완료 후 OFF.
 
-예외/미정: 정렬 오차·동일 대상·단절·confidence TBD-AMR-001, Detection·증적 계약 TBD-IF-006·007. 누락·순서 역전·저장 실패 TBD-MON-002. 화재 확정 후 현재 mission의 순찰·복귀·도킹까지 기존 token으로 완료하고 종료 시 회수하며, 이후 다른 로봇에 새 token을 발급하지 않는다. 위험도·고온·영상 비교는 확정 기능이 아니다.
+예외/미정: 정렬 오차·동일 대상·단절·confidence TBD-AMR-001, v1.0 wire 밖 Detection 의미·증적 재전송 계약 TBD-IF-006·007. 누락·순서 역전·저장 실패 TBD-MON-002. 화재 확정 후 현재 mission의 순찰·복귀·도킹까지 기존 token으로 완료하고 종료 시 회수하며, 이후 다른 로봇에 새 token을 발급하지 않는다. 위험도·고온·영상 비교는 확정 기능이 아니다.
 
 완료 조건: 확정 이벤트와 증적의 연결·불완전 상태·중복을 검증한다. 로컬 image_path만으로 원격 전달 완료를 선언하지 않는다.
 
@@ -87,7 +87,7 @@ flowchart TD
     F -. 누락·실패 .-> H[관제 운영 경고 / 저장 복구 TBD-MON-002]
     E -. 화재 .-> I[부저 ON / 제어자 TBD-AMR-004]
     I --> J[현재 mission 순찰·복귀·도킹 / 기존 token 유지]
-    J --> K[DOCKED·CHARGING 2초 후 부저 OFF]
+    J --> K[DOCKED·별도 충전 감지 2초 후 부저 OFF]
     J -. 도킹 실패 .-> L[다른 활성 화재가 없으면 부저 OFF·관제 경고]
 ~~~
 
@@ -167,9 +167,9 @@ flowchart TD
 
 트리거: SOC·충전 방향 또는 입력 유효성 변화.
 
-기본 흐름: ① SOC 백분율 기준 방전 <10% CRITICAL, 10% 이상~20% 미만 LOW, ≥20% NORMAL / 충전 <50% CHARGING, 50% 이상~80% 미만 PATROL_READY, ≥80% FULL / 무효·미수신 UNKNOWN(메시지 SOC 비율은 interfaces.md 8절 기준) ② CRITICAL 즉시·나머지3초 지속 전이 ③ CRITICAL은 즉시 복귀·도킹 판단, LOW는 새 mission 없이 현재 mission의 순찰·복귀·도킹까지 완료 ④ DOCKING 진입 후60초 이내 DOCKED·CHARGING 2초 연속 확인 ⑤ 충전과 다음 출발 조건 확인.
+기본 흐름: ① SOC 백분율 기준 방전 <10% CRITICAL, 10% 이상~20% 미만 LOW, ≥20% NORMAL / 충전 <50% CHARGING, 50% 이상~80% 미만 PATROL_READY, ≥80% FULL / 무효·미수신 UNKNOWN(메시지 SOC 비율은 interfaces.md 8절 기준) ② CRITICAL 즉시·나머지3초 지속 전이 ③ CRITICAL은 즉시 복귀·도킹 판단, LOW는 새 mission 없이 현재 mission의 순찰·복귀·도킹까지 완료 ④ DOCKING 진입 후 60초 이내 DOCKED 완료 센서·별도 충전 감지 신호 활성을 2초 연속 확인 ⑤ 충전과 다음 출발 조건 확인. 도킹용 충전 감지는 `BatteryState` enum과 독립적이다.
 
-예외/미정: LOW 진행 중 CRITICAL로 바뀌면 mission 완료 대기를 중단한다. UNKNOWN은 신규 순찰·교대 투입에서 제외한다. 입력·충전·센서 생성 방식은 TBD-AMR-003·004, 이전 로봇 도킹과 신규 출발의 세부 중재는 TBD-INT-001이다. 도킹 timeout은 관제에 보고한다.
+예외/미정: LOW 진행 중 CRITICAL로 바뀌면 mission 완료 대기를 중단한다. UNKNOWN은 신규 순찰·교대 투입에서 제외한다. 배터리 입력 유효성·신선도·충방전 방향은 [TBD-AMR-003 결정](amr.md#tbd)을 따르며, 도킹 완료 센서와 별도 충전 감지 신호의 출처·생성 기준은 TBD-AMR-004다. 이전 로봇 도킹과 신규 출발의 세부 중재는 TBD-INT-001이다. 도킹 timeout은 관제에 보고한다.
 
 완료 조건: 10/20/50/80 경계·충전방향·UNKNOWN·전이시간·도킹 성공/실패를 검증한다. 실제 주행/충전과 값 주입 시험을 구분한다.
 
@@ -256,7 +256,7 @@ flowchart TD
 
 기본 흐름: ① AMR 최종 속도 차단과 Goal 취소를 분리 수행 ② 상태·원인 보고 ③ STALE에서 관제 신규 mission/token 갱신 중단 ④ 정상 수신5초·유효 pose/age·배터리·E-stop·Keepout·permit 등 복구 게이트 확인 ⑤ 별도 유효 명령·token으로 재개한다.
 
-예외/미정: 하드웨어·물리 E-stop과 수동 reset은 구현하지 않는다. 모든 활성 원인이 사라진 상태가 3초 연속 유지되어야 관제가 해제할 수 있다. heartbeat는 `ControlHeartbeat`로 관제 5 Hz 발행·AMR 1초 timeout이다. Ctrl+C/SIGINT 정상 종료는 E-stop이 아닌 `CONTROL_SHUTDOWN` 운영 이벤트이며, 재기동 뒤 새 control session과 새 token·별도 command 전에는 재개하지 않는다. reason 우선순위·UI 요청 API는 TBD-IF-004·TBD-CTRL-004다. 정지 감속·거리는 TBD-AMR-006이며 30초 경과 자동 교대를 사용하지 않는다.
+예외/미정: 하드웨어·물리 E-stop과 수동 reset은 구현하지 않는다. 모든 활성 원인이 사라진 상태가 3초 연속 유지되어야 관제가 해제할 수 있다. heartbeat는 `ControlHeartbeat`로 관제 5 Hz 발행·AMR 1초 timeout이다. Ctrl+C/SIGINT 정상 종료는 E-stop이 아닌 `CONTROL_SHUTDOWN` 운영 이벤트이며, 재기동 뒤 새 control session과 새 token·별도 command 전에는 재개하지 않는다. 대표 reason은 `SYSTEM_FAULT → UNKNOWN → OPERATOR → KEEPOUT_FAILURE → COMMUNICATION → OBSTACLE → TOKEN` 순으로 선택한다. UI 요청 API와 원인별 상세 조건은 차기 버전 TBD-IF-004·TBD-CTRL-004다. 정지 감속·거리는 TBD-AMR-006이며 30초 경과 자동 교대를 사용하지 않는다.
 
 완료 조건: 안전 출력 우회 없음·오래된 상태로 자동 출발 없음·결과 미수신 UNREPORTED 유지. 로그·실측 정지·적용 버전으로 IT-03/04/10/11/12/16을 검증한다. 현재 실제 시험 결과는 NOT_RUN, 미정 의존 부분 BLOCKED.
 

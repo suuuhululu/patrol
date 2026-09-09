@@ -1,8 +1,11 @@
 # patrol_amr
 
-`robot1`과 `robot6`이 함께 사용하는 AMR ROS 2 패키지다. `robot_id` 하나로
-ROS namespace와 메시지의 로봇 식별자를 정한다. 현재 구현은 DriveToken과
-MissionCommand를 받은 뒤 언독하고 W1~W7을 차례로 이동한 다음 도킹한다.
+공용 wire 계약은 `patrol_interfaces 1.0.0`이다. 각 AMR PC는 네 팀이 합의한 같은 Git commit을 로컬 빌드하고 `scripts/verify_interface_v1.py --installed` 결과의 manifest SHA-256을 비교한 뒤 통합시험을 시작한다.
+
+`robot1`과 `robot6`이 함께 사용하는 AMR ROS 2 구현은 `patrol_amr`와
+`patrol_amr_safety` 두 패키지로 구성된다. `robot_id` 하나로 ROS namespace와
+메시지의 로봇 식별자를 정한다. 현재 구현은 DriveToken과 MissionCommand를
+받은 뒤 언독하고 W1~W7을 차례로 이동한 다음 도킹한다.
 
 ## 실행 흐름
 
@@ -45,14 +48,17 @@ Nav2 후보의 `header.stamp` age가 Q-17 0.5초를 초과해도 최종 속도�
 - `navigation_adapter.py`, `nav2_goal_runner.py`, `docking_runner.py`: Action 실행
 - `drive_token_callback.py`, `mission_drive_token.py`: 미션 측 token 상태와 취소
 - `motion_permission.py`: local safety의 권한 콜백
-- `local_safety_supervisor.py`: token·E-stop·후보 신선도와 최종 `cmd_vel`
+- `patrol_amr_safety/local_safety_supervisor.py`: token·heartbeat·E-stop·후보 신선도와 최종 `cmd_vel`
+- `patrol_amr_safety/command_gateway.py`: 공용 MissionCommand 수신·CommandCheck 발행과 중복 저장
+- `patrol_amr_safety/status_reporter.py`: Q-02 RobotStatus와 AMR-07 PatrolReport 발행
+- `patrol_amr_safety/battery_monitor.py`, guard·상태 모듈: 배터리·로컬 안전·상태 보고의 순수 로직
+- `patrol_amr/heartbeat_guard.py`: safety 패키지에서 가져다 쓰는 heartbeat 순수 로직
 - `waypoint_repository.py`, `command_store.py`: 좌표 검증과 중복·checkpoint 저장
 - `robot_readiness_callbacks.py`, `motion_gate.py`: AMCL·scan·odom 준비 상태
 - `mission_state.py`, `mission_status_store.py`, `status_mission_bridge.py`:
   미션 상태의 프로세스 간 전달과 RobotStatus 미션 필드 변환
 - `mission_reporter.py`, `patrol_report_outbox.py`,
   `patrol_report_adapter.py`: 종료 결과 검증·영속 큐·ROS 메시지 발행
-- `status_reporter.py`: Q-02 RobotStatus와 AMR-07 PatrolReport 발행
 
 파일별 callback·분기·실패 흐름은
 [mission_navigation.md](docs/mission_navigation.md)에 있다.
@@ -70,7 +76,7 @@ source /opt/ros/jazzy/setup.bash
 source /home/mu-06/turtlebot4_ws/install/setup.bash
 source /home/mu-06/rokey_ws/install/setup.bash
 
-colcon build --packages-select patrol_interfaces patrol_amr --symlink-install
+colcon build --packages-select patrol_interfaces patrol_amr patrol_amr_safety --symlink-install
 source /home/mu-06/patrol/install/setup.bash
 ```
 
@@ -142,7 +148,7 @@ ros2 topic pub --once \
   --qos-durability transient_local \
   /control/estop \
   patrol_interfaces/msg/EStop \
-  "{target_robot_id: 'robot6', active: false, reason: 0, latched: false, sequence: 1}"
+  "{target_robot_id: 'robot6', active: false, reason: 0, sequence: 1}"
 ```
 
 ### 터미널 3: 시험용 DriveToken 갱신 — 계속 켜 둠
@@ -189,14 +195,16 @@ ros2 topic pub --once \
     mission_id: '${MISSION_ID}',
     robot_id: 'robot6',
     command: 1,
-    target_id: '',
-    issued_by: 'amr-hardware-test',
-    parameters_json: '{}'}"
+    target_id: 'robot6_default',
+    issued_by: 'amr-hardware-test'}"
 ```
 
 START_PATROL은 dock 상태를 확인해 필요할 때 Undock Action을 실행하고,
-W1~W7 `NavigateToPose`가 각각 성공한 뒤 Dock Action을 실행한다. 한 waypoint가
-실패하거나 취소되면 다음 waypoint로 넘어가지 않는다.
+W1~W7 `NavigateToPose`를 순서대로 실행한 뒤 Dock Action을 실행한다. 일반
+Nav2 실패·goal 거절은 최초 시도 뒤 최대 3번 더 실행한다. 총 4번 실패한
+중간 W1~W6은 checkpoint를 다음 지점으로 넘기고 계속하며, 마지막 W7 실패는
+순찰을 실패로 종료한다. STOP/CANCEL·DriveToken 상실·`motion_allowed=false`로
+취소된 goal은 재시도하거나 다음 waypoint로 넘어가지 않는다.
 
 ### 시험 중 정지
 
@@ -211,8 +219,7 @@ ros2 topic pub --once \
     mission_id: '${MISSION_ID}',
     robot_id: 'robot6',
     command: 0,
-    issued_by: 'amr-hardware-test',
-    parameters_json: '{}'}"
+    issued_by: 'amr-hardware-test'}"
 ```
 
 즉시 안전 차단하려면 DriveToken 터미널을 `Ctrl+C`로 종료한다. 최대 1초
@@ -226,3 +233,7 @@ Nav2도 사용이 끝났을 때만 각각 종료한다.
 - PatrolReport 수신 애플리케이션 ACK·큐 삭제 조건 합의(TBD-IF-003)
 - Detection yaw 후보와 Nav2 후보의 전환 정책(TBD-AMR-001)
 - Keepout·안전구역 기능 및 현장 좌표 검증
+
+robot1에서 AMR-16의 실패 재시도·중간 waypoint skip·안전 취소를 검증할
+때는 [AMR-16 실제 로봇 시험](../../docs/development/amr16-robot-test.md)을
+따른다. 전용 실패 유도 설정은 기본 launch에서 자동 선택되지 않는다.

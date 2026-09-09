@@ -7,9 +7,10 @@ import threading
 from typing import Callable, Sequence
 
 from patrol_amr.mission_command_store import CommandStore
-from patrol_amr.mission_types import MissionRequest, MissionType
+from patrol_amr.mission_types import MissionRequest, MissionType, PoseTarget
 from patrol_amr.navigation_types import NavigationResult, Waypoint
 from patrol_amr.patrol_report_reason import navigation_result_reason
+from patrol_amr.safe_zone_selector import select_safe_zone
 from patrol_amr.scenarios.docking import dock
 from patrol_amr.scenarios.interruption import interrupt_navigation
 from patrol_amr.scenarios.patrol import PatrolScenario
@@ -40,6 +41,7 @@ class MissionController:
         state_callback: Callable[[str, int], None],
         dock_timeout_s: float = 60.0,
         dock_sensor_stable_s: float = 2.0,
+        safe_zone_candidates=lambda: (),
     ) -> None:
         if resume_policy not in {'disabled', 'next_waypoint', 'same_waypoint'}:
             raise ValueError(f'unsupported resume_policy: {resume_policy}')
@@ -49,6 +51,7 @@ class MissionController:
         self._state_callback = state_callback
         self._dock_timeout_s = dock_timeout_s
         self._dock_sensor_stable_s = dock_sensor_stable_s
+        self._safe_zone_candidates = safe_zone_candidates
         self._patrol = PatrolScenario(
             navigation, store, waypoints, dwell_s, state_callback)
 
@@ -57,9 +60,14 @@ class MissionController:
         request: MissionRequest,
         cancel_event: threading.Event,
     ) -> ExecutionResult:
-        if request.command in {MissionType.STOP, MissionType.CANCEL}:
+        if request.command is MissionType.STOP:
             interrupt_navigation(self._navigation)
-            return ExecutionResult('SUCCEEDED')
+            return ExecutionResult('PAUSED')
+
+        if request.command is MissionType.CANCEL:
+            interrupt_navigation(self._navigation)
+            self._store.clear_checkpoint(request.mission_id)
+            return ExecutionResult('CANCELED', 'CONTROL_CANCELED', 100)
 
         patrol_id = request.mission_id
         if request.command is MissionType.START_PATROL:
@@ -88,14 +96,21 @@ class MissionController:
             return self._as_execution(result, context)
 
         if request.command is MissionType.MOVE_TO_SAFE_ZONE:
-            if request.target_pose is None:
+            decision = select_safe_zone(self._safe_zone_candidates())
+            if decision.selected is None:
                 return ExecutionResult(
-                    'REJECTED', 'SAFE_ZONE_TARGET_POSE_REQUIRED')
+                    'FAILED', decision.reason, decision.reason_code)
+            selected = decision.selected
             self._state_callback('MISSION_MOVING_TO_SAFE_ZONE', -1)
             result = move_to_safe_zone(
                 self._navigation,
-                request.target_id,
-                request.target_pose,
+                selected.candidate_id,
+                PoseTarget(
+                    selected.pose.frame_id,
+                    selected.pose.x,
+                    selected.pose.y,
+                    selected.pose.yaw,
+                ),
                 cancel_event,
             )
             if result is NavigationResult.SUCCEEDED:

@@ -1,6 +1,6 @@
 # 전체 시스템 구성
 
-상태: 사용자 결정 기반 설계 초안 · 관련: [인터페이스](interfaces.md), [통합](integration.md)
+상태: v1.0 공용 계약 확정 · 차기 버전 TBD·장비 통합 별도 · 관련: [인터페이스](interfaces.md), [통합](integration.md)
 
 ## 1. 개발 단위와 실행 위치
 
@@ -47,9 +47,9 @@ flowchart LR
     O --> D[읽기 전용 Dashboard]
 ~~~
 
-Nav2와 local safety 사이의 구체적인 속도 토픽·메시지 타입·remap은 [TBD-IF-009](interfaces.md#tbd)다. 위 화살표는 책임 흐름을 표시한다. 최종 cmd_vel은 local_safety_supervisor에서 로봇 구동부로 전달한다.
+Nav2와 local safety 사이의 속도 경로는 [TBD-IF-009 결정](interfaces.md#tbd)에 따라 확정됐다. Nav2 후보 `/robotN/cmd_vel_safe`와 yaw 후보 `/robotN/cmd_vel_yaw`는 `geometry_msgs/TwistStamped`, 최종 `/robotN/cmd_vel`은 `geometry_msgs/Twist`를 사용하며 `local_safety_supervisor`가 최종 토픽의 유일한 발행자다. 후보 신선도는 Q-17의 0.5초를 적용한다. 두 후보 사이의 중재만 TBD-AMR-001에 남는다.
 
-AMR 로컬 Detection은 OAK-D 입력에서 후보·정렬·확정을 처리한다. PC 4의 CCTV 차량 상태 파이프라인과 별개다. 시스템 모니터는 확정 이벤트와 증적을 수집·저장하고, 관제는 제어 판단에 필요한 이벤트를 사용한다. 세부 Detection 계약은 아직 미정이다.
+AMR 로컬 Detection은 OAK-D 입력에서 후보·정렬·확정을 처리한다. PC 4의 CCTV 차량 상태 파이프라인과 별개다. 시스템 모니터는 확정 이벤트와 증적을 수집·저장하고, 관제는 제어 판단에 필요한 이벤트를 사용한다. `patrol_interfaces 1.0.0`의 Detection wire schema는 고정됐으며 event_type 의미·중재·재전송의 세부 계약은 차기 버전 TBD-IF-006·007이다.
 
 ## 4. Discovery 구성
 

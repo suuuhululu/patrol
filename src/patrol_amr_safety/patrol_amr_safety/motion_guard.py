@@ -61,6 +61,7 @@ class MotionBlockReason(Enum):
 
     DRIVE_TOKEN_NOT_GRANTED = 'drive_token_not_granted'
     ESTOP_ACTIVE = 'estop_active'
+    HEARTBEAT_NOT_HEALTHY = 'heartbeat_not_healthy'
     CANDIDATE_MISSING = 'candidate_missing'
     CANDIDATE_STALE = 'candidate_stale'
 
@@ -81,6 +82,7 @@ class MotionGuard:
         estop_active: bool,
         candidate,
         candidate_age,
+        heartbeat_healthy: bool = True,
     ):
         """Return (output, blocked_reasons).
 
@@ -97,13 +99,19 @@ class MotionGuard:
         permitted = None
         if candidate is not None:
             permitted = self._validate_candidate(candidate)
-        reasons = set(self.blocked_reasons(drive_token_granted, estop_active))
+        reasons = set(self.blocked_reasons(
+            drive_token_granted, estop_active, heartbeat_healthy))
         reasons |= self._candidate_reasons(candidate, candidate_age)
         if reasons:
             return STOP, frozenset(reasons)
         return permitted, frozenset(reasons)
 
-    def blocked_reasons(self, drive_token_granted: bool, estop_active: bool):
+    def blocked_reasons(
+        self,
+        drive_token_granted: bool,
+        estop_active: bool,
+        heartbeat_healthy: bool = True,
+    ):
         """Reasons motion is not *permitted*, independent of any candidate.
 
         6단계 local_safety_supervisor의 신선도 재확인 타이머가 이 메서드를
@@ -119,11 +127,15 @@ class MotionGuard:
             raise ValueError('drive_token_granted must be a bool')
         if not isinstance(estop_active, bool):
             raise ValueError('estop_active must be a bool')
+        if not isinstance(heartbeat_healthy, bool):
+            raise ValueError('heartbeat_healthy must be a bool')
         reasons = set()
         if not drive_token_granted:
             reasons.add(MotionBlockReason.DRIVE_TOKEN_NOT_GRANTED)
         if estop_active:
             reasons.add(MotionBlockReason.ESTOP_ACTIVE)
+        if not heartbeat_healthy:
+            reasons.add(MotionBlockReason.HEARTBEAT_NOT_HEALTHY)
         return frozenset(reasons)
 
     @staticmethod

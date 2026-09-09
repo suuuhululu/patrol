@@ -1,0 +1,10 @@
+frame_id: map
+map_id: final_project_map
+waypoints:
+  - {id: WP1, x: -0.206, y: -1.038, yaw_deg: 90.8, direction_approx: WEST}
+  - {id: WP2, x: -1.147, y: 0.500, yaw_deg: 175.4, direction_approx: SOUTH}
+  - {id: WP3, x: -2.029, y: -0.916, yaw_deg: 266.3, direction_approx: EAST}
+  - {id: WP4, x: -2.751, y: -2.422, yaw_deg: 182.4, direction_approx: SOUTH}
+  - {id: WP5, x: -4.389, y: -1.122, yaw_deg: 94.3, direction_approx: WEST}
+  - {id: WP6, x: -2.909, y: 0.575, yaw_deg: 358.3, direction_approx: NORTH}
+  - {id: WP7, x: -1.374, y: -2.439, yaw_deg: 359.8, direction_approx: NORTH}

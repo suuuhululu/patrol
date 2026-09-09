@@ -53,6 +53,36 @@ class RosAdapterTests(unittest.TestCase):
             data=[0, 0, 100, -1, 50, 0],
         )
 
+    def test_robot_status_keeps_safety_state_and_motion_stopped(self):
+        payload = ros_adapter.robot_status_payload(
+            self.robot_status(safety_state=4, motion_stopped=False, reason_code=702, reason="fire")
+        )
+        self.assertEqual(payload["safety_state"], "ESTOPPED")
+        self.assertFalse(payload["motion_stopped"])
+        self.assertEqual(payload["safety_reason_code"], 702)
+        # 계약 표 밖의 수치는 UNKNOWN으로 남기고 나머지 상태는 계속 받는다.
+        self.assertEqual(
+            ros_adapter.robot_status_payload(self.robot_status(safety_state=9))["safety_state"],
+            "UNKNOWN",
+        )
+
+    def test_estop_payload_uses_contract_fields_only(self):
+        message = ns(
+            header=header(""), target_robot_id="all", active=True, reason=2,
+            sequence=12,
+        )
+        payload = ros_adapter.estop_payload(message)
+        self.assertEqual(payload["target_robot_id"], "all")
+        self.assertTrue(payload["active"])
+        self.assertEqual(payload["reason"], 2)
+        self.assertEqual(payload["sequence"], 12)
+        self.assertEqual(
+            set(payload),
+            {"target_robot_id", "active", "reason", "sequence", "observed_at"},
+        )
+        with self.assertRaises(ros_adapter.RosMessageMappingError):
+            ros_adapter.estop_payload(ns(header=header(""), target_robot_id="AMR1", active=True, reason=0, sequence=1))
+
     def test_topic_registry_separates_active_and_pending_work(self):
         active = ros_adapter.active_subscriptions()
         self.assertEqual(len(active), 25)

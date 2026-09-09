@@ -14,7 +14,7 @@ Not implemented here:
 
 * Allowed/forbidden transitions between state-axis combinations
   (TBD-AMR-005).
-* A SafetyState enum or scan/waypoint details (remaining TBD-IF-003).
+* Scan/waypoint details (remaining TBD-IF-003).
 * RobotStatus publication cadence, QoS, session ID, or wire-message mapping;
   those belong to the stage-8 status_reporter ROS node.
 
@@ -31,6 +31,7 @@ from typing import Any, NamedTuple, Optional
 
 ROBOT_IDS = ('robot1', 'robot6')
 UINT8_MAX = 0xFF
+UINT32_MAX = 0xFFFFFFFF
 _UNCHANGED = object()
 
 # interfaces.md 3절 "실제 정지" 판정. 네 값 모두 문서에 확정돼 있어 이 파일이
@@ -85,6 +86,15 @@ class BatteryState(IntEnum):
     FULL = 6
 
 
+class SafetyState(IntEnum):
+    SAFETY_UNKNOWN = 0
+    SAFETY_NORMAL = 1
+    SAFETY_STOPPING = 2
+    SAFETY_STOPPED = 3
+    SAFETY_ESTOPPED = 4
+    SAFETY_ERROR = 5
+
+
 class PoseSample(NamedTuple):
     """One pose observation; value contains the pose and covariance payload."""
 
@@ -110,6 +120,8 @@ class RobotStatusSnapshot(NamedTuple):
     docking_state: DockingState
     battery_state: BatteryState
     safety_state: Optional[int]
+    active_command_id: str
+    active_mission_id: str
     pose: Optional[PoseSample]
     pose_valid: bool
     last_valid_pose: Optional[PoseSample]
@@ -117,6 +129,10 @@ class RobotStatusSnapshot(NamedTuple):
     linear_velocity: float
     angular_velocity: float
     motion_stopped: bool
+    current_waypoint_id: str
+    scan_state: str
+    reason_code: int
+    reason: str
     revision: int
 
 
@@ -137,9 +153,14 @@ class RobotStatusState:
         self._docking_state = DockingState.DOCK_UNKNOWN
         self._battery_state = BatteryState.UNKNOWN
 
-        # The field exists, but its enum numbers are still TBD-IF-003.  None
-        # means "not supplied by an agreed mapping"; zero is not guessed here.
-        self._safety_state = None
+        self._safety_state = SafetyState.SAFETY_UNKNOWN
+
+        self._active_command_id = ''
+        self._active_mission_id = ''
+        self._current_waypoint_id = ''
+        self._scan_state = ''
+        self._reason_code = 0
+        self._reason = ''
 
         self._pose = None
         self._pose_valid = False
@@ -198,8 +219,8 @@ class RobotStatusState:
                 BatteryState, battery_state, 'battery_state'
             )
         if safety_state is not _UNCHANGED:
-            updates['_safety_state'] = self._uint8(
-                safety_state, 'safety_state'
+            updates['_safety_state'] = self._enum_value(
+                SafetyState, safety_state, 'safety_state'
             )
 
         changed = any(
@@ -252,6 +273,48 @@ class RobotStatusState:
             self._last_valid_pose = deepcopy(sample)
         self._revision += 1
         return True
+
+    def update_mission_context(
+        self,
+        *,
+        active_command_id=_UNCHANGED,
+        active_mission_id=_UNCHANGED,
+        current_waypoint_id=_UNCHANGED,
+        scan_state=_UNCHANGED,
+        reason_code=_UNCHANGED,
+        reason=_UNCHANGED,
+    ) -> bool:
+        """Atomically update mission-owned RobotStatus payload fields.
+
+        Waypoint and scan semantics remain TBD-IF-003, so they are transported
+        as opaque strings.  Cross-field state transition rules remain
+        TBD-AMR-005 and are not invented here.
+        """
+        updates = {}
+        for name, value in (
+            ('active_command_id', active_command_id),
+            ('active_mission_id', active_mission_id),
+            ('current_waypoint_id', current_waypoint_id),
+            ('scan_state', scan_state),
+            ('reason', reason),
+        ):
+            if value is not _UNCHANGED:
+                if not isinstance(value, str):
+                    raise ValueError(f'{name} must be a str')
+                updates[f'_{name}'] = value
+        if reason_code is not _UNCHANGED:
+            updates['_reason_code'] = self._uint32(
+                reason_code, 'reason_code'
+            )
+
+        changed = any(
+            getattr(self, name) != value for name, value in updates.items()
+        )
+        if changed:
+            for name, value in updates.items():
+                setattr(self, name, value)
+            self._revision += 1
+        return changed
 
     def observe_odometry(self, linear, angular, measured_at) -> bool:
         """Record one odometry observation; True if it changed the model.
@@ -350,6 +413,8 @@ class RobotStatusState:
             docking_state=self._docking_state,
             battery_state=self._battery_state,
             safety_state=self._safety_state,
+            active_command_id=self._active_command_id,
+            active_mission_id=self._active_mission_id,
             pose=deepcopy(self._pose),
             pose_valid=self._pose_valid,
             last_valid_pose=deepcopy(self._last_valid_pose),
@@ -357,12 +422,16 @@ class RobotStatusState:
             linear_velocity=linear_velocity,
             angular_velocity=angular_velocity,
             motion_stopped=motion_stopped,
+            current_waypoint_id=self._current_waypoint_id,
+            scan_state=self._scan_state,
+            reason_code=self._reason_code,
+            reason=self._reason,
             revision=self._revision,
         )
 
     @staticmethod
     def _enum_value(enum_type, value, name):
-        if isinstance(value, bool):
+        if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(f'{name} must be a valid {enum_type.__name__}')
         try:
             return enum_type(value)
@@ -377,6 +446,14 @@ class RobotStatusState:
             raise ValueError(f'{name} must be an int')
         if not 0 <= value <= UINT8_MAX:
             raise ValueError(f'{name} must fit in uint8')
+        return value
+
+    @staticmethod
+    def _uint32(value, name):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f'{name} must be an int')
+        if not 0 <= value <= UINT32_MAX:
+            raise ValueError(f'{name} must fit in uint32')
         return value
 
     @staticmethod
