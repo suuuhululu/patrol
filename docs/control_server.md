@@ -293,6 +293,20 @@ flowchart TD
 
 외부 명령 service/action은 TBD-CTRL-004이므로 생성하지 않았다. `submit_command()`는 이후 관제 소유 API가 호출할 내부 진입점이며 `vision_integration`에서는 호출해도 발행 전에 거부한다. permit과 DetectionEvent는 시스템 모니터도 원본 토픽을 직접 구독하므로 관제가 재발행하지 않는다. `CONTROL_SHUTDOWN`의 공용 운영 이벤트 발행과 token best-effort 회수는 TBD-IF-011 및 후속 안전 제어 구현 전까지 로컬 로그로만 남긴다.
 
+#### `tests/integration/publish_control_inputs.py`
+
+~~~mermaid
+flowchart TD
+    A[scenario 선택] --> B[patrol_allowed 5 Hz 발행]
+    B -->|permit-steady| C[선택한 true 또는 false 유지]
+    B -->|permit-cycle| D[true 2초 → false 2초 → true]
+    B -->|detection| E[permit true 유지]
+    E --> F[지연 후 v1.1 DetectionEvent 1회 발행]
+    F --> G[설정 duration 또는 Ctrl+C까지 permit 유지]
+~~~
+
+이 테스트 노드는 정상 시나리오에서 비전 생산자만 대체하며 AMR 소유 토픽을 발행하지 않는다. 설치 executable과 launch에는 포함하지 않고 관제 PC에서 직접 실행한다. 관제 처리는 노드 로그, 시스템 모니터 수신은 기존 화면·API로 각각 확인한다.
+
 ## 8. 결정 기록과 공동 반영 대기
 
 AMR 적용 검토와 robot1·robot6 반영 상태는 [관제 수정 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md)로 추적한다.

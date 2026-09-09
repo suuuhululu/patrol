@@ -50,6 +50,7 @@ def test_first_permit_sample_becomes_healthy_and_updates_value():
     assert transition.health is PermitHealth.HEALTHY
     assert transition.patrol_allowed is False
     assert transition.value_changed
+    assert transition.became_healthy
 
 
 def test_permit_timeout_boundary_preserves_last_value():

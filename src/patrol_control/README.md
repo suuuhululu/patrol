@@ -38,3 +38,31 @@ ros2 run patrol_control patrol_control_node \
 `patrol_interfaces 1.1.0`의 16개 메시지 manifest를 사용한다. v1.1에서 관제는 `DetectionEvent`를 소비하지만 `AlignmentStatus`·`DetectionResult`에는 개입하지 않는다. DetectionEvent의 최종 보존 기간과 화재 mission 동작은 잔여 계약·AMR 통합 단계에서 확정한다.
 
 `submit_command()`는 이후 관제 소유 API가 호출할 내부 진입점이다. 미정 API를 임의로 만들지 않기 위해 현재 노드는 외부 명령 service/action을 노출하지 않는다.
+
+## 관제 PC 정상 시나리오 수동시험
+
+launch 파일 없이 터미널을 나눠 실행한다. 테스트 publisher는 비전 입력만 대신하며 설치 executable이나 운영 구성에 포함하지 않는다.
+
+터미널 1:
+
+~~~bash
+source install/setup.bash
+ros2 run patrol_control patrol_control_node \
+  --ros-args -p integration_profile:=vision_integration
+~~~
+
+터미널 2의 단계별 정상 입력:
+
+~~~bash
+source install/setup.bash
+python3 tests/integration/publish_control_inputs.py \
+  permit-steady --permit true
+
+python3 tests/integration/publish_control_inputs.py \
+  permit-cycle --duration 6.5
+
+python3 tests/integration/publish_control_inputs.py \
+  detection --robot-id robot1 --event-type fire --duration 3
+~~~
+
+정상 기준은 steady 구간의 timeout 없음, cycle의 `false → true` 로그, DetectionEvent 수락, AMR 출력 없음이다. 시스템 모니터 ROS adapter를 함께 실행하면 같은 permit과 DetectionEvent가 저장·표시되는지 별도로 확인한다. timeout·복구, 중복·잘못된 enum·robot 불일치는 다음 오류 시나리오 단계에서 시험한다.

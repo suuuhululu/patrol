@@ -213,6 +213,11 @@ class PatrolControlNode(Node):
                 'CCTV_PERMIT_RECOVERED patrol_allowed=%s'
                 % transition.patrol_allowed
             )
+        elif transition.became_healthy:
+            self.get_logger().info(
+                'CCTV_PERMIT_HEALTHY patrol_allowed=%s'
+                % transition.patrol_allowed
+            )
         elif transition.value_changed:
             self.get_logger().info(
                 'patrol_allowed=%s' % transition.patrol_allowed

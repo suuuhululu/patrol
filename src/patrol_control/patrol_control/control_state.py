@@ -81,6 +81,7 @@ class PermitTransition:
     health: PermitHealth
     patrol_allowed: bool
     value_changed: bool = False
+    became_healthy: bool = False
     became_timed_out: bool = False
     recovered: bool = False
 
@@ -150,9 +151,13 @@ class PermitMonitor:
             return self._observe_recovery(value, now_ns)
 
         changed = value != self._patrol_allowed
+        became_healthy = self._health is PermitHealth.WAITING
         self._patrol_allowed = value
         self._health = PermitHealth.HEALTHY
-        return self._transition(value_changed=changed)
+        return self._transition(
+            value_changed=changed,
+            became_healthy=became_healthy,
+        )
 
     def _observe_recovery(
         self, value: bool, now_ns: int
