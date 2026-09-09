@@ -26,10 +26,9 @@ def generate_launch_description():
     start_status_reporter = LaunchConfiguration('start_status_reporter')
     motion_enable_token = LaunchConfiguration('motion_enable_token')
     source_session_id = LaunchConfiguration('source_session_id')
-    safety_state = LaunchConfiguration('safety_state')
 
     local_safety = Node(
-        package='patrol_amr',
+        package='patrol_amr_safety',
         executable='local_safety_supervisor',
         name='local_safety_supervisor',
         namespace=robot_id,
@@ -41,7 +40,7 @@ def generate_launch_description():
     )
 
     status_reporter = Node(
-        package='patrol_amr',
+        package='patrol_amr_safety',
         executable='status_reporter',
         name='status_reporter',
         namespace=robot_id,
@@ -50,7 +49,6 @@ def generate_launch_description():
             'robot_id': ParameterValue(robot_id, value_type=str),
             'source_session_id': ParameterValue(
                 source_session_id, value_type=str),
-            'safety_state': ParameterValue(safety_state, value_type=int),
         }],
         output='screen',
     )
@@ -142,11 +140,6 @@ def generate_launch_description():
             description=(
                 'Robot process session: '
                 '<robot_id>-<YYYYMMDDTHHMMSS>-<restart_sequence>'),
-        ),
-        DeclareLaunchArgument(
-            'safety_state',
-            default_value='0',
-            description='Transported uint8; enum meaning remains TBD-IF-003',
         ),
         DeclareLaunchArgument(
             'motion_enable_token',

@@ -16,6 +16,7 @@ O = MODULE.OperationalState
 M = MODULE.MissionState
 D = MODULE.DockingState
 B = MODULE.BatteryState
+S = MODULE.SafetyState
 
 
 class DefaultStateTests(unittest.TestCase):
@@ -26,7 +27,7 @@ class DefaultStateTests(unittest.TestCase):
         self.assertIs(snapshot.mission_state, M.MISSION_NONE)
         self.assertIs(snapshot.docking_state, D.DOCK_UNKNOWN)
         self.assertIs(snapshot.battery_state, B.UNKNOWN)
-        self.assertIsNone(snapshot.safety_state)
+        self.assertIs(snapshot.safety_state, S.SAFETY_UNKNOWN)
         self.assertFalse(snapshot.pose_valid)
         self.assertIsNone(snapshot.pose)
         self.assertIsNone(snapshot.last_valid_pose)
@@ -99,11 +100,11 @@ class StateAxisTests(unittest.TestCase):
         self.assertIs(snapshot.mission_state, M.MISSION_NONE)
         self.assertEqual(snapshot.revision, 0)
 
-    def test_safety_is_opaque_uint8_until_enum_is_agreed(self):
+    def test_safety_uses_v1_enum_and_rejects_unknown_values(self):
         state = MODULE.RobotStatusState('robot1')
-        self.assertTrue(state.update_states(safety_state=200))
-        self.assertEqual(state.snapshot(0.0).safety_state, 200)
-        for value in (-1, 256, True, 1.0, None):
+        self.assertTrue(state.update_states(safety_state=S.SAFETY_NORMAL))
+        self.assertIs(state.snapshot(0.0).safety_state, S.SAFETY_NORMAL)
+        for value in (-1, 6, 200, 256, True, 1.0, None):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     state.update_states(safety_state=value)

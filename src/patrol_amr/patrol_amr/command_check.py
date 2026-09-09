@@ -32,10 +32,11 @@ class CheckStateMapping:
 
     def __post_init__(self):
         values = (self.accepted, self.executing, self.rejected)
-        for value in values:
-            _uint(value, UINT8_MAX, 'check_state')
-        if len(set(values)) != len(values):
-            raise ValueError('check_state values must be distinct')
+        if values != (CHECK_ACCEPTED, CHECK_EXECUTING, CHECK_REJECTED):
+            raise ValueError(
+                'check_state mapping must match the fixed v1.0 values '
+                '(ACCEPTED=1, EXECUTING=2, REJECTED=3)'
+            )
 
     def wire_value(self, meaning) -> int:
         try:
