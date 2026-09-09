@@ -40,7 +40,7 @@ def test_identifier_sequences_are_human_readable_and_global():
     [
         (CommandType.STOP, '', ''),
         (CommandType.STOP, 'existing-mission', ''),
-        (CommandType.START_PATROL, '', 'plan-a'),
+        (CommandType.START_PATROL, '', 'robot1_default'),
         (CommandType.MOVE_TO_SAFE_ZONE, 'mission-a', ''),
         (CommandType.RESUME_PATROL, 'mission-a', ''),
         (CommandType.DOCK, 'mission-a', 'dock_1'),
@@ -68,6 +68,7 @@ def test_valid_command_matrix(command, mission_id, target_id):
     ('command', 'mission_id', 'target_id', 'reason'),
     [
         (CommandType.START_PATROL, '', '', 201),
+        (CommandType.START_PATROL, '', 'plan-a', 201),
         (CommandType.MOVE_TO_SAFE_ZONE, '', '', 204),
         (CommandType.RESUME_PATROL, 'mission-a', 'waypoint', 205),
         (CommandType.DOCK, 'mission-a', 'dock_6', 201),
@@ -101,10 +102,24 @@ def test_start_patrol_rejects_caller_supplied_mission_id():
             command=CommandType.START_PATROL,
             now_ns=10,
             mission_id='caller-owned-mission',
-            target_id='plan-a',
+            target_id='robot1_default',
         )
 
     assert caught.value.result.reason_code == 204
+
+
+def test_robot6_start_patrol_uses_its_fixed_plan_id():
+    """Keep the two robot-specific default patrol plans distinct."""
+    control = make_control()
+
+    envelope = control.create_command(
+        robot_id='robot6',
+        command=CommandType.START_PATROL,
+        now_ns=10,
+        target_id='robot6_default',
+    )
+
+    assert envelope.target_id == 'robot6_default'
 
 
 @pytest.mark.parametrize(
@@ -137,7 +152,7 @@ def test_normal_check_transition_and_reverse_discard():
         robot_id='robot1',
         command=CommandType.START_PATROL,
         now_ns=0,
-        target_id='plan-a',
+        target_id='robot1_default',
     )
 
     accepted = control.handle_check(
@@ -168,8 +183,8 @@ def test_normal_check_transition_and_reverse_discard():
     )
 
 
-def test_waiting_to_executing_is_recovery_with_warning():
-    """Accept recovery EXECUTING while blocking its pending retry policy."""
+def test_waiting_to_executing_stops_retries_with_warning():
+    """Accept recovery EXECUTING and immediately stop retransmission."""
     control = make_control()
     command = control.create_command(
         robot_id='robot6',
@@ -187,8 +202,7 @@ def test_waiting_to_executing_is_recovery_with_warning():
 
     assert result.lifecycle is CommandLifecycle.EXECUTING
     assert result.warnings == ('ACCEPTED_MISSING',)
-    pending = control.poll_retries(10_000_000_000)
-    assert pending[0].action is RetryActionType.POLICY_PENDING
+    assert control.poll_retries(10_000_000_000) == ()
     assert control.poll_retries(20_000_000_000) == ()
 
 
@@ -245,7 +259,7 @@ def test_check_requires_matching_command_mission_and_robot_ids():
         robot_id='robot1',
         command=CommandType.START_PATROL,
         now_ns=0,
-        target_id='plan-a',
+        target_id='robot1_default',
     )
 
     result = control.handle_check(

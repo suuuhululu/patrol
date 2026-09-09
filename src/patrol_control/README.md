@@ -1,17 +1,31 @@
 # patrol_control
 
-관제 팀의 ROS 2 패키지다. 1단계에서는 논리 기능을 지나치게 잘게 나누지 않고 `command_control_node` 하나가 Robot Command Manager와 명령 경로의 ROS 2 Gateway를 함께 담당한다.
+관제 팀의 ROS 2 패키지다. 논리 기능을 지나치게 잘게 나누지 않고 `patrol_control_node` 하나가 관제 상태를 소유한다. 현재는 launch 없이 노드를 직접 실행하는 1차 비전·시스템 모니터 통합 단계다.
 
 현재 구현 범위:
 
+- 시작 시 고정되는 `integration_profile=vision_integration`
+- `/vision/cctv/patrol_allowed` 수신, 5초 timeout, 마지막 값 유지와 정상 복구 판정
+- v1.1 `/{robot}/detection/event`의 robot ID·필수 ID·event_type 검증과 중복 제거
+- AMR 입력·출력 비활성 및 MissionCommand 발행 차단
 - 구조화 control session·mission·command ID 생성
 - 명령별 mission_id·target_id 검증
-- MissionCommand 발행과 동일 payload 재전송
+- 동일 payload 재전송을 포함한 명령 도메인 로직
 - CommandCheck 정상·복구 예외·역방향 전이 처리
 - 중간 Check가 누락된 PatrolReport 최종 수락과 중복 제거
 - 정상 Ctrl+C의 CONTROL_SHUTDOWN 로컬 기록
 
-`WAITING → EXECUTING` 복구 예외에서는 `ACCEPTED_MISSING`을 기록한 뒤 재전송 정책을 진행하지 않고 `POLICY_PENDING` 진단을 한 번 발생시킨다. AMR 팀과 재전송 중단 여부가 합의되기 전까지 어느 쪽 동작도 확정하지 않기 위한 차단이다.
+직접 실행:
+
+~~~bash
+source install/setup.bash
+ros2 run patrol_control patrol_control_node \
+  --ros-args -p integration_profile:=vision_integration
+~~~
+
+`full_system` 프로파일 이름은 예약돼 있지만 AMR 안전 통합이 완료되지 않았으므로 현재는 시작을 거부한다. 두 프로파일을 별도 코드나 장기 브랜치로 관리하지 않는다.
+
+`WAITING → EXECUTING` 복구 예외에서는 `ACCEPTED_MISSING`을 기록하고 해당 명령 재전송을 즉시 중단한다. START_PATROL의 target은 robot1=`robot1_default`, robot6=`robot6_default`만 허용한다.
 
 미구현 범위:
 
@@ -20,5 +34,7 @@
 - Drive Token·Heartbeat·E-stop·복구 게이트
 - Keepout transaction·교대·배터리·화재 정책
 - 관제 운영 이벤트의 공용 토픽(TBD-IF-011)
+
+`patrol_interfaces 1.1.0`의 16개 메시지 manifest를 사용한다. v1.1에서 관제는 `DetectionEvent`를 소비하지만 `AlignmentStatus`·`DetectionResult`에는 개입하지 않는다. DetectionEvent의 최종 보존 기간과 화재 mission 동작은 잔여 계약·AMR 통합 단계에서 확정한다.
 
 `submit_command()`는 이후 관제 소유 API가 호출할 내부 진입점이다. 미정 API를 임의로 만들지 않기 위해 현재 노드는 외부 명령 service/action을 노출하지 않는다.

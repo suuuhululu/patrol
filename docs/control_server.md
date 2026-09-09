@@ -2,13 +2,13 @@
 
 > 기준: [2026-09-07 PM 설계 결정](decisions/2026-09-07-design-baseline.md). 관제는 별도 노드, 시스템 모니터는 UI 전용, 공용 패키지는 `patrol_interfaces`이며 상세 계약은 System design의 확정 내용을 우선한다.
 
-상태: 확정 인터페이스 기준 설계 · 관제 코드 미반영 · 담당: 관제 팀 · 통합 실행 위치: PC 3 · 참조: [interfaces.md](interfaces.md), [integration.md](integration.md)
+상태: v1.1 비전 입력 1차 코드 반영 · AMR 포함 관제 기능 미완료 · 담당: 관제 팀 · 통합 실행 위치: PC 3 · 참조: [interfaces.md](interfaces.md), [integration.md](integration.md)
 
 시스템 시나리오는 [scenarios.md](scenarios.md)를 따른다. 이 팀은 UC-01·02·03·04·05·06·07·08의 관제 판단·제어·로그 제공 범위를 담당하며, UC 전체를 단독 구현하는 것으로 해석하지 않는다.
 
 ## 0. 관제 구현 계약 기준선
 
-관제 코드의 구현 입력은 [v1.0 (`CTRL-IF-2026-09-08`)](decisions/2026-09-08-control-interface-baseline.md)과 `patrol_interfaces 1.0.0` 메시지 manifest로 고정한다. 네 팀은 같은 Git commit을 각 PC에서 로컬 빌드하고 manifest SHA-256을 비교한다. 이 기준선은 명령·Heartbeat·DriveToken·EStop·RobotStatus 및 이중 Keepout parameter의 확정 범위만 포함하며 코드 구현이나 통합시험 완료를 뜻하지 않는다.
+관제 코드의 명령·Heartbeat·DriveToken·EStop·RobotStatus·Keepout 입력은 [v1.0 (`CTRL-IF-2026-09-08`)](decisions/2026-09-08-control-interface-baseline.md)을 승계하고, Detection 입력은 [v1.1 기준선](decisions/2026-09-09-detection-interface-v1.1.md)과 `patrol_interfaces 1.1.0` 메시지 manifest를 사용한다. 네 팀은 같은 Git commit을 각 PC에서 로컬 빌드하고 manifest SHA-256을 비교한다. 기준선은 코드 구현이나 통합시험 완료를 뜻하지 않는다.
 
 기준선 밖의 E-stop 원인별 상세 clear 조건, System monitor 요청 API, 관제 운영 상태 토픽, PatrolReport 저장 ACK는 차기 버전 TBD이며 v1.0 구현값으로 확정하지 않는다. 확정 범위의 wire 계약을 바꿀 때는 수정 요청서와 새 기준선을 먼저 작성하고 혼합 버전을 운영하지 않는다.
 
@@ -206,7 +206,26 @@ E-stop 대상은 `robot1`, `robot6`, `all`이다. 관제는 대상별 활성 원
 
 ### 7.1 1단계 관제 코드 Flowchart
 
-구현 대조 완료: `patrol_control` 0.1.0, 2026-09-08 작업 트리. 1단계는 Robot Command Manager와 명령 경로의 ROS 2 Gateway를 `command_control_node`에 묶는다. Drive Token·안전·교대·Keepout은 아직 이 노드에 넣지 않았으며 각 계약이 준비된 다음 통합 단위를 결정한다.
+구현 대조 완료: `patrol_control` 0.1.0, `patrol_interfaces 1.1.0`, 2026-09-09 작업 트리. 실행 단위는 `patrol_control_node` 하나다. 현재 실행 가능한 `vision_integration` 프로파일은 permit과 DetectionEvent만 수신하며 AMR publisher·subscriber를 생성하지 않는다. `full_system`은 이름만 예약하고 AMR 안전 통합 전에는 시작을 거부한다. launch 파일은 이 단계 범위에서 만들지 않았다.
+
+#### `src/patrol_control/patrol_control/control_state.py`
+
+~~~mermaid
+flowchart TD
+    A[PermitMonitor 시작 / 기본 true] --> B{Bool 수신}
+    B -->|정상 구간| C[값·monotonic 수신 시각 갱신]
+    C --> D{5초 미수신}
+    D -->|예| E[TIMED_OUT / 마지막 값 유지]
+    E --> F[동일 값 복구 sample 수집]
+    F --> G{3회·간격 0.5초 이하·전체 0.3초 이상}
+    G -->|아니오| F
+    G -->|예| C
+
+    H[DetectionEvent observe] --> I{topic robot·payload robot·ID·event_type 유효}
+    I -->|아니오| J[REJECTED]
+    I -->|이미 본 event_id| K[DUPLICATE]
+    I -->|신규| L[ACCEPTED / 내부 기록]
+~~~
 
 #### `src/patrol_control/patrol_control/command_control.py`
 
@@ -229,7 +248,7 @@ flowchart TD
     L -->|WAITING→ACCEPTED| M[ACCEPTED]
     L -->|ACCEPTED→EXECUTING| N[EXECUTING]
     L -->|WAITING→EXECUTING| O[EXECUTING + ACCEPTED_MISSING]
-    O --> P[POLICY_PENDING / 재전송 여부 TBD-CTRL-001]
+    O --> P[해당 MissionCommand 재전송 즉시 중단]
     L -->|WAITING→REJECTED| Q[REJECTED]
     L -->|역방향·terminal 변경| K
 
@@ -245,27 +264,34 @@ flowchart TD
 
 ~~~mermaid
 flowchart TD
-    A[main / CommandControlNode.__init__] --> B[robot1·robot6 publisher/subscriber 생성]
-    B --> C[0.1초 retry timer]
-    D[submit_command 내부 진입점] --> E[CommandControl.create_command]
-    E -->|검증 실패| F[오류 로그·발행 안 함]
-    E -->|성공| G[MissionCommand 발행]
-    H[CommandCheck callback] --> I{topic robot과 payload robot 일치}
-    I -->|아니오| J[폐기·경고]
-    I -->|예| K[CommandControl.handle_check]
-    L[PatrolReport callback] --> M{topic robot과 payload robot 일치}
-    M -->|아니오| J
-    M -->|예| N[CommandControl.handle_report]
-    C --> O[CommandControl.poll_retries]
-    O -->|RETRANSMIT| G
-    O -->|TIMEOUT| P[COMMAND_CHECK_TIMEOUT 로그]
-    O -->|POLICY_PENDING| Q[AMR 합의 대기 진단]
-    R[Ctrl+C] --> S[CONTROL_SHUTDOWN 로컬 로그]
-    S --> T[노드 종료]
-    S -. token 회수 .-> U[후속 safety-control 구현]
+    N0[main / PatrolControlNode.__init__] --> N1[integration_profile 읽기]
+    N1 -->|vision_integration| V0[permit·robot별 DetectionEvent 구독]
+    N1 -->|full_system| V1[AMR 안전 통합 미완료 / 시작 거부]
+    V0 --> V2[0.1초 permit timeout timer]
+    V3[patrol_allowed callback] --> V4[PermitMonitor.observe]
+    V5[DetectionEvent callback] --> V6[ID·event_type 검증 / 중복 제거]
+    V0 -. AMR publisher·subscriber 없음 .-> V7[명령 출력 차단]
+
+    A0[향후 full_system AMR 경로] --> A1[robot1·robot6 publisher/subscriber 생성]
+    A1 --> A2[0.1초 retry timer]
+    A3[submit_command 내부 진입점] --> A4[CommandControl.create_command]
+    A4 -->|검증 실패| A5[오류 로그·발행 안 함]
+    A4 -->|성공| A6[MissionCommand 발행]
+    A7[CommandCheck callback] --> A8{topic robot과 payload robot 일치}
+    A8 -->|아니오| A9[폐기·경고]
+    A8 -->|예| A10[CommandControl.handle_check]
+    A11[PatrolReport callback] --> A12{topic robot과 payload robot 일치}
+    A12 -->|아니오| A9
+    A12 -->|예| A13[CommandControl.handle_report]
+    A2 --> A14[CommandControl.poll_retries]
+    A14 -->|RETRANSMIT| A6
+    A14 -->|TIMEOUT| A15[COMMAND_CHECK_TIMEOUT 로그]
+    A16[Ctrl+C] --> A17[CONTROL_SHUTDOWN 로컬 로그]
+    A17 --> A18[노드 종료]
+    A17 -. token 회수 .-> A19[후속 safety-control 구현]
 ~~~
 
-외부 명령 service/action은 TBD-CTRL-004이므로 생성하지 않았다. `submit_command()`는 이후 관제 소유 API가 호출할 내부 진입점이다. `CONTROL_SHUTDOWN`의 공용 운영 이벤트 발행과 token best-effort 회수는 TBD-IF-011 및 후속 안전 제어 구현 전까지 로컬 로그로만 남긴다.
+외부 명령 service/action은 TBD-CTRL-004이므로 생성하지 않았다. `submit_command()`는 이후 관제 소유 API가 호출할 내부 진입점이며 `vision_integration`에서는 호출해도 발행 전에 거부한다. permit과 DetectionEvent는 시스템 모니터도 원본 토픽을 직접 구독하므로 관제가 재발행하지 않는다. `CONTROL_SHUTDOWN`의 공용 운영 이벤트 발행과 token best-effort 회수는 TBD-IF-011 및 후속 안전 제어 구현 전까지 로컬 로그로만 남긴다.
 
 ## 8. 결정 기록과 공동 반영 대기
 
@@ -277,7 +303,7 @@ AMR 적용 검토와 robot1·robot6 반영 상태는 [관제 수정 요청서](c
 - 2026-09-07 사용자 결정: Keepout·안전구역 세부 설계는 AMR 팀이 먼저 제시하고 관제 담당자가 확인한다. 검토 전에는 미정 계약을 구현값으로 추측하지 않는다. 영향: 관제·AMR, TBD-CTRL-002·TBD-INT-003.
 - 2026-09-07 사용자 결정: LOW는 새 mission을 시작하지 않고 현재 mission의 순찰·복귀·도킹까지 완료하며, CRITICAL은 즉시 복귀 또는 도킹 판단으로 전환한다. 영향: 관제·AMR. 배터리 입력 정책은 TBD-AMR-003 결정으로 v1.0에 반영됐고, 상세 임무 전이는 TBD-CTRL-003·TBD-AMR-005에 남는다.
 - 2026-09-07 사용자 결정, 2026-09-08 용어 명확화: 화재 확정 후 현재 mission의 순찰·복귀·도킹까지 완료하고 기존 token을 그 종료까지 유지한다. 도킹 후 다른 로봇에 새 token을 발급하지 않는다. DOCKED 완료 센서와 `BatteryState` enum과 독립적인 충전 감지 신호 활성 2초 연속을 도킹 완료와 화재 부저 OFF 조건으로 한다. 도킹 실패 시 다른 활성 화재가 없는 경우 부저를 끄고 관제 경고를 발생시킨다. 영향: 관제·AMR, TBD-INT-004·TBD-AMR-004 및 Q-09·Q-12. 공용·AMR 설계 문서 반영 완료이며 실제 센서·부저 연결은 잔여 TBD와 구현 검증으로 추적한다.
-- 2026-09-08 사용자 결정 및 AMR 회신: CommandCheck 0~3, 정상 ACCEPTED→EXECUTING과 제한된 ACCEPTED 누락 복구, 명령별 mission·target, `parameters_json` 제거, reason code 203~206, RobotStatus safety_state 0~5를 확정했다. ID 3종이 일치하는 ACCEPTED 누락 EXECUTING을 수락하면 재전송을 즉시 중단한다. 당시 공용 `.msg`와 AMR 코드의 중간 반영 커밋은 `1cf0059`였으며, 현재 빌드 기준은 [v1.0 기준선](decisions/2026-09-08-control-interface-baseline.md)의 패키지 버전·15개 메시지 manifest다. 관제 동작 코드는 아직 미구현이다. 근거: [AMR 확정 회신](change_requests/CR-AMR_09-08_17-00_명령_Heartbeat_E-stop_상태_계약_확정_회신.md).
+- 2026-09-08 사용자 결정 및 AMR 회신: CommandCheck 0~3, 정상 ACCEPTED→EXECUTING과 제한된 ACCEPTED 누락 복구, 명령별 mission·target, `parameters_json` 제거, reason code 203~206, RobotStatus safety_state 0~5를 확정했다. ID 3종이 일치하는 ACCEPTED 누락 EXECUTING을 수락하면 재전송을 즉시 중단한다. 당시 공용 `.msg`와 AMR 코드의 중간 반영 커밋은 `1cf0059`였다. 이 계약은 v1.1이 승계하며 현재 관제 명령 도메인 코드에 반영됐다. 활성 mission·동시 명령 중재와 AMR 종단시험은 남아 있다. 근거: [AMR 확정 회신](change_requests/CR-AMR_09-08_17-00_명령_Heartbeat_E-stop_상태_계약_확정_회신.md).
 - 2026-09-08 사용자 결정: Heartbeat 타입·필드·QoS, UI E-stop reason 0~6, 전체 대상 `all`, 대표 원인 발행, 우선순위 `SYSTEM_FAULT → UNKNOWN → OPERATOR → KEEPOUT_FAILURE → COMMUNICATION → OBSTACLE → TOKEN`, 3초 해제 조건을 v1.0으로 확정하고 하드웨어 E-stop·manual reset은 제외한다. UI 요청 경로와 원인별 상세 조건은 차기 버전으로 이관한다. 영향: 관제·AMR·시스템 모니터.
 - 2026-09-08 사용자 결정: Ctrl+C/SIGINT 정상 종료는 `CONTROL_SHUTDOWN` 운영 이벤트로 분류하고, 재기동 후 새 session·상태 게이트·새 token·별도 command 순서를 지킨다. 영향: 관제·AMR·시스템 모니터, TBD-IF-011.
 
@@ -300,7 +326,7 @@ AMR 적용 검토와 robot1·robot6 반영 상태는 [관제 수정 요청서](c
 
 | ID | 미정 사항 | 영향 단위 | 상태 |
 |---|---|---|---|
-| TBD-CTRL-001 | 명령 우선순위·동시 처리·STOP/CANCEL/RESUME 정책·재전송 | 관제·AMR | 결정(2026-09-08): 명령 의미·우선순위·5초 timeout·최대 2회 재전송·일치 EXECUTING 수신 후 중단. 관제 코드 미반영 |
+| TBD-CTRL-001 | 명령 우선순위·동시 처리·STOP/CANCEL/RESUME 정책·재전송 | 관제·AMR | 일부 반영(2026-09-09): 명령별 target, 5초 timeout·최대 2회 재전송·일치 EXECUTING 수신 후 중단을 관제 코드에 반영. 잔여: 활성 mission·동시 명령 중재와 AMR 종단시험 |
 | TBD-CTRL-002 | 안전구역 계산자·지도/동선 공급, rollback 확인·timeout·재시도 | 관제·AMR | 일부 결정(2026-09-08): AMR safe-zone selector, 이중 Keepout parameter, Q-07 transaction. 잔여: 실환경 lifecycle·read-back, rollback 중 상태·탈출 사전 검증 |
 | TBD-CTRL-003 | 재개/교대 배터리 적격 조건·거리 점수·동점, 정상 연속 수신 정의 | 관제·AMR | 공용 문서 반영 완료, 점수 fixture·AMR 검토 대기 |
 | TBD-CTRL-004 | System monitor UI의 OPERATOR 정지·해제 요청 API와 관제 응답 | 관제·System monitor | UI 경계 변경 검토 요청 중 |

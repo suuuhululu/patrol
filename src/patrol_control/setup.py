@@ -26,7 +26,7 @@ setup(
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
-            'command_control_node = '
+            'patrol_control_node = '
             'patrol_control.command_control_node:main',
         ],
     },

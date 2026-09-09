@@ -1,4 +1,5 @@
-"""Mission command validation, identifiers, tracking, and retry policy.
+"""
+Mission command validation, identifiers, tracking, and retry policy.
 
 This module intentionally has no ROS dependency.  The ROS node adapts messages
 to these domain values, while all state transitions remain unit-testable.
@@ -14,6 +15,10 @@ from typing import Iterable
 
 ROBOT_IDS = frozenset({'robot1', 'robot6'})
 DOCK_BY_ROBOT = {'robot1': 'dock_1', 'robot6': 'dock_6'}
+PATROL_PLAN_BY_ROBOT = {
+    'robot1': 'robot1_default',
+    'robot6': 'robot6_default',
+}
 CHECK_TIMEOUT_NS = 5_000_000_000
 MAX_RETRANSMISSIONS = 2
 
@@ -84,7 +89,6 @@ class RetryActionType(Enum):
 
     RETRANSMIT = 'retransmit'
     TIMEOUT = 'timeout'
-    POLICY_PENDING = 'policy_pending'
 
 
 @dataclass(frozen=True)
@@ -120,7 +124,6 @@ class CommandRecord:
     timeout_reported: bool = False
     report_id: str = ''
     accepted_missing: bool = False
-    recovery_policy_reported: bool = False
     check_reason_code: int = 0
     check_reason: str = ''
     report_result: int | None = None
@@ -199,11 +202,12 @@ def validate_command(envelope: CommandEnvelope) -> ValidationResult:
         )
 
     if command is CommandType.START_PATROL:
-        if not envelope.target_id:
+        expected = PATROL_PLAN_BY_ROBOT[envelope.robot_id]
+        if envelope.target_id != expected:
             return ValidationResult(
                 False,
                 ReasonCode.INVALID_TARGET,
-                'START_PATROL requires patrol_plan_id in target_id',
+                f'START_PATROL target_id must be {expected}',
             )
         return ValidationResult(True)
 
@@ -359,7 +363,8 @@ class CommandControl:
         reason_code: int = 0,
         reason: str = '',
     ) -> TrackingResult | None:
-        """Apply CommandCheck.
+        """
+        Apply CommandCheck.
 
         Invalid identity and lifecycle transitions are discarded.
         """
@@ -436,7 +441,8 @@ class CommandControl:
         reason_code: int = 0,
         reason: str = '',
     ) -> TrackingResult | None:
-        """Accept a valid final report.
+        """
+        Accept a valid final report.
 
         Intermediate CommandCheck loss only produces a warning.
         """
@@ -492,20 +498,6 @@ class CommandControl:
         """Return due retries and timeout without creating new IDs."""
         actions: list[RetryAction] = []
         for record in self._records.values():
-            if (
-                record.lifecycle is CommandLifecycle.EXECUTING
-                and record.accepted_missing
-                and not record.recovery_policy_reported
-            ):
-                record.recovery_policy_reported = True
-                actions.append(
-                    RetryAction(
-                        RetryActionType.POLICY_PENDING,
-                        record.envelope,
-                        record.retransmissions,
-                    )
-                )
-                continue
             if record.lifecycle is not CommandLifecycle.WAITING:
                 continue
             if record.timeout_reported:
