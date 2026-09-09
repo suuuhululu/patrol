@@ -1,15 +1,14 @@
-"""command_gateway ROS node: receive MissionCommand, answer CommandCheck.
+"""Durable MissionCommand admission gateway for one AMR namespace.
 
-19단계. This is the ROS owner the pure modules were written for --
-mission_ingress.py says as much in its own docstring ("shared by a future
-ROS mission node"). It joins three of them:
+The gateway joins the public command contract to the AMR mission executor:
 
 * command_store.CommandStore -- durable command identity in SQLite, so a
   restart does not re-execute a command that already ran.
 * mission_ingress.MissionIngress -- the fixed duplicate-handling contract
   turned into one decision per received command.
-* command_check.CommandCheckFactory -- the ACCEPTED/EXECUTING/REJECTED
-  answer on the public ``command_check`` topic.
+* command_check.CommandCheckFactory -- public ``command_check`` responses.
+* pending_dispatch -- the fixed four-second admission boundary.
+* mission_execution_event -- validated facts returned by the executor.
 
 What this node does NOT do, on purpose:
 
@@ -25,8 +24,9 @@ What this node does NOT do, on purpose:
 
 Three internal topics leave this node, each with exactly one meaning:
 
-* ``mission_dispatch`` (MissionCommand) -- run this command, once. Emitted
-  only for a genuinely new command, never for a duplicate.
+* ``mission_dispatch`` (MissionCommand) -- ask the executor to admit a
+  pending command. A still-pending command can be replayed after restart or
+  retry; the executor must deduplicate it by ``command_id``.
 * ``active_command`` (CommandCheck) -- which command identity is current,
   for status_reporter's ``active_command_id``/``active_mission_id``.
   Emitted for accepted and already-executing commands alike, because both
@@ -42,9 +42,6 @@ rule -- keep everything from the last 24 hours, plus the newest 1,000
 older records -- but nothing was calling it, so the store grew forever.
 The gateway prunes once at startup and then on a slow timer.
 
-Answering the arbiter correctly and never running the same command twice
-is a separable job, and it is the half whose contract is already fixed.
-
 CommandCheck values and the command-ID conflict code follow the fixed
 2026-09-08 interface contract rather than launch-time parameters.
 """
@@ -52,12 +49,13 @@ CommandCheck values and the command-ID conflict code follow the fixed
 import os
 
 from patrol_amr import command_check as cc
-from patrol_amr import command_lifecycle as cl
 from patrol_amr import command_store as cs
 from patrol_amr import mission_ingress as mi
 from patrol_amr import patrol_report as pr
 from patrol_amr.mission_command_parser import (
     InvalidMissionCommand, MissionCommandParser)
+from patrol_amr_safety import mission_execution_event as mee
+from patrol_amr_safety import pending_dispatch as pd
 
 
 ROBOT_IDS = ('robot1', 'robot6')
@@ -114,8 +112,8 @@ def create_node_class():
         QoSProfile,
         ReliabilityPolicy,
     )
-    from patrol_interfaces.msg import CommandCheck, MissionCommand, PatrolReport
-    from std_msgs.msg import String
+    from patrol_interfaces.msg import (
+        CommandCheck, MissionCommand, MissionExecutionEvent, PatrolReport)
 
     class CommandGateway(Node):
         """Answer every MissionCommand exactly once per command identity."""
@@ -124,6 +122,7 @@ def create_node_class():
         # 돌리면 얻는 것 없이 쓰기만 늘고, 하루짜리 창에서 1분의 지연은 보존
         # 판정을 바꾸지 않는다. 계약 수치가 아니라 이 노드의 유지보수 주기다.
         PRUNE_PERIOD_SECONDS = 60.0
+        PENDING_TICK_SECONDS = 0.1
 
         def __init__(self):
             super().__init__('command_gateway')
@@ -152,6 +151,7 @@ def create_node_class():
             self._checks = cc.CommandCheckFactory(
                 robot_id, source_session_id, mapping
             )
+            self._pending_replayed = set()
 
             command_qos = QoSProfile(
                 history=HistoryPolicy.KEEP_LAST,
@@ -159,15 +159,12 @@ def create_node_class():
                 reliability=ReliabilityPolicy.RELIABLE,
                 durability=DurabilityPolicy.VOLATILE,
             )
-            # 내부 신호. battery_status·motion_allowed 와 같은 성격이며 공용
-            # 인터페이스를 추가한 것이 아니다.
-            #
-            # durability 가 두 신호에서 다른 것은 의도한 것이다. 명령을 한 번만
-            # 실행하라는 신호(dispatch)와 재전송하라는 신호(replay)를
-            # TRANSIENT_LOCAL 로 두면 늦게 붙은 구독자에게 과거 신호가 다시
-            # 전달되어 명령이 두 번 실행된다. 반대로 active_command 는 "지금
-            # 어느 명령인가"라는 상태이므로, 늦게 뜬 status_reporter 도 마지막
-            # 값을 받아야 RobotStatus 가 빈 ID 로 나가지 않는다.
+            dispatch_qos = QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=10,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            )
             edge_qos = QoSProfile(
                 history=HistoryPolicy.KEEP_LAST,
                 depth=10,
@@ -180,7 +177,7 @@ def create_node_class():
                 reliability=ReliabilityPolicy.RELIABLE,
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
             )
-            lifecycle_qos = QoSProfile(
+            event_qos = QoSProfile(
                 history=HistoryPolicy.KEEP_LAST,
                 depth=20,
                 reliability=ReliabilityPolicy.RELIABLE,
@@ -190,7 +187,7 @@ def create_node_class():
                 CommandCheck, 'command_check', cc.command_check_qos()
             )
             self._dispatch_publisher = self.create_publisher(
-                MissionCommand, 'mission_dispatch', edge_qos
+                MissionCommand, 'mission_dispatch', dispatch_qos
             )
             # status_reporter 가 active_command_id·active_mission_id 를 채우는
             # 입력이다. CommandCheck 타입을 재사용해 새 메시지를 만들지 않았고,
@@ -209,14 +206,16 @@ def create_node_class():
                 command_qos,
             )
             self.create_subscription(
-                String,
-                'mission_lifecycle',
-                self._on_mission_lifecycle,
-                lifecycle_qos,
+                MissionExecutionEvent,
+                'mission_execution_event',
+                self._on_mission_execution_event,
+                event_qos,
             )
             # 시작 시 한 번 — 저장소에는 지난 세션의 오래된 기록이 남아 있다.
             self._prune()
             self.create_timer(self.PRUNE_PERIOD_SECONDS, self._prune)
+            self.create_timer(
+                self.PENDING_TICK_SECONDS, self._maintain_pending_commands)
 
             self._command_check_type = CommandCheck
             self.get_logger().info(
@@ -327,49 +326,169 @@ def create_node_class():
                 )
 
             if decision.dispatch_new:
+                # A retry can arrive after the original four-second window
+                # but before the maintenance timer's next callback. Check the
+                # durable receive time here as well so that retry timing can
+                # never reopen an expired command.
+                observed = self._store.observation(message.command_id)
+                action = pd.decide(
+                    received_at=observed.received_at,
+                    now=fields['received_at'],
+                    replayed_since_start=True,
+                )
+                if action is pd.PendingAction.REJECT_TIMEOUT:
+                    self._reject_dispatch_timeout(
+                        message.command_id, message.mission_id)
+                    return
                 self._dispatch_publisher.publish(message)
+                self._pending_replayed.add(message.command_id)
 
-        def _on_mission_lifecycle(self, message) -> None:
-            """Apply mission-owned execution facts to the gateway DB."""
+        def _on_mission_execution_event(self, message) -> None:
+            """Apply validated mission admission and persistence facts."""
             try:
-                event = cl.from_json(message.data)
+                event = mee.from_message(message)
                 state = self._store.validate_identity(
                     event.command_id, event.mission_id, event.robot_id)
-                if event.kind is cl.LifecycleKind.EXECUTING:
-                    self._store.mark_executing(event.command_id)
-                    record = self._publish_check(
-                        event.command_id,
-                        event.mission_id,
-                        cc.CheckMeaning.EXECUTING,
-                        active=True,
-                    )
-                    self.get_logger().info(
-                        'command execution started: '
-                        f'command_id={event.command_id!r} '
-                        f'sequence={record.sequence}'
-                    )
+                if not self._apply_event(event, state):
                     return
-
-                # A retained completion may be replayed after gateway restart
-                # before the old EXECUTING event is available. Reconstruct the
-                # required forward transition instead of losing completion.
-                if state is cs.CommandState.ACCEPTED:
-                    self._store.mark_executing(event.command_id)
-                    self._publish_check(
-                        event.command_id,
-                        event.mission_id,
-                        cc.CheckMeaning.EXECUTING,
-                        active=True,
-                    )
-                self._store.complete_report(event.command_id, event.report)
+                self._store.record_event(
+                    event.command_id, int(event.event_type), event.report_id)
+                self._pending_replayed.discard(event.command_id)
                 self.get_logger().info(
-                    'command completion stored: '
+                    'mission execution event applied: '
+                    f'event={event.event_type.name} '
                     f'command_id={event.command_id!r} '
-                    f'report_id={event.report.report_id!r}'
+                    f'source_session_id={event.source_session_id!r} '
+                    f'sequence={event.sequence}'
                 )
             except (KeyError, ValueError) as error:
                 self.get_logger().error(
-                    f'ignored invalid mission lifecycle event: {error}')
+                    f'ignored invalid mission execution event: {error}')
+
+        def _apply_event(self, event: mee.ExecutionEvent, state) -> bool:
+            """Apply one non-duplicate event, preserving public state order."""
+            if self._store.event_recorded(
+                event.command_id, int(event.event_type), event.report_id
+            ):
+                self.get_logger().warning(
+                    'ignored duplicate mission execution event: '
+                    f'event={event.event_type.name} '
+                    f'command_id={event.command_id!r}'
+                )
+                return False
+
+            terminal_states = {
+                cs.CommandState.NONTERMINAL,
+                cs.CommandState.REJECTED,
+                cs.CommandState.COMPLETED,
+                cs.CommandState.SUPERSEDED,
+            }
+            if (
+                state is cs.CommandState.COMPLETED
+                and event.event_type is mee.EventType.RESULT_STORED
+            ):
+                # Covers a crash after the report transaction but before the
+                # event idempotency key transaction. Exact replay is safe;
+                # a different report for the same command is rejected.
+                self._store.complete_report(event.command_id, event.report)
+                return True
+            if state in terminal_states:
+                self.get_logger().warning(
+                    'ignored late mission execution event for terminal '
+                    f'command: event={event.event_type.name} '
+                    f'command_id={event.command_id!r} state={state.value}'
+                )
+                return True
+
+            if event.event_type is mee.EventType.ADMITTED:
+                if state is cs.CommandState.PENDING:
+                    self._store.mark_accepted(event.command_id)
+                    self._publish_check(
+                        event.command_id, event.mission_id,
+                        cc.CheckMeaning.ACCEPTED, active=True)
+                return True
+
+            if event.event_type is mee.EventType.REJECTED:
+                self._store.mark_rejected(
+                    event.command_id,
+                    reason_code=event.reason_code,
+                    reason=event.reason,
+                )
+                self._publish_check(
+                    event.command_id, event.mission_id,
+                    cc.CheckMeaning.REJECTED,
+                    reason_code=event.reason_code,
+                    reason=event.reason,
+                )
+                return True
+
+            if state is cs.CommandState.PENDING:
+                self._store.mark_accepted(event.command_id)
+                self._publish_check(
+                    event.command_id, event.mission_id,
+                    cc.CheckMeaning.ACCEPTED, active=True)
+                state = cs.CommandState.ACCEPTED
+            if state is cs.CommandState.ACCEPTED:
+                self._store.mark_executing(event.command_id)
+                self._publish_check(
+                    event.command_id, event.mission_id,
+                    cc.CheckMeaning.EXECUTING, active=True)
+
+            if event.event_type is mee.EventType.STARTED:
+                return True
+            if event.event_type is mee.EventType.NONTERMINAL_STORED:
+                self._store.mark_nonterminal(
+                    event.command_id,
+                    reason_code=event.reason_code,
+                    reason=event.reason,
+                )
+                return True
+            if event.event_type is mee.EventType.RESULT_STORED:
+                self._store.complete_report(event.command_id, event.report)
+                return True
+            raise ValueError(f'unhandled event type: {event.event_type}')
+
+        def _maintain_pending_commands(self) -> None:
+            """Replay unexpired restart state once and reject at four seconds."""
+            now = self.get_clock().now().nanoseconds / 1e9
+            for stored in self._store.pending_commands():
+                action = pd.decide(
+                    received_at=stored.received_at,
+                    now=now,
+                    replayed_since_start=(
+                        stored.command_id in self._pending_replayed),
+                )
+                if action is pd.PendingAction.WAIT:
+                    continue
+                if action is pd.PendingAction.REDISPATCH:
+                    message = mi.populate_mission_command(
+                        MissionCommand(), stored)
+                    self._dispatch_publisher.publish(message)
+                    self._pending_replayed.add(stored.command_id)
+                    self.get_logger().info(
+                        'replayed pending command after gateway start: '
+                        f'command_id={stored.command_id!r}')
+                    continue
+                self._reject_dispatch_timeout(
+                    stored.command_id, stored.mission_id)
+
+        def _reject_dispatch_timeout(
+            self, command_id: str, mission_id: str,
+        ) -> None:
+            """Durably close one expired admission and publish its reason."""
+            self._store.mark_rejected(
+                command_id,
+                reason_code=206,
+                reason='MISSION_DISPATCH_TIMEOUT',
+            )
+            self._publish_check(
+                command_id,
+                mission_id,
+                cc.CheckMeaning.REJECTED,
+                reason_code=206,
+                reason='MISSION_DISPATCH_TIMEOUT',
+            )
+            self._pending_replayed.discard(command_id)
 
         def _prune(self) -> None:
             """Apply Q-14 retention to the durable command store.

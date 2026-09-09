@@ -1,11 +1,10 @@
-<<<<<<< HEAD
 # AMR 안전·임무 설계 흐름과 9월 9일 공동 시험 계획
 
 갱신: **2026-09-09 KST** · 구현·시험 완료 목표: **2026-09-09 12:00 KST**
 
 사용자가 말한 “내일”은 명시한 마감 날짜를 우선하여 **9월 9일 오전**으로 기록한다. 아래 시간표는 작업 계획이며 예약 실행이나 완료 보장이 아니다. 실기 결과는 아직 **미실행**이다.
 
-이 문서의 모든 그림은 **설계**다. 코드를 작성하기 전에 합의할 수 있는 입력·판단·출력·실패·복구 흐름으로 읽는다. 현재 구현 수준은 1절에서 별도로 표시하며, 설계 그림이 있다고 구현·시험 완료로 처리하지 않는다. 함수·클래스·저장 알고리즘·실행 명령 등 코드 상세는 본문에 넣지 않는다.
+각 그림의 상태는 절마다 **설계** 또는 **구현 대조**로 표시한다. 구현 대조는 실제 파일과 맞춘 흐름이고, 설계 그림은 합의할 입력·판단·출력·실패·복구 흐름이다. 그림이 있다는 이유로 구현·시험 완료로 처리하지 않는다. 성현님 파일별 상세 그림은 [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md)를 기준으로 하고 이 문서 9절에서 빠짐없이 연결한다.
 
 기준: [공용 인터페이스](interfaces.md), [AMR 기능·TBD](amr.md), [통합 순서](integration.md), [관제 v1.0 결정](decisions/2026-09-08-control-interface-baseline.md). 2026-09-09 사용자가 제공한 `AMR 공동 구현 계약 v1`의 AMR 내부 결정은 이 문서의 공동 구현 기준으로 반영한다. 화살표를 읽기 위한 값 설명은 이 문서에 표시하되, 공용 메시지·System monitor ACK처럼 다른 개발 단위에 영향을 주는 변경은 기준 문서 갱신·수정 요청·명시적 구현 승인을 거쳐야 한다. 기존 코드별 그림·검증 로그는 [9월 8일 구현·시험 이력](amr_patrol_safety_flowchart_2026-09-08_history.md)에 보존했다.
 
@@ -34,18 +33,18 @@
 | 경계 | 9월 9일 공동 기준 | 현재 작업본과의 차이·상태 |
 |---|---|---|
 | 명령 진입 | 공개 `mission_command`는 gateway만 구독하고 전체 `MissionCommand`를 내부 `mission_dispatch`로 전달 | 진입 구조는 연결됨 |
-| ACCEPTED 시점 | gateway 기본 검증→SQLite `PENDING`→dispatch→mission `ADMITTED/REJECTED` 후 외부 ACCEPTED/REJECTED. 4초 무응답은 `206 / MISSION_DISPATCH_TIMEOUT` | 현재 gateway는 저장 직후 ACCEPTED를 발행하므로 **교체 필요** |
-| 내부 실행 이벤트 | `MissionExecutionEvent`: ADMITTED, REJECTED, STARTED, NONTERMINAL_STORED, RESULT_STORED. QoS RELIABLE/TRANSIENT_LOCAL/KEEP_LAST(20) | 현재 `mission_lifecycle/std_msgs/String` 2종이므로 **공용 메시지 승인 후 양쪽 동시 교체** |
-| dispatch QoS·중복 | RELIABLE/TRANSIENT_LOCAL/KEEP_LAST(10), mission ledger가 retained 재수신·재시작의 실제 Action 중복을 차단 | 현재 dispatch는 VOLATILE이고 JSON command store가 일부 중복을 차단. PENDING 재전달과 실행 ledger 보강 필요 |
+| ACCEPTED 시점 | gateway 기본 검증→SQLite `PENDING`→dispatch→mission `ADMITTED/REJECTED` 후 외부 ACCEPTED/REJECTED. 4초 무응답은 `206 / MISSION_DISPATCH_TIMEOUT` | **gateway 소비부 구현 완료**, mission 생산부 연결·ROS 종단시험 필요 |
+| 내부 실행 이벤트 | `MissionExecutionEvent`: ADMITTED, REJECTED, STARTED, NONTERMINAL_STORED, RESULT_STORED. QoS RELIABLE/TRANSIENT_LOCAL/KEEP_LAST(20) | 메시지·gateway 구독/검증/영속 멱등 처리 반영. **성현님 mission 생산부 미반영** |
+| dispatch QoS·중복 | RELIABLE/TRANSIENT_LOCAL/KEEP_LAST(10), mission ledger가 retained 재수신·재시작의 실제 Action 중복을 차단 | gateway PENDING 저장·재시작 1회 복원·4초 만료 반영. **mission execution ledger와 retained 중복 Action 차단 미반영** |
 | 중재 | STOP > MOVE_TO_SAFE_ZONE > DOCK > CANCEL > RESUME_PATROL > START_PATROL. 높은 우선순위만 교체, 같거나 낮으면 거절, 낮은 명령 FIFO 금지 | 우선순위·교체·SUPERSEDED 전체 대조 필요 |
 | STOP | 활성 mission이 없어도 no-op 수락. ADMITTED→STARTED→NONTERMINAL_STORED, PAUSED·checkpoint 보존·PatrolReport 없음 | 비종료 이벤트와 gateway 완료 상태 추가 필요 |
 | CANCEL | 동일 활성 mission만 허용. checkpoint 삭제, CANCELED/100 결과 저장, 새 mission ID START만 가능 | 실행부와 gateway 종단 대조 필요 |
 | 안전 권한 상실 | 모든 명령보다 우선. Nav2·Dock 취소, mission CANCELED, checkpoint 삭제, CANCELED/102 `LOCAL_SAFETY_REVOKED`, 자동 재출발 금지 | 현재 외부 stop/cancel 핵심은 있으나 결과·checkpoint 종단 보강 필요 |
 | 재개 | `resume_policy=next_waypoint`; PAUSED 또는 WAITING_SAFE_ZONE이며 checkpoint가 있는 동일 mission만 허용 | 코드 선택지는 있으나 기본 설정은 disabled. 설정·checkpoint 경계·시험 필요 |
-| 저장 책임 | gateway SQLite는 외부 command 상태, mission execution ledger는 side effect 중복, mission status/outbox는 상태·결과 | 파일은 일부 있으나 계약의 PENDING/REJECTED/비종료·ledger schema와 재시작 흐름 미완성 |
+| 저장 책임 | gateway SQLite는 외부 command 상태, mission execution ledger는 side effect 중복, mission status/outbox는 상태·결과 | gateway PENDING/REJECTED/비종료·이벤트 키·재시작 복원 반영. mission ledger 연결은 미완성 |
 | 결과 ACK | 같은 report ID를 1초 간격 재발행, 30초 후 경고하되 삭제 금지. 일치하는 STORED/DUPLICATE ACK만 삭제 후보 | `IngestionAck`의 System monitor 공식 채택 전 **외부 확인·구현 보류** |
 
-`MissionExecutionEvent.msg` 추가, 공용 메시지 상수 정리, `IngestionAck` 적용은 공유 계약에 영향을 준다. 먼저 AMR 수정 요청서와 영향 단위 검토를 남기고, 대상 파일·기능의 명시적 코드 변경 승인을 받은 뒤 구현한다. 특히 `RobotStatus.msg`의 “중복 SAFETY 상수 제거”는 어떤 상수가 중복인지 기준 문서와 실제 메시지를 대조해 삭제 대상을 확정하기 전에는 수행하지 않는다.
+`MissionExecutionEvent.msg` 추가는 사용자 승인 범위에 따라 수정 요청서를 남기고 반영했다. `IngestionAck` 적용과 `RobotStatus.msg`의 “중복 SAFETY 상수 제거”는 별도 단위에 영향을 주거나 삭제 대상이 불명확하므로 적용하지 않았다.
 
 ### 1.2 9월 9일 자동 시험 결과와 다음 시작점
 
@@ -57,7 +56,7 @@
 | 전체 단위시험 | 367개 통과, 2.708초 | 현재 구현의 순수 로직 회귀 |
 | 배터리 ROS | `BATTERY_MONITOR_ROS_SMOKE_PASS` | 격리된 원본 입력→상태 발행 |
 | 상태·결과 ROS | `AMR07_STATUS_REPORTER_SMOKE_PASS` | outbox 복구와 임시 상태 축 |
-| 현행 명령 lifecycle ROS | `COMMAND_LIFECYCLE_SMOKE_PASS` | 현재 `mission_lifecycle/String` 경로이며 새 계약 구현 증거는 아님 |
+| 기존 명령 lifecycle ROS | `COMMAND_LIFECYCLE_SMOKE_PASS` | 아래 신규 구현 전 기준선 결과. 새 이벤트 경로는 재빌드 후 별도 판정 |
 | gateway 재시작 ROS | `GATEWAY_PERSISTENCE_PASS`, domain 135 | 기존 Discovery Server 변수를 제거한 격리 환경에서 중복 dispatch 방지·retention 확인 |
 | 안전 ROS robot1 | `AMR_SMOKE_PASS`, domain 136, 상태 67건, 변경 최단 0.100초 | 실물·Nav2가 아닌 로컬 게이트 시험 |
 | 안전 ROS robot6 | `AMR_SMOKE_PASS`, domain 137, 상태 70건, 변경 최단 0.100초 | 실물·Nav2가 아닌 로컬 게이트 시험 |
@@ -159,7 +158,7 @@ D11 `/{r}/robot_status`의 타입은 `patrol_interfaces/RobotStatus`다.
 
 | 번호·통로·타입 | 전달 값과 종류·의미 |
 |---|---|
-| D17 `/{r}/mission_execution_event` · 제안된 `patrol_interfaces/MissionExecutionEvent` | 상수 `ADMITTED=1`, `REJECTED=2`, `STARTED=3`, `NONTERMINAL_STORED=4`, `RESULT_STORED=5`; `header:Header`; `command_id, mission_id, robot_id, source_session_id, reason:string`; `event_type:uint8`; `sequence:uint64`; `mission_state:uint8`; `reason_code:uint32`; `has_report:bool`; `report:PatrolReport`. 멱등 키는 `command_id + event_type + report_id`. 공용 메시지 승인 전에는 설계이며, 현행 `mission_lifecycle/String`은 교체 대상 |
+| D17 `/{r}/mission_execution_event` · `patrol_interfaces/MissionExecutionEvent` | 상수 `ADMITTED=1`, `REJECTED=2`, `STARTED=3`, `NONTERMINAL_STORED=4`, `RESULT_STORED=5`; `header:Header`; `command_id, mission_id, robot_id, source_session_id, reason:string`; `event_type:uint8`; `sequence:uint64`; `mission_state:uint8`; `reason_code:uint32`; `has_report:bool`; `report:PatrolReport`. 멱등 키는 `command_id + event_type + report_id`. 메시지와 gateway 소비부는 구현됐고 mission 생산부는 미연결 |
 | D12 내부 임무 상태 인계 · `object` (ROS 토픽 아님) | `mission:string`은 `MISSION_NONE` 등 3.3절 Mission 이름에 `MISSION_` 접두사. `command_id, mission_id, outcome, reason:string`; `waypoint_index, last_waypoint_index:int`=-1 미지정 또는 0부터 순번; `reason_code:int`; `revision:int` 증가 번호; `updated_monotonic_s:float` 로컬 갱신 시각. outcome은 빈 값 진행 중 / `PAUSED` 보존 / `SUCCEEDED, FAILED, CANCELED` 종료 |
 | D12 내부 결과 인계 · `object` (ROS 토픽 아님) | D14의 로봇·명령·임무·결과·이유·시작/종료 시각·연관 이벤트를 전달. 같은 결과는 같은 report ID 유지. 전달 실패 시 결과 보존. 외부 저장 ACK 계약은 TBD-IF-003 |
 | D13 `/{r}/navigate_to_pose` · `nav2_msgs/action/NavigateToPose` | goal=`pose:PoseStamped`, `behavior_tree:string`; feedback=`current_pose:PoseStamped`, `distance_remaining:float32` m, 시간:`Duration`, `number_of_recoveries:int16`; result=`error_code:uint16`, `error_msg:string`. Action 상태 `status:int8`: 0 UNKNOWN, 1 ACCEPTED, 2 EXECUTING, 3 CANCELING, 4 SUCCEEDED, 5 CANCELED, 6 ABORTED |
@@ -233,7 +232,7 @@ flowchart TD
     L -->|"STARTED일 때 /{r}/command_check · D02<br/>check_state:uint8=2"| O
 ```
 
-현재 구현은 `A`에서 바로 ACCEPTED를 발행하고 `mission_lifecycle/String`을 사용한다. 따라서 이 그림의 점선 구간은 목표 계약이며, 1.2절의 현행 lifecycle 스모크 통과를 새 admission 계약 통과로 해석하지 않는다.
+**gateway 구현 대조:** `PENDING` 저장, 전체 명령 dispatch, D17 검증, ADMITTED 이후 ACCEPTED, STARTED 이후 EXECUTING, 결과 저장, 재시작 복원 및 4초 timeout까지 반영됐다. 점선인 성현님 mission admission·이벤트 생산부가 아직 연결되지 않았으므로 이 흐름 전체가 통합 완료된 것은 아니다.
 
 ### 4.2 배터리 분류
 
@@ -516,7 +515,7 @@ flowchart TD
 | RT-08 두 로봇 token 교대 | 기존 holder 회수→실제 정지 확인→다른 holder 발급. 개별 E-stop과 all도 관찰 | 동시 이동 권한 없음. odom stale이면 교대 진행 금지. 개별 대상은 해당 로봇, all은 두 로봇 차단 | 공동·관제, RT-04·05 |
 | RT-09 단절·재시작·결과 | 로봇 정지 후 관제 수신 단절·복구, AMR/관제 프로세스 재시작, 동일 ID 재전송 | 이전 권한·명령 자동 실행 없음, 로봇별 상태/결과 분리, 미전달 결과 복구와 같은 report ID 확인. **DB 저장 완료는 수신 측 증거가 있을 때만 PASS** | 공동·관제/모니터, RT-04·05 |
 | RT-10 AMR-14 감지·증적 | 안전한 시험 영상/대상으로 정렬·1초 탐지·단절·중복·증적 수신·부저 ON/OFF. Nav2/yaw 동시 요청도 확인 | 합의한 P01~03 기준 통과, 최종 안전 우회 없음, 동일 event 중복 없음, 실제 증적/저장 결과 확인, 부저 종료. 임시 SCANNING만으로 PASS 불가 | 공동, 계약·연결 완료 및 RT-04·06·07 |
-| RT-11 AMR-15·19 위치 검증·재개 | robot6 실제 LiDAR 비교, 오차 경계·3회 연속/중간 실패, 유효/무효 checkpoint, 합의한 재개 시간 경계·초과 | Q-06 판정과 P04 요청 ID 일치, 3회 전 재개 금지. 합의한 checkpoint 재개, 초과 시 정지·관제 회수 연계. pose age 30초와 재개 창 구분 | 공동·관제, 계약·연결 완료 및 RT-03·06 |
+| RT-11 AMR-15·19 위치 검증·재개 | robot6 실제 LiDAR 비교, 오차 경계·3회 연속/중간 실패, 유효/무효 checkpoint | Q-06 판정과 P04 요청 ID 일치, 3회 전 재개 금지. `next_waypoint` checkpoint 재개. pose age 30초를 재개 제한시간으로 오인하지 않음 | 공동·관제, 계약·연결 완료 및 RT-03·06 |
 | RT-12 Keepout·대피·전체 순찰 | 성현님 기존 진척 확인 후 실제 map/TF·마스크, 안전구역 유무, 재시도/스킵·복귀까지 관찰 | 실제 후보가 Q-08 충족, 후보 없으면 정지·400, Keepout 부분 실패 처리, W1~W7 실제 계획과 결과 일치. 연계하지 못하면 전체 순찰 완료 제외 | 성현님·관제, RT-04·05·07 |
 
 RT-04 등 주행 시험은 통제 공간·저속·즉시 정지 수단을 준비한다. 예상치 못한 움직임, 최종 속도 중복 발행, 두 로봇 동시 권한, 취소되지 않는 Action이 나타나면 움직이는 시험을 중단하고 원인 수정 후 해당 선행 시험부터 다시 확인한다. E-stop “즉시” 반응은 로그로 측정하되 미합의 정지 거리/감속 수치를 임의 PASS 기준으로 만들지 않는다.
@@ -556,7 +555,27 @@ RT-04 등 주행 시험은 통제 공간·저속·즉시 정지 수단을 준비
 | 11:45~12:00 | 결과표·남은 조건·임시 정책 갱신 | 항목별 코드 완료/실기 완료 확인 | 구현·로컬 ROS·실기·팀 통합을 나눠 최종 인계 |
 
 AMR-14·15·19는 미합의와 미구현이 남아 있어 전 항목의 정오 완료는 아직 보장할 수 없다. 목표는 유지하되, 10:00 점검에서 남은 작업과 시험 시간을 기록하고 조정한다. **완료 판정:** 필요한 코드 연결 + 관련 로컬 검사 통과 + 해당 RT 실기 PASS + 상대 수신/연계 확인. 임시 보고 값만 연결되거나 장비 없이 통신만 확인한 항목은 그 범위까지만 완료로 표시한다.
-=======
+
+## 9. 성현님 로봇 움직임 코드 전체 플로차트 인덱스
+
+성현님 영역은 명령을 단순 확인하는 영역이 아니라 Nav2·Dock Action을 호출하여 실제 로봇 움직임을 요청하는 실행 영역이다. 단, 최종 바퀴 속도는 `local_safety_supervisor.py`가 통제한다. 아래 표는 [파일별 상세 Mermaid 플로차트](../src/patrol_amr/docs/mission_navigation.md)의 위치와 이 문서의 공동 흐름을 연결한다.
+
+| 실행 묶음 | 실제 원본 파일 | 입력 → 핵심 판단 → 출력·실패/취소 | 상세 그림 |
+|---|---|---|---|
+| 노드 구성 | `mission_supervisor.py`, `mission_config.py` | ROS parameter·`mission_dispatch`·`motion_allowed` → 구성/준비 → worker 기동·종료 취소 | 미션·내비게이션 문서 “ROS 구성과 설정” |
+| 접수·중재 | `mission_command_parser.py`, `mission_command_callback.py`, `mission_arbiter.py` | MissionCommand → ID/target/현재 상태/우선순위 → queue, duplicate, reject, supersede | “명령 콜백과 실행 수명” |
+| 실행·결과 | `mission_worker.py`, `mission_controller.py` | queued request → 영속 claim·시나리오 선택 → 상태, 비종료 저장 또는 PatrolReport outbox | “명령 콜백과 실행 수명” |
+| 순찰·대피·재개·중단 | `scenarios/*.py` | command·checkpoint → W1~W7/안전구역/도킹/취소 분기 → Nav2 결과·checkpoint·종료 상태 | “시나리오” |
+| 실제 이동 요청 | `navigation_adapter.py`, `nav2_goal_runner.py`, `docking_runner.py` | waypoint·dock 요청·안전 취소 → Action goal/feedback/deadline → 성공·실패·취소 | “Nav2와 도킹” |
+| 주행 허용 | `robot_readiness.py`, `robot_readiness_callbacks.py`, `motion_gate.py`, `motion_permission.py` | AMCL·scan·odom·`motion_allowed` → 준비/신선도 → Action 허용 또는 취소 | “ROS 구성과 설정” |
+| 상태·결과 영속화 | `mission_state.py`, `mission_status_store.py`, `mission_reporter.py`, `patrol_report_outbox.py` | 실행 snapshot·completion → 검증/원자 저장 → status 파일·동일 report ID | “내부 상태와 영속성” |
+| 화재·부저 기초 | `fire_event_registry.py`, `audio_note_sequence_adapter.py` | event ID·음표 → 활성 집계/Action 중복 차단 → 부저 시작·취소 | “이벤트 기능 기초” |
+
+현재 원본 `mission_supervisor.py`에는 커밋 `1574ade`에서 들어온 미해결 Git 충돌 표식이 있어 Python 로드가 실패한다. 따라서 해당 파일을 “구현 대조 완료”로 판정할 수 없으며, 성현님이 충돌을 해결한 뒤 D17 admission/event 생산과 함께 다시 대조해야 한다. 조정묵 승인 범위에서는 이 파일을 수정하지 않는다.
+
+<details>
+<summary>2026-09-08 이전 설계 읽기본(참고용, 위 1~9절과 충돌하면 사용하지 않음)</summary>
+
 # `amr_patrol_safety` 문서 기준 노드·모듈·메시지 연결도
 
 작성일: 2026-09-08 · 상태: **구현 전 설계 읽기본** · 담당 범위: AMR 로컬 안전·배터리·상태/결과·명령 식별 입구
@@ -1479,4 +1498,4 @@ RT-01은 움직이지 않는 시험이다. RT-02·03은 바퀴를 지면에서 �
 9. RT-04~08 저속 실주행·도킹·단절 복구를 확인한다.
 
 어느 단계든 `/robotN/cmd_vel` publisher가 둘 이상이거나, token·heartbeat·E-stop 차단 중 0이 나오지 않거나, 같은 command ID가 두 번 실행되면 즉시 다음 단계로 넘어가지 않는다. 실제 시험 결과에는 일자·robot ID·두 패키지 버전·ROS domain·입력값·관측값·로그 경로를 함께 기록한다.
->>>>>>> origin/feat/amr-mission-navigation
+</details>

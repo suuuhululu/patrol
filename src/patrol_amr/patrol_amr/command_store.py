@@ -79,6 +79,7 @@ class StoredCommand:
     robot_id: str
     command: int
     target_id: str
+    header: Any
     target_pose: Any
     issued_by: str
     received_at: float
@@ -108,6 +109,7 @@ class CommandStore:
                 robot_id TEXT NOT NULL,
                 command INTEGER NOT NULL,
                 target_id TEXT NOT NULL,
+                header_json TEXT NOT NULL DEFAULT '{}',
                 target_pose_json TEXT NOT NULL,
                 issued_by TEXT NOT NULL DEFAULT '',
                 received_at REAL NOT NULL,
@@ -137,6 +139,7 @@ class CommandStore:
                         robot_id TEXT NOT NULL,
                         command INTEGER NOT NULL,
                         target_id TEXT NOT NULL,
+                        header_json TEXT NOT NULL DEFAULT '{}',
                         target_pose_json TEXT NOT NULL,
                         issued_by TEXT NOT NULL DEFAULT '',
                         received_at REAL NOT NULL,
@@ -165,6 +168,7 @@ class CommandStore:
         else:
             additions = {
                 'issued_by': "TEXT NOT NULL DEFAULT ''",
+                'header_json': "TEXT NOT NULL DEFAULT '{}'",
                 'reason_code': 'INTEGER NOT NULL DEFAULT 0',
                 'reason': "TEXT NOT NULL DEFAULT ''",
             }
@@ -209,6 +213,7 @@ class CommandStore:
         target_pose: Any,
         received_at: float,
         issued_by: str = '',
+        header: Any = None,
     ) -> CommandObservation:
         """Persist a new command or classify a retry without executing it."""
         command_id = _nonempty_string(command_id, 'command_id')
@@ -223,6 +228,8 @@ class CommandStore:
             raise ValueError('target_id must be a str')
         if not isinstance(issued_by, str):
             raise ValueError('issued_by must be a str')
+        header_json = _canonical_json(
+            {} if header is None else header, 'header')
         target_pose_json = _canonical_json(target_pose, 'target_pose')
         received_at = _finite_nonnegative(received_at, 'received_at')
 
@@ -238,7 +245,6 @@ class CommandStore:
                 command=command,
                 target_id=target_id,
                 target_pose_json=target_pose_json,
-                issued_by=issued_by,
             )
 
         # A command addressed to the other robot is invalid input for this
@@ -252,8 +258,8 @@ class CommandStore:
                 '''
                 INSERT INTO mission_commands (
                     command_id, mission_id, robot_id, command, target_id,
-                    target_pose_json, issued_by, received_at, state
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    header_json, target_pose_json, issued_by, received_at, state
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''',
                 (
                     command_id,
@@ -261,6 +267,7 @@ class CommandStore:
                     robot_id,
                     int(command),
                     target_id,
+                    header_json,
                     target_pose_json,
                     issued_by,
                     received_at,
@@ -494,6 +501,20 @@ class CommandStore:
             )
         return cursor.rowcount == 1
 
+    def event_recorded(
+        self, command_id: str, event_type: int, report_id: str = '',
+    ) -> bool:
+        """Return whether an execution-event idempotency key is durable."""
+        self._required(command_id)
+        row = self._connection.execute(
+            '''
+            SELECT 1 FROM mission_execution_events
+            WHERE command_id = ? AND event_type = ? AND report_id = ?
+            ''',
+            (command_id, event_type, report_id),
+        ).fetchone()
+        return row is not None
+
     def observation(self, command_id: str) -> CommandObservation:
         row = self._required(command_id)
         return _observation_for_row(row)
@@ -566,7 +587,6 @@ class CommandStore:
         command,
         target_id,
         target_pose_json,
-        issued_by,
     ) -> CommandObservation:
         fingerprint = (
             mission_id,
@@ -574,7 +594,6 @@ class CommandStore:
             int(command),
             target_id,
             target_pose_json,
-            issued_by,
         )
         stored = (
             row['mission_id'],
@@ -582,7 +601,6 @@ class CommandStore:
             row['command'],
             row['target_id'],
             row['target_pose_json'],
-            row['issued_by'],
         )
         if fingerprint != stored:
             return CommandObservation(
@@ -620,6 +638,7 @@ def _stored_command(row) -> StoredCommand:
         robot_id=row['robot_id'],
         command=int(row['command']),
         target_id=row['target_id'],
+        header=json.loads(row['header_json']),
         target_pose=json.loads(row['target_pose_json']),
         issued_by=row['issued_by'],
         received_at=float(row['received_at']),

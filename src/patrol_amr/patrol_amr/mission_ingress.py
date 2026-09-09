@@ -161,12 +161,57 @@ def mission_command_fields(message, *, received_at: float) -> dict:
             'robot_id': message.robot_id,
             'command': message.command,
             'target_id': message.target_id,
+            'header': header_payload(message.header),
             'target_pose': pose_stamped_payload(message.target_pose),
             'issued_by': message.issued_by,
             'received_at': received_at,
         }
     except AttributeError as error:
         raise ValueError('message must have MissionCommand fields') from error
+
+
+def header_payload(message) -> dict:
+    """Copy a std_msgs/Header-compatible value for restart replay."""
+    try:
+        return {
+            'stamp': {
+                'sec': message.stamp.sec,
+                'nanosec': message.stamp.nanosec,
+            },
+            'frame_id': message.frame_id,
+        }
+    except AttributeError as error:
+        raise ValueError('header must have Header fields') from error
+
+
+def populate_mission_command(message, stored) -> object:
+    """Restore the original persisted command into a ROS-compatible message."""
+    if not isinstance(stored, command_store.StoredCommand):
+        raise ValueError('stored must be a StoredCommand')
+    message.command_id = stored.command_id
+    message.mission_id = stored.mission_id
+    message.robot_id = stored.robot_id
+    message.command = stored.command
+    message.target_id = stored.target_id
+    message.issued_by = stored.issued_by
+    _populate_header(message.header, stored.header)
+    _populate_pose_stamped(message.target_pose, stored.target_pose)
+    return message
+
+
+def _populate_header(message, payload) -> None:
+    message.stamp.sec = payload['stamp']['sec']
+    message.stamp.nanosec = payload['stamp']['nanosec']
+    message.frame_id = payload['frame_id']
+
+
+def _populate_pose_stamped(message, payload) -> None:
+    _populate_header(message.header, payload['header'])
+    source = payload['pose']
+    for name in ('x', 'y', 'z'):
+        setattr(message.pose.position, name, source['position'][name])
+    for name in ('x', 'y', 'z', 'w'):
+        setattr(message.pose.orientation, name, source['orientation'][name])
 
 
 def _uint32(value, name):

@@ -37,7 +37,8 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from patrol_interfaces.msg import CommandCheck, MissionCommand
+from patrol_interfaces.msg import (
+    CommandCheck, MissionCommand, MissionExecutionEvent)
 
 
 ROBOT_ID = "robot1"
@@ -73,6 +74,18 @@ class Probe(Node):
         self.publisher = self.create_publisher(
             MissionCommand, f"{NS}/mission_command", COMMAND_QOS
         )
+        event_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=20,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.event_publisher = self.create_publisher(
+            MissionExecutionEvent,
+            f"{NS}/mission_execution_event",
+            event_qos,
+        )
+        self.event_sequence = 0
 
     def send(
         self,
@@ -86,7 +99,24 @@ class Probe(Node):
         message.robot_id = ROBOT_ID
         message.command = 1
         message.target_id = "robot1_default"
+        message.issued_by = "ctrl-20260908T180000"
         self.publisher.publish(message)
+
+    def admit(
+        self,
+        command_id="cmd-ctrl-20260908T180000-robot1-start-0001",
+        mission_id="msn-ctrl-20260908T180000-robot1-0001",
+    ):
+        self.event_sequence += 1
+        message = MissionExecutionEvent()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.command_id = command_id
+        message.mission_id = mission_id
+        message.robot_id = ROBOT_ID
+        message.event_type = MissionExecutionEvent.ADMITTED
+        message.source_session_id = SOURCE_SESSION_ID
+        message.sequence = self.event_sequence
+        self.event_publisher.publish(message)
 
 
 def spin(node, seconds):
@@ -139,29 +169,32 @@ def check_restart_persistence(
     node.send(command_id)
     wait_for(
         node,
-        lambda: (command_id, ACCEPTED) in node.checks,
+        lambda: node.dispatch == [command_id],
         10.0,
-        "first ACCEPTED before restart",
+        "first pending dispatch before admission",
         log_path,
     )
-    # dispatch 는 같은 콜백에서 나가지만 별도 토픽이라 도착이 한 박자 늦을
-    # 수 있다. 없다고 단정하기 전에 기다린다.
+    if (command_id, ACCEPTED) in node.checks:
+        raise AssertionError("gateway accepted before executor admission")
+    node.admit(command_id)
     wait_for(
         node,
-        lambda: node.dispatch == [command_id],
+        lambda: (command_id, ACCEPTED) in node.checks,
         5.0,
-        "first dispatch before restart",
+        "first ACCEPTED after executor admission",
         log_path,
     )
 
     stop(gateway)
     restarted = start_gateway(database_path, log_file)
+    pending_restarted = None
     try:
         node.checks.clear()
         node.dispatch.clear()
         wait_for(
             node,
-            lambda: node.publisher.get_subscription_count() >= 1,
+            lambda: node.publisher.get_subscription_count() >= 1
+            and node.event_publisher.get_subscription_count() >= 1,
             15.0,
             "restarted gateway subscription",
             log_path,
@@ -185,9 +218,48 @@ def check_restart_persistence(
                 "a command answered before the restart was dispatched again: "
                 f"{node.dispatch!r}"
             )
+
+        pending_id = "cmd-ctrl-20260908T180000-robot1-start-0002"
+        pending_mission = "msn-ctrl-20260908T180000-robot1-0002"
+        node.send(pending_id, pending_mission)
+        wait_for(
+            node,
+            lambda: node.dispatch == [pending_id],
+            5.0,
+            "pending command before second restart",
+            log_path,
+        )
+        stop(restarted)
+        node.checks.clear()
+        node.dispatch.clear()
+        pending_restarted = start_gateway(database_path, log_file)
+        wait_for(
+            node,
+            lambda: node.publisher.get_subscription_count() >= 1
+            and node.event_publisher.get_subscription_count() >= 1,
+            15.0,
+            "pending gateway restart subscriptions",
+            log_path,
+        )
+        wait_for(
+            node,
+            lambda: pending_id in node.dispatch,
+            5.0,
+            "durable pending command replay after restart",
+            log_path,
+        )
+        node.admit(pending_id, pending_mission)
+        wait_for(
+            node,
+            lambda: (pending_id, ACCEPTED) in node.checks,
+            5.0,
+            "replayed pending command admitted",
+            log_path,
+        )
     finally:
         stop(restarted)
-    return restarted
+        if pending_restarted is not None:
+            stop(pending_restarted)
 
 
 def check_retention_ran(log_path, database_path):
@@ -219,7 +291,8 @@ def main():
         try:
             wait_for(
                 node,
-                lambda: node.publisher.get_subscription_count() >= 1,
+                lambda: node.publisher.get_subscription_count() >= 1
+                and node.event_publisher.get_subscription_count() >= 1,
                 15.0,
                 "gateway subscription",
                 log_file.name,
@@ -232,6 +305,7 @@ def main():
 
             print("GATEWAY_PERSISTENCE_PASS")
             print("restart=answered_again,not_dispatched_twice")
+            print("pending_restart=redispatched_once,accepted_after_admission")
             print(f"retention=prune_ran,retained_rows={retained}")
             print(f"ros_domain_id={os.environ['ROS_DOMAIN_ID']}")
         finally:

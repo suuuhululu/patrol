@@ -1,7 +1,10 @@
 # 미션·내비게이션 구현 대조
 
-구현 대조 기준: `patrol_amr` 0.4.0,
-`v1.0` 작업 트리, 2026-09-09.
+구현 대조 기준: `patrol_amr` 0.4.0, 커밋 `1574ade` 작업 트리,
+2026-09-09. 각 Mermaid 그림은 표기된 원본 파일의 함수·분기를 기준으로
+대조했다. 단, `mission_supervisor.py`는 현재 미해결 Git 충돌 표식 때문에
+Python 로드가 불가능하므로 해당 노드 구성 그림과 신규 실행 이벤트 연결은
+**설계 대조 / 재확인 필요**다. 나머지 파일은 **구현 대조 완료**다.
 
 이 문서는 박성현 담당 미션·내비게이션 코드와 조정묵 담당
 `local_safety_supervisor`를 연결한 경계를 설명한다. 2026-09-08
@@ -73,7 +76,7 @@ manager는 Nav2 프로세스 시작 10초 뒤에 실행한다.
 | `patrol_report_outbox.py` | 미전송 PatrolReport를 report ID와 함께 영속 보관 |
 | `patrol_report_adapter.py` | outbox record를 ROS 메시지로 변환·발행 |
 | `status_reporter.py` | Q-02 RobotStatus 발행과 PatrolReport outbox drain |
-| `command_store.py` | `CommandStore.claim/finish`: 중복·충돌·checkpoint 원자 저장 |
+| `mission_command_store.py` | `CommandStore.claim/finish`: mission 실행 side effect의 중복·충돌·checkpoint 원자 저장 |
 | `navigation_adapter.py` | `NavigationAdapter`: Nav2·도킹 구현 조합 |
 | `nav2_goal_runner.py` | `Nav2GoalRunner.go_to`: pose goal·안전 취소·결과 정규화 |
 | `docking_runner.py` | `DockingRunner.dock/ensure_undocked`: Action과 Q-09 확인 |
@@ -89,6 +92,8 @@ manager는 Nav2 프로세스 시작 10초 뒤에 실행한다.
 ## ROS 구성과 설정
 
 `mission_supervisor.py`
+
+상태: **설계 대조 / 충돌 해결 후 재확인 필요**
 
 ~~~mermaid
 flowchart TD
@@ -142,16 +147,24 @@ flowchart TD
 
 `command_gateway`, `mission_supervisor`, `local_safety_supervisor`
 
+상태: gateway와 local safety는 **구현 대조 완료**. mission의 D17 이벤트
+생산은 **설계**다.
+
 ~~~mermaid
 flowchart TD
     A[외부 명령] --> B[command_gateway 단일 진입점]
-    B -->|mission_dispatch / MissionCommand| C[mission_supervisor]
+    B -->|PENDING 저장 후<br/>mission_dispatch / MissionCommand| C[mission_supervisor]
+    C -.->|MissionExecutionEvent<br/>ADMITTED 또는 REJECTED| B
     D[/control/drive_token] --> E[local_safety_supervisor]
     F[/control/estop] --> E
     E -->|motion_allowed| C
     C --> G{명령 구조·센서 준비·motion_allowed 유효}
     G -->|예| H[mission queue 수락]
+    H -.->|MissionExecutionEvent ADMITTED| B
     G -->|아니오| I[명령 거부·주행 없음]
+    I -.->|MissionExecutionEvent REJECTED| B
+    H --> N[worker 실제 시작]
+    N -.->|MissionExecutionEvent STARTED| B
     E -->|false| J[활성 Nav2·Dock 취소 요청]
     J --> K[CANCELED / 102 / LOCAL_SAFETY_REVOKED]
     K --> L[checkpoint 삭제·새 MissionCommand 대기]
@@ -199,6 +212,9 @@ monitor가 담당한다.
 
 `mission_command_parser.py`, `mission_command_callback.py`
 
+상태: **구현 대조 완료**. 아래 queue 결과를 D17 ADMITTED/REJECTED로
+발행하는 ROS adapter는 아직 없으므로 해당 연결만 설계다.
+
 ~~~mermaid
 flowchart TD
     A[MissionCommand callback] --> B[MissionCommandParser.parse]
@@ -240,6 +256,10 @@ flowchart TD
 ~~~
 
 `mission_worker.py`
+
+상태: worker 실행·저장 흐름은 **구현 대조 완료**. STARTED,
+NONTERMINAL_STORED, RESULT_STORED를 D17로 바꾸어 발행하는 adapter는
+**설계**다.
 
 ~~~mermaid
 flowchart TD
@@ -606,11 +626,11 @@ flowchart TD
 | subscriber 확인 후 drain | 명백히 수신자가 없는 상태에서 VOLATILE report를 버리지 않는다. | 연결만으로 DB 저장 완료를 보장하지 않으며 검토 요청서에서 ACK를 요청했다. |
 | REJECTED 비발행 | PatrolReport의 확정 enum은 SUCCEEDED/FAILED/CANCELED 세 개뿐이다. | 명령 거부 ACK가 필요하면 TBD-IF-001·003에서 별도 계약을 정한다. |
 
-`command_store.py`
+`mission_command_store.py`
 
 ~~~mermaid
 flowchart TD
-    A[command_id·6필드 fingerprint] --> B[24시간+과거 최신 1,000개 보관 정리]
+    A[command_id·fingerprint] --> B[24시간+과거 최신 1,000개 보관 정리]
     B --> C{기존 ID}
     C -->|없음| D[temp 파일 write·fsync]
     D --> E[atomic replace·directory fsync]
@@ -661,8 +681,9 @@ flowchart TD
 - `STOP > MOVE_TO_SAFE_ZONE > DOCK > CANCEL > RESUME_PATROL > START_PATROL`
   우선순위, 동일/낮은 명령 거부, 높은 명령 선점, `SUPERSEDED` 비종결 저장을
   단위시험으로 확인했다.
-- 공유 `MissionExecutionEvent` 추가와 System monitor ACK 계약은 승인 전이므로
-  이번 변경 범위에 포함하지 않았다.
+- 공유 `MissionExecutionEvent` 메시지와 gateway 소비부는 조정묵 승인 범위로
+  반영됐다. 성현님 mission의 ADMITTED/REJECTED/STARTED/저장 완료 생산부와
+  실행 ledger 연결은 미반영이다. System monitor ACK 계약은 계속 보류한다.
 
 ## 2026-09-08 검증 결과
 
