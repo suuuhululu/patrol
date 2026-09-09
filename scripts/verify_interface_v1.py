@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the patrol_interfaces v1.0 source and print its portable fingerprint."""
+"""Verify the current patrol_interfaces v1.x source and print its fingerprint."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 
-EXPECTED_VERSION = "1.0.0"
+EXPECTED_VERSION = "1.1.0"
 EXPECTED_MESSAGES = (
     "AlignmentStatus",
     "CameraState",
@@ -21,6 +21,7 @@ EXPECTED_MESSAGES = (
     "ControlHeartbeat",
     "DetectionCandidate",
     "DetectionEvent",
+    "DetectionResult",
     "DriveToken",
     "EStop",
     "EvidenceChunk",
@@ -102,10 +103,28 @@ def _source_report(root: Path) -> dict[str, object]:
         "MissionCommand": ("geometry_msgs/PoseStamped target_pose",),
         "RobotStatus": ("uint8 SAFETY_UNKNOWN=0", "uint8 SAFETY_ERROR=5"),
         "CameraState": ("uint8 STATE_UNKNOWN=0", "uint8 STATE_EXITING=4"),
+        "DetectionCandidate": (
+            "uint8 UNKNOWN=0",
+            "uint8 FIRE=1",
+            "uint8 LEAK=2",
+            "uint8 OBSTACLE=3",
+        ),
+        "DetectionEvent": (
+            "uint8 EVENT_UNKNOWN=0",
+            "uint8 FIRE=1",
+            "uint8 LEAK=2",
+            "uint8 OBSTACLE=3",
+        ),
+        "DetectionResult": (
+            "uint8 CONFIRMED=0",
+            "uint8 VERIFY_FAILED=1",
+            "uint8 INTERNAL_ERROR=2",
+        ),
     }
     forbidden_fragments = {
         "EStop": ("bool latched", "manual_reset_required"),
         "MissionCommand": ("string parameters_json",),
+        "DetectionEvent": ("uint8 risk_level", "RISK_UNKNOWN", "LIGHTING", "FACILITY_DAMAGE"),
     }
     hashes: dict[str, str] = {}
     combined = hashlib.sha256()
@@ -121,7 +140,7 @@ def _source_report(root: Path) -> dict[str, object]:
         combined.update(f"{name}:{digest}\n".encode())
 
     return {
-        "contract_version": "v1.0",
+        "contract_version": "v1.1",
         "package_version": EXPECTED_VERSION,
         "message_count": len(EXPECTED_MESSAGES),
         "hash_scope": "normalized ROS declarations; comments and blank lines excluded",

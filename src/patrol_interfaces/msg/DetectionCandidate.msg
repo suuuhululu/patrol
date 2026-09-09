@@ -3,10 +3,11 @@ std_msgs/Header header
 string robot_id
 string candidate_id
 
-# v1.0 wire constants. Detection semantics and AMR arbitration remain TBD-IF-006.
-uint8 FIRE=0
-uint8 LEAK=1
-uint8 OBSTACLE=2
+# v1.1 event_type constants. DetectionCandidate와 DetectionEvent에서 같은 값을 사용한다.
+uint8 UNKNOWN=0
+uint8 FIRE=1
+uint8 LEAK=2
+uint8 OBSTACLE=3
 uint8 event_type
 
 float32 confidence

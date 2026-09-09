@@ -161,7 +161,7 @@ class RosAdapterTests(unittest.TestCase):
     def test_compressed_image_maps_topic_and_keeps_bytes(self):
         message = ns(header=header("camera_optical"), data=b"test-image")
         camera_id, frame_id, captured_at, stream = ros_adapter.compressed_image_input(
-            "/vision/cctv/gate_image/compressed", message
+            "/vision/cctv/gate/image/compressed", message
         )
         self.assertEqual(camera_id, "webcam1")
         self.assertEqual(frame_id, "ros-webcam1-1700000000-250000000")
