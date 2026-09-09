@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>patrol_interfaces</name>
-  <version>1.0.0</version>
+  <version>1.1.0</version>
   <description>
     주차장 순찰 시스템에서 AMR·관제·비전·시스템 모니터가 공유하는 ROS 2 인터페이스 패키지.
   </description>
