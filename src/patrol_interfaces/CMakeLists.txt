@@ -12,7 +12,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  # patrol_interfaces 1.1.0: 아래 16개를 하나의 wire-schema 단위로 배포한다.
+  # patrol_interfaces 1.0.0: 아래 15개를 하나의 wire-schema 단위로 배포한다.
   "msg/MissionCommand.msg"
   "msg/CommandCheck.msg"
   "msg/DriveToken.msg"
@@ -27,7 +27,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/IngestionAck.msg"
   "msg/DetectionCandidate.msg"
   "msg/DetectionEvent.msg"
-  "msg/DetectionResult.msg"
   "msg/EvidenceChunk.msg"
   "msg/KeepoutStatus.msg"
   "msg/AlignmentStatus.msg"
