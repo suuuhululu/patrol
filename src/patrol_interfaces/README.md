@@ -6,14 +6,13 @@
 
 ## 계약 상태
 
-> **현행 계약:** 이 파일의 이관 이력보다 [v1.1 기준선](../../docs/decisions/2026-09-09-detection-interface-v1.1.md)과 [interfaces.md](../../docs/interfaces.md)가 우선한다. 아래 과거 필드 설명을 실행 계약으로 사용하지 않는다.
+> **현행 계약:** 이 파일의 이관 이력보다 [v1.0 기준선](../../docs/decisions/2026-09-08-control-interface-baseline.md)과 [interfaces.md](../../docs/interfaces.md)가 우선한다. 아래 과거 필드 설명을 실행 계약으로 사용하지 않는다.
 
-최초 이관 자체는 당시 공용 계약 합의나 TBD 해결을 뜻하지 않았다. 현재 계약은 기존 [v1.0 기준선](../../docs/decisions/2026-09-08-control-interface-baseline.md)을 승계한 [v1.1 기준선](../../docs/decisions/2026-09-09-detection-interface-v1.1.md)과 [interfaces.md](../../docs/interfaces.md)가 정하며, 이 파일의 과거 이관 설명으로 되돌리지 않는다. 원본 주석의 `[계약]`, `CR-001`, `CR-002`, `CR-004`와 package.xml의 과거 문서 경로·소유 설명은 이전 워크스페이스 기록이다.
+최초 이관 자체는 당시 공용 계약 합의나 TBD 해결을 뜻하지 않았다. 이후 확정된 현재 계약은 [v1.0 기준선](../../docs/decisions/2026-09-08-control-interface-baseline.md)과 [interfaces.md](../../docs/interfaces.md)가 정하며, 이 파일의 과거 이관 설명으로 되돌리지 않는다. 원본 주석의 `[계약]`, `CR-001`, `CR-002`, `CR-004`와 package.xml의 과거 문서 경로·소유 설명은 이전 워크스페이스 기록이다.
 
-현재 패키지 버전은 `1.1.0`이다. CMake에 등록된 16개 메시지는 하나의 wire-schema 배포 단위이며 `INTERFACE_VERSION`과 [검증 스크립트](../../scripts/verify_interface_v1.py)로 소스·설치 결과를 확인한다. 각 PC는 같은 Git commit을 로컬 빌드하고 스크립트의 `message_manifest_sha256`을 비교한다. manifest는 주석·빈 줄을 제외한 ROS 선언을 정규화해 계산하고, `--installed`는 설치 Python 타입의 필드·상수까지 소스와 대조한다. 검증 스크립트 파일명은 기존 자동화 호환을 위해 유지한다.
+현재 패키지 버전은 `1.0.0`이다. CMake에 등록된 15개 메시지는 하나의 wire-schema 배포 단위이며 `INTERFACE_VERSION`과 [검증 스크립트](../../scripts/verify_interface_v1.py)로 소스·설치 결과를 확인한다. 각 PC는 같은 Git commit을 로컬 빌드하고 스크립트의 `message_manifest_sha256`을 비교한다. manifest는 주석·빈 줄을 제외한 ROS 선언을 정규화해 계산하고, `--installed`는 설치 Python 타입의 필드·상수까지 소스와 대조한다.
 
-- v1.1은 AlignmentStatus, CameraState, CommandCheck, ControlHeartbeat, DetectionCandidate, DetectionEvent, DetectionResult, DriveToken, EStop, EvidenceChunk, IngestionAck, KeepoutStatus, MissionCommand, PatrolReport, PatrolVisit, RobotStatus 16종이다.
-- DetectionCandidate와 DetectionEvent의 event_type은 UNKNOWN=0, FIRE=1, LEAK=2, OBSTACLE=3으로 통일했다. DetectionEvent의 risk_level·RISK enum과 v1에서 사용하지 않는 LIGHTING·FACILITY_DAMAGE는 제거했다. DetectionResult는 CONFIRMED=0, VERIFY_FAILED=1, INTERNAL_ERROR=2이며 비전의 정렬 후 검증 종결 결과를 AMR에 전달한다.
+- 최초 5종에서 확장된 현재 v1.0은 AlignmentStatus, CameraState, CommandCheck, ControlHeartbeat, DetectionCandidate, DetectionEvent, DriveToken, EStop, EvidenceChunk, IngestionAck, KeepoutStatus, MissionCommand, PatrolReport, PatrolVisit, RobotStatus 15종이다.
 - DriveToken은 `control_session_id`·`token_id`·`message_sequence`, RobotStatus는 `*_state`와 구조화 ID 필드, EStop은 `target_robot_id`·`active`·`reason`·`sequence`를 사용한다. `latched`·물리 E-stop·manual reset은 v1.0에 없다. PatrolReport의 `reason_code`는 uint32다.
 - CommandCheck는 UNKNOWN=0, ACCEPTED=1, EXECUTING=2, REJECTED=3이며 RobotStatus safety enum과 EStop reason 0~6, 전체 대상 `all`은 v1.0에 확정됐다. 남은 상세 TBD는 차기 버전으로 이관한다.
 - STOP/CANCEL/RESUME 관련 과거 주석은 현재의 TBD-AMR-005를 해결하는 근거가 아니다. [amr.md](../../docs/amr.md)를 따른다.
