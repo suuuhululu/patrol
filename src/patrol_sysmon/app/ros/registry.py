@@ -39,11 +39,11 @@ SUBSCRIPTIONS = (
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
-        "gate_image", "/vision/cctv/gate_image/compressed",
+        "gate_image", "/vision/cctv/gate/image/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
-        "center_image", "/vision/cctv/center_image/compressed",
+        "center_image", "/vision/cctv/center/image/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
@@ -157,8 +157,8 @@ ESTOP_TARGETS = ("robot1", "robot6", "all")
 CAMERA_IDS_BY_TOPIC = {
     "/robot1/oakd/image/compressed": "amr1",
     "/robot6/oakd/image/compressed": "amr2",
-    "/vision/cctv/gate_image/compressed": "webcam1",
-    "/vision/cctv/center_image/compressed": "webcam2",
+    "/vision/cctv/gate/image/compressed": "webcam1",
+    "/vision/cctv/center/image/compressed": "webcam2",
 }
 COSTMAP_SOURCES_BY_TOPIC = {
     "/robot1/global_costmap/costmap": ("AMR1", "global"),

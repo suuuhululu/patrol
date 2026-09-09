@@ -201,8 +201,8 @@ def build_virtual_publisher(config):
                 for topic in (
                     "/robot1/oakd/image/compressed",
                     "/robot6/oakd/image/compressed",
-                    "/vision/cctv/gate_image/compressed",
-                    "/vision/cctv/center_image/compressed",
+                    "/vision/cctv/gate/image/compressed",
+                    "/vision/cctv/center/image/compressed",
                 )
             }
             self._costmap_publishers = {
