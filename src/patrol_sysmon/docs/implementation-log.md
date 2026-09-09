@@ -1260,3 +1260,10 @@ flowchart TD
 
 - 검증: `tests/test_patrol_safety.py` 11개 통과. 별도 프로세스 DDS 시험 6개 통과. ROS 환경 전체 `tests/`는 **120개 시험과 86개 subtest 통과**했으며 callback 처리 실패와 DB 외래 키 오류는 0이었다.
 - 남은 일: 실제 상대 PC publisher·운영 domain 6·PC 간 네트워크 시험은 **NOT_RUN**이다.
+
+## 37. CCTV 영상 토픽명 정정과 영상 표시 개선 (2026-09-09)
+
+- 목적: 운영 domain 6 통합 시험에서 비전 PC가 실제로 발행하는 CCTV 영상 토픽은 `/vision/cctv/gate_image/compressed`·`/vision/cctv/center_image/compressed`였고, 등록표의 `gate/image/compressed`·`center/image/compressed`는 구독만 걸린 채 한 장도 받지 못했다. 같은 시험에서 웹캠 영상이 1 fps로 끊기고 위아래가 잘려 보이는 표시 문제를 함께 바로잡는다.
+- 변경 파일·함수: `app/ros/registry.py`의 `SUBSCRIPTIONS`와 `CAMERA_IDS_BY_TOPIC`이 밑줄 토픽명을 쓴다. `tests/test_ros_adapter.py`·`testkit/ros_topic_test.py`의 토픽명을 같이 바꿨다. `app/static/js/cameras.js`의 조회 주기를 1000 → 200 ms로 줄여 어댑터 수신 상한 `CAMERA_MAX_HZ=5.0`과 맞췄다. `app/static/css/dashboard.css`의 영상 `object-fit`을 `cover` → `contain`으로 바꿔 4:3 웹캠 프레임이 16:9 틀에서 잘리지 않게 했다.
+- 설계 이유: 화면 fps는 발행·수신 상한·브라우저 조회 중 가장 낮은 값에 묶인다. 조회 1 Hz가 병목이었고 수신 상한 5 Hz는 interfaces.md 2.5절 계약 그대로 둔다. `contain`은 여백이 생기지만 어떤 비율의 프레임도 잘라내지 않으므로 비전 캡처 해상도가 확정되기 전까지 안전한 기본값이다.
+- 남은 일: CCTV 영상 토픽은 `interfaces.md`에 행이 없고 발행 노드도 `src/patrol_vision`에 없다. 비전 팀에 토픽명·타입·QoS·캡처 해상도를 계약에 적고 발행 코드를 저장소에 올려 달라고 요청한다. 웹캠이 16:9로 맞춰지면 `contain` 여백은 사라진다.

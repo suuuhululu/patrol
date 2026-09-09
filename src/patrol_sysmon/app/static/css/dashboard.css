@@ -103,7 +103,7 @@
 .feed-state.live { color: #6fdda4; }.feed-state.live .status-dot { background: #4bd58e; box-shadow: 0 0 7px #4bd58e88; }
 .feed-state.offline { color: #f09292; }.feed-state.offline .status-dot { background: #e96f6f; }.feed-state.waiting .status-dot { background: #8292a6; }
 .camera-viewport { position: relative; min-height: 260px; overflow: hidden; background: #08111b; }
-.camera-image { display: block; width: 100%; height: 260px; object-fit: cover; background: #08111b; }
+.camera-image { display: block; width: 100%; height: 260px; object-fit: contain; background: #08111b; }
 .camera-image[hidden], .camera-placeholder[hidden], .camera-offline[hidden] { display: none; }
 .camera-placeholder { position: absolute; inset: 0; min-height: 260px; padding: 24px 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #819ab4; background: radial-gradient(ellipse at center, #152538, #0a131f 80%); }
 .camera-placeholder h3 { color: #b2c0d1; margin-top: 10px; font-size: 11px; }.camera-placeholder p { font-size: 9px; color: #8e9eb4; margin-top: 6px; }
@@ -202,7 +202,7 @@
 .camera-workspace .camera-card { display: flex; min-height: 0; flex-direction: column; }
 .camera-workspace .camera-card .panel-heading { min-height: 39px; box-sizing: border-box; padding: 9px 11px; }
 .camera-workspace .camera-viewport { flex: 1; width: 100%; min-height: 0; height: auto; aspect-ratio: 16 / 9; }
-.camera-workspace .camera-image { width: 100%; height: 100%; min-height: 0; object-fit: cover; }
+.camera-workspace .camera-image { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
 .camera-workspace .camera-placeholder { min-height: 0; padding: 12px; }
 .camera-workspace .camera-footer { min-height: 30px; box-sizing: border-box; padding: 7px 11px; }
 
