@@ -17,9 +17,9 @@ import time
 os.environ['ROS_DOMAIN_ID'] = os.environ.get(
     'COMMAND_LIFECYCLE_SMOKE_DOMAIN_ID', '124')
 os.environ['ROS_AUTOMATIC_DISCOVERY_RANGE'] = 'LOCALHOST'
-os.environ.pop('ROS_DISCOVERY_SERVER', None)
-os.environ.pop('ROS_SUPER_CLIENT', None)
-os.environ.pop('ROS_LOCALHOST_ONLY', None)
+for key in ('ROS_DISCOVERY_SERVER', 'ROS_SUPER_CLIENT', 'ROS_LOCALHOST_ONLY',
+            'FASTRTPS_DEFAULT_PROFILES_FILE', 'FASTDDS_DEFAULT_PROFILES_FILE'):
+    os.environ.pop(key, None)
 _ROS_LOG = tempfile.TemporaryDirectory(prefix='command-lifecycle-ros-log-')
 os.environ['ROS_LOG_DIR'] = _ROS_LOG.name
 
@@ -334,9 +334,9 @@ def check_admission_timeout(probe, process, log_path):
     """No executor admission within four seconds must fail closed."""
     message = probe.command()
     message.command_id = (
-        f'cmd-ctrl-20260908T200000-{ROBOT_ID}-start-timeout')
+        f'cmd-ctrl-20260908T200000-{ROBOT_ID}-start-0099')
     message.mission_id = (
-        f'msn-ctrl-20260908T200000-{ROBOT_ID}-timeout')
+        f'msn-ctrl-20260908T200000-{ROBOT_ID}-0099')
     dispatch_start = len(probe.dispatches)
     check_start = len(probe.checks)
     probe.command_publisher.publish(message)

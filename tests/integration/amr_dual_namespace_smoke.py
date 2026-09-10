@@ -11,7 +11,7 @@ import time
 
 os.environ['ROS_DOMAIN_ID'] = os.environ.get('PATROL_DUAL_SMOKE_DOMAIN_ID', '129')
 os.environ['ROS_AUTOMATIC_DISCOVERY_RANGE'] = 'LOCALHOST'
-for key in ('ROS_DISCOVERY_SERVER', 'ROS_SUPER_CLIENT',
+for key in ('ROS_DISCOVERY_SERVER', 'ROS_SUPER_CLIENT', 'ROS_LOCALHOST_ONLY',
             'FASTRTPS_DEFAULT_PROFILES_FILE', 'FASTDDS_DEFAULT_PROFILES_FILE'):
     os.environ.pop(key, None)
 
@@ -179,7 +179,12 @@ def main():
                 expected = RobotStatus.MISSION_PATROLLING if robot == 'robot1' else RobotStatus.MISSION_PAUSED
                 assert statuses[-1].mission_state == expected
                 publishers = probe.get_publishers_info_by_topic(f'/patrol_dual/{robot}/cmd_vel')
-                assert [(p.node_name, p.node_namespace) for p in publishers] == [('local_safety_supervisor', f'/{robot}')]
+                actual_publishers = [(p.node_name, p.node_namespace) for p in publishers]
+                expected_publishers = [('local_safety_supervisor', f'/{robot}')]
+                assert actual_publishers == expected_publishers, (
+                    f'{robot} cmd_vel publishers: expected={expected_publishers}, '
+                    f'actual={actual_publishers}'
+                )
                 assert probe.get_publishers_info_by_topic(f'/{robot}/cmd_vel') == []
 
             # No Nav2/mission owner exists; these commands can only reach probes.

@@ -17,7 +17,6 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
     """Build a robot6-ready launch that remains inert without an arm token."""
     mission_share = get_package_share_directory('patrol_amr')
-    turtlebot_share = get_package_share_directory('turtlebot4_navigation')
     robot_id = LaunchConfiguration('robot_id')
     use_sim_time = LaunchConfiguration('use_sim_time')
     start_localization = LaunchConfiguration('start_localization')
@@ -161,7 +160,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'localization_params_file',
             default_value=os.path.join(
-                turtlebot_share, 'config', 'localization.yaml'),
+                mission_share, 'config', 'patrol_localization.yaml'),
         ),
         DeclareLaunchArgument(
             'nav2_params_file',

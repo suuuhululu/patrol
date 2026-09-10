@@ -25,6 +25,9 @@ import time
 
 os.environ["ROS_DOMAIN_ID"] = os.environ.get("PATROL_SMOKE_DOMAIN_ID", "125")
 os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "LOCALHOST"
+for key in ("ROS_DISCOVERY_SERVER", "ROS_SUPER_CLIENT", "ROS_LOCALHOST_ONLY",
+            "FASTRTPS_DEFAULT_PROFILES_FILE", "FASTDDS_DEFAULT_PROFILES_FILE"):
+    os.environ.pop(key, None)
 
 _LOG_DIRECTORY = tempfile.TemporaryDirectory(prefix="patrol-gw-ros-log-")
 os.environ.setdefault("ROS_LOG_DIR", _LOG_DIRECTORY.name)
@@ -69,7 +72,12 @@ class Probe(Node):
             MissionCommand,
             f"{NS}/mission_dispatch",
             lambda m: self.dispatch.append(m.command_id),
-            COMMAND_QOS,
+            QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=10,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            ),
         )
         self.publisher = self.create_publisher(
             MissionCommand, f"{NS}/mission_command", COMMAND_QOS
@@ -136,17 +144,25 @@ def start_gateway(database_path, log_file):
         ],
         stdout=log_file,
         stderr=subprocess.STDOUT,
+        start_new_session=True,
     )
 
 
 def stop(process):
     if process.poll() is None:
-        process.send_signal(signal.SIGINT)
+        os.killpg(process.pid, signal.SIGINT)
         try:
             process.wait(timeout=5.0)
         except subprocess.TimeoutExpired:
-            process.kill()
+            os.killpg(process.pid, signal.SIGKILL)
             process.wait(timeout=5.0)
+
+
+def crash(process):
+    """Model an abrupt gateway loss without consuming its 4 s pending TTL."""
+    if process.poll() is None:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=2.0)
 
 
 def wait_for(node, predicate, timeout, description, log_path):
@@ -229,7 +245,7 @@ def check_restart_persistence(
             "pending command before second restart",
             log_path,
         )
-        stop(restarted)
+        crash(restarted)
         node.checks.clear()
         node.dispatch.clear()
         pending_restarted = start_gateway(database_path, log_file)

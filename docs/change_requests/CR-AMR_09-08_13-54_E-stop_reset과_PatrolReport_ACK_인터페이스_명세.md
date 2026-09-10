@@ -1,13 +1,13 @@
 # [AMR] E-stop reset과 PatrolReport 저장 ACK 인터페이스 명세
 
-- 상태: 초안
+- 상태: 부분 확정 — PatrolReport ACK는 AMR 결정·관제/System monitor 검토 요청, E-stop reset은 초안
 - 최초 작성 시각: 2026-09-08 13:54 KST
 - 요청자: 박성현
 - 요청 단위: AMR
 - 대상 단위 및 로봇: 관제·System monitor·AMR / robot1·robot6
 - 관련 TBD ID: TBD-IF-003, TBD-IF-004
 - 기준 문서·절: [interfaces.md 3.1·5·9절](../interfaces.md), [integration.md IT-11·IT-12](../integration.md), [기존 PatrolReport ACK 검토 요청서](CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md)
-- 결정 일자·근거: E-stop 활성 즉시 정지·물리 원인의 수동 reset latch와 PatrolReport 영속 outbox·동일 report ID 재전송은 기존 기준이다. 2026-09-08 사용자는 robot별 source session을 `robot1-...`·`robot6-...` 형식으로 사용하기로 확정했다. 아래 reset 서비스와 ACK 삭제 조건은 영향 팀 합의 전 **제안**이다.
+- 결정 일자·근거: E-stop 활성 즉시 정지와 PatrolReport 영속 outbox·동일 report ID 재전송은 기존 기준이다. 2026-09-09 사용자는 5절의 ACK 계약을 AMR 요청안으로 확정했다. E-stop reset 부분은 영향 팀 합의 전 **제안**이다.
 - 코드 변경 승인 근거·범위: 이 요청은 인터페이스 명세서 작성만 승인됐다. 공용 메시지·관제·System monitor·AMR 실행 코드 변경은 미승인이다.
 
 ## 1. 목적과 상태 구분
@@ -171,7 +171,7 @@ flowchart TD
     GATE -->|예| MOVE[새 임무 주행 허용]
 ```
 
-## 5. PatrolReport 저장 ACK 인터페이스
+## 5. PatrolReport 저장 ACK 인터페이스 — AMR 확정 요청안
 
 ### 5.1 토픽과 역할
 
@@ -245,13 +245,13 @@ AMR은 다음 ACK를 무시하고 경고 로그만 남긴다.
 ### 5.3 재전송 제안
 
 - 첫 발행 이후 ACK가 없으면 같은 `report_id`와 같은 payload를 다시 발행한다.
-- 권장 재전송 간격은 2초이며 최대 횟수 없이 영속 보관한다.
+- 재전송 간격은 1초이며 최대 횟수 없이 영속 보관한다.
 - 30초 동안 ACK가 없으면 RobotStatus 또는 관제 운영 경고에 `REPORT_ACK_TIMEOUT`을 표시하는 방식을 별도 합의한다.
 - 재시작 후에도 outbox의 원본 payload와 `report_id`를 복구한다.
 - System monitor는 `report_id`에 unique 제약 또는 동등한 중복 제거를 적용한다.
 - `DUPLICATE`는 기존 저장 내용이 동일할 때만 반환한다. 같은 ID에 다른 payload가 오면 `REJECTED`를 반환한다.
 
-2초·30초 값과 운영 경고 인터페이스는 합의 전 제안이며 TBD-IF-003·011에 기록한다.
+1초 재전송, 30초 경고와 무기한 영속 보관은 2026-09-09 AMR 요청안이다. 관제·System monitor 회신 전에는 팀 간 합의 완료로 표시하지 않는다.
 
 ## 6. 혼합 버전과 적용 순서
 
@@ -321,7 +321,7 @@ ACK 기능을 한 번 활성화한 뒤에는 subscriber 연결 여부나 DDS pub
 3. 전체 대상 `target_robot_id` 문자열을 무엇으로 정할 것인가?
 4. `/{robot}/reset_estop`와 `ResetEStop.srv` 필드·권한·1초 timeout을 승인하는가?
 5. PatrolReport outbox는 `IngestionAck.STORED` 또는 `DUPLICATE`에서만 제거하는가?
-6. PatrolReport ACK 재전송 2초, 30초 경고 기준을 승인하는가?
+6. PatrolReport ACK 재전송 1초, 30초 경고·미삭제 기준을 승인하는가?
 7. System monitor가 PatrolReport 저장 ACK의 유일한 발행자인가?
 
 ## 12. 검토·결정 이력
@@ -329,4 +329,4 @@ ACK 기능을 한 번 활성화한 뒤에는 subscriber 연결 여부나 DDS pub
 | 일자 | 검토자·단위 | 결정·의견 | 근거 |
 |---|---|---|---|
 | 2026-09-08 13:54 | 박성현·AMR | 물리 E-stop reset과 PatrolReport 저장 ACK의 권장 인터페이스 초안 작성 | 현재 AMR·System monitor 구현 및 TBD-IF-003·004 대조 |
-
+| 2026-09-09 | 조정묵·AMR | System monitor 단일 ACK, STORED/DUPLICATE 삭제, REJECTED/INCOMPLETE 보존, 1초 재발행, 30초 경고·미삭제를 AMR 요청안으로 확정 | 사용자 결정 |

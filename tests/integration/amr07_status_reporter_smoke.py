@@ -12,9 +12,9 @@ import time
 
 os.environ['ROS_DOMAIN_ID'] = os.environ.get('AMR07_SMOKE_DOMAIN_ID', '126')
 os.environ['ROS_AUTOMATIC_DISCOVERY_RANGE'] = 'LOCALHOST'
-os.environ.pop('ROS_DISCOVERY_SERVER', None)
-os.environ.pop('ROS_SUPER_CLIENT', None)
-os.environ.pop('ROS_LOCALHOST_ONLY', None)
+for key in ('ROS_DISCOVERY_SERVER', 'ROS_SUPER_CLIENT', 'ROS_LOCALHOST_ONLY',
+            'FASTRTPS_DEFAULT_PROFILES_FILE', 'FASTDDS_DEFAULT_PROFILES_FILE'):
+    os.environ.pop(key, None)
 _ROS_LOG = tempfile.TemporaryDirectory(prefix='amr07-ros-log-')
 os.environ['ROS_LOG_DIR'] = _ROS_LOG.name
 

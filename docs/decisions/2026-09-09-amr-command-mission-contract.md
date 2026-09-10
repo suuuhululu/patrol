@@ -2,9 +2,9 @@
 
 - 결정일: 2026-09-09
 - 대상: 조정묵 `patrol_amr_safety`, 박성현 `patrol_amr`
-- 상태: AMR 내부 합의안 · 조정묵 검토 대기
+- 상태: AMR 내부 구현 기준 · 조정묵 gateway 범위 승인·반영
 - 구현 상태: 단계별 반영 중
-- 외부 확인: System monitor ACK 계약 및 공용 메시지 추가 승인 필요
+- 외부 확인: System monitor ACK 계약 필요. `MissionExecutionEvent` 추가는 2026-09-09 사용자 승인으로 반영
 - 기준 문서: `docs/amr_patrol_safety_flowchart.md`, `docs/interfaces.md`
 - 문서 목적: `command_gateway`와 `mission_supervisor` 사이의 공동 구현 기준을 고정하고, 담당 범위와 통합시험 조건을 명확히 한다.
 - 주의: 이 문서는 구현 계약을 정리한 것이며, 모든 코드와 통합시험이 완료됐다는 뜻은 아니다.
@@ -414,6 +414,6 @@ ACK 발행 주체와 필드 의미는 System monitor가 포함되는 공용 계�
 1. System monitor의 `IngestionAck`를 PatrolReport 최종 저장 ACK로 공식 채택할지 여부
 2. `source_message_id=report_id` 사용 여부와 `entity_id`의 정확한 의미
 3. System monitor ACK 하나로 outbox를 삭제할지, 관제의 별도 ACK까지 요구할지 여부
-4. 신규 `MissionExecutionEvent.msg`를 공용 `patrol_interfaces`에 추가하는 변경 승인
+4. ~~신규 `MissionExecutionEvent.msg`를 공용 `patrol_interfaces`에 추가하는 변경 승인~~ — 2026-09-09 사용자 승인 및 AMR 수정 요청서로 해결
 
 외부 확인 전에는 임의로 “관제와 System monitor 모두 전달 완료”라고 판단하지 않는다.

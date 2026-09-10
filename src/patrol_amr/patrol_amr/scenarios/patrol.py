@@ -35,6 +35,10 @@ class PatrolScenario:
         start_index: int,
         cancel_event: threading.Event,
     ) -> NavigationResult:
+        # [코드리뷰 7] W1~W7 순찰
+        # waypoint를 한 개씩 NavigateToPose로 보낸다. 성공하면 다음 index를
+        # checkpoint로 저장한다. 공통 Nav2 runner가 총 4회 실패한 중간 W는
+        # 건너뛰되, 마지막 W 실패와 모든 취소는 순찰 결과로 즉시 반환한다.
         if start_index < 0 or start_index > len(self._waypoints):
             raise ValueError('checkpoint is outside the waypoint list')
         for index in range(start_index, len(self._waypoints)):

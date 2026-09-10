@@ -70,7 +70,6 @@ def _launch_setup(context):
 def generate_launch_description():
     """Declare the robot namespace, map, parameters, and activation delay."""
     mission_share = get_package_share_directory('patrol_amr')
-    turtlebot_share = get_package_share_directory('turtlebot4_navigation')
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -91,7 +90,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'params_file',
             default_value=os.path.join(
-                turtlebot_share, 'config', 'localization.yaml'),
+                mission_share, 'config', 'patrol_localization.yaml'),
         ),
         DeclareLaunchArgument(
             'lifecycle_start_delay',

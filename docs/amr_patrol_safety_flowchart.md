@@ -4,7 +4,7 @@
 
 사용자가 말한 “내일”은 명시한 마감 날짜를 우선하여 **9월 9일 오전**으로 기록한다. 아래 시간표는 작업 계획이며 예약 실행이나 완료 보장이 아니다. 실기 결과는 아직 **미실행**이다.
 
-각 그림의 상태는 절마다 **설계** 또는 **구현 대조**로 표시한다. 구현 대조는 실제 파일과 맞춘 흐름이고, 설계 그림은 합의할 입력·판단·출력·실패·복구 흐름이다. 그림이 있다는 이유로 구현·시험 완료로 처리하지 않는다. 성현님 파일별 상세 그림은 [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md)를 기준으로 하고 이 문서 9절에서 빠짐없이 연결한다.
+각 그림의 상태는 절마다 **설계** 또는 **구현 대조**로 표시한다. 구현 대조는 실제 파일과 맞춘 흐름이고, 설계 그림은 합의할 입력·판단·출력·실패·복구 흐름이다. 그림이 있다는 이유로 구현·시험 완료로 처리하지 않는다. 성현님 파일별 상세 그림은 [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md)를 기준으로 하고 이 문서 9절에서 빠짐없이 연결한다. **AMR 파트 전체 플로우차트는 10절, launch 파일이 무엇을 구동하는지는 11절**이며 두 절은 두 패키지의 실제 코드를 확인해 작성한 구현 대조다.
 
 기준: [공용 인터페이스](interfaces.md), [AMR 기능·TBD](amr.md), [통합 순서](integration.md), [관제 v1.0 결정](decisions/2026-09-08-control-interface-baseline.md). 2026-09-09 사용자가 제공한 `AMR 공동 구현 계약 v1`의 AMR 내부 결정은 이 문서의 공동 구현 기준으로 반영한다. 화살표를 읽기 위한 값 설명은 이 문서에 표시하되, 공용 메시지·System monitor ACK처럼 다른 개발 단위에 영향을 주는 변경은 기준 문서 갱신·수정 요청·명시적 구현 승인을 거쳐야 한다. 기존 코드별 그림·검증 로그는 [9월 8일 구현·시험 이력](amr_patrol_safety_flowchart_2026-09-08_history.md)에 보존했다.
 
@@ -20,7 +20,7 @@
 | AMR-15 robot6 위치 검증 | scan 수신·pose 준비 확인 있음 | **실제 위치 비교 및 0.5m·15도·3회 연속 판정 없음**. 요청·결과·timeout 계약 필요 | 성현님 검증 생산, 조정묵 전달 공동 |
 | AMR-18 중단·복구 | Nav2 취소·진행 상태 정리·명령 대기 핵심 경로 있음 | STOP은 checkpoint 보존·비종료 저장, CANCEL과 `motion_allowed=false`는 checkpoint 삭제·CANCELED 결과 저장으로 분리. yaw/spin/Dock 취소, 늦은 응답 차단, 실기 | 성현님 실행 정리, 조정묵 최종 정지·gateway 반영 |
 | AMR-19 순찰 재개 | checkpoint와 재개 방식 선택 기능 있음. 기본 설정 비활성 | `next_waypoint`로 설정·고정하고 PAUSED/WAITING_SAFE_ZONE의 동일 mission만 재개. 기존 30초 재개 창은 합격 기준에서 제거하고, robot6 위치 검증은 별도 선행 조건으로 유지 | 성현님 checkpoint·ledger, 조정묵 admission·상태 전달 |
-| 안전·상태 패키지 공통 | 공개 명령 입구·배터리·권한·heartbeat·상태/결과 연결 완료. 9월 9일 빌드와 전체 단위시험 367개 및 격리 ROS 회귀 통과 | 현재 조기 ACCEPTED와 `mission_lifecycle/String`을 PENDING→ADMITTED/REJECTED→STARTED 구조로 교체. 실제 TB4·관제·mission 연결 시험, 임시 보고 상태의 실제 입력 교체 | 조정묵 |
+| 안전·상태 패키지 공통 | 공개 명령 입구·배터리·권한·heartbeat·상태/결과 연결 완료. gateway는 PENDING→D17 event 소비→외부 CommandCheck 구조까지 반영 | 성현님 mission의 D17 생산부·TRANSIENT_LOCAL 구독, 실제 TB4·관제 연결 시험, 임시 보고 상태의 실제 입력 교체 | 조정묵 |
 
 **전체 AMR 코드가 완료된 상태는 아니다.** 임시 구현을 포함한 완료 범위는 안전·보고 패키지다. 임시 `SCANNING` 표시는 실제 탐지나 증적 완료를 의미하지 않는다.
 
@@ -37,8 +37,8 @@
 | 내부 실행 이벤트 | `MissionExecutionEvent`: ADMITTED, REJECTED, STARTED, NONTERMINAL_STORED, RESULT_STORED. QoS RELIABLE/TRANSIENT_LOCAL/KEEP_LAST(20) | 메시지·gateway 구독/검증/영속 멱등 처리 반영. **성현님 mission 생산부 미반영** |
 | dispatch QoS·중복 | RELIABLE/TRANSIENT_LOCAL/KEEP_LAST(10), mission ledger가 retained 재수신·재시작의 실제 Action 중복을 차단 | gateway PENDING 저장·재시작 1회 복원·4초 만료 반영. **mission execution ledger와 retained 중복 Action 차단 미반영** |
 | 중재 | STOP > MOVE_TO_SAFE_ZONE > DOCK > CANCEL > RESUME_PATROL > START_PATROL. 높은 우선순위만 교체, 같거나 낮으면 거절, 낮은 명령 FIFO 금지 | 우선순위·교체·SUPERSEDED 전체 대조 필요 |
-| STOP | 활성 mission이 없어도 no-op 수락. ADMITTED→STARTED→NONTERMINAL_STORED, PAUSED·checkpoint 보존·PatrolReport 없음 | 비종료 이벤트와 gateway 완료 상태 추가 필요 |
-| CANCEL | 동일 활성 mission만 허용. checkpoint 삭제, CANCELED/100 결과 저장, 새 mission ID START만 가능 | 실행부와 gateway 종단 대조 필요 |
+| STOP | 활성 mission이 없어도 no-op 수락. ADMITTED→STARTED→NONTERMINAL_STORED, PAUSED·checkpoint 보존·PatrolReport 없음 | gateway의 비종료 저장·중복 차단은 반영. **mission의 STOP admission·checkpoint 보존·D17 생산부 미반영** |
+| CANCEL | 동일 활성 mission만 허용. checkpoint 삭제, CANCELED/100 결과 저장, 새 mission ID START만 가능 | gateway의 RESULT_STORED 소비·완료 보고 보존은 반영. **mission의 동일 활성 임무 검사·checkpoint 삭제·D17 생산부 미반영** |
 | 안전 권한 상실 | 모든 명령보다 우선. Nav2·Dock 취소, mission CANCELED, checkpoint 삭제, CANCELED/102 `LOCAL_SAFETY_REVOKED`, 자동 재출발 금지 | 현재 외부 stop/cancel 핵심은 있으나 결과·checkpoint 종단 보강 필요 |
 | 재개 | `resume_policy=next_waypoint`; PAUSED 또는 WAITING_SAFE_ZONE이며 checkpoint가 있는 동일 mission만 허용 | 코드 선택지는 있으나 기본 설정은 disabled. 설정·checkpoint 경계·시험 필요 |
 | 저장 책임 | gateway SQLite는 외부 command 상태, mission execution ledger는 side effect 중복, mission status/outbox는 상태·결과 | gateway PENDING/REJECTED/비종료·이벤트 키·재시작 복원 반영. mission ledger 연결은 미완성 |
@@ -48,21 +48,22 @@
 
 ### 1.2 9월 9일 자동 시험 결과와 다음 시작점
 
-테스트 작업본은 `82d53ecfd0f730a91c84f0ee9297956948357f60`이다. 2026-09-09 08:15 KST까지 소스 수정 없이 다음을 수행했다.
+기준선 시험은 커밋 `82d53ec`에서 수행했고, pull·병합 뒤 현재 기준은 커밋 `1933d4c`와 아래 작업 트리다. 실물 로봇이 없는 검사는 로컬 DDS만 사용하고 Discovery Server 환경변수를 제거한 개별 `ROS_DOMAIN_ID`에서 수행했다.
 
 | 구분 | 실행 결과 | 판정 범위 |
 |---|---|---|
 | 빌드 | `patrol_interfaces`, `patrol_amr`, `patrol_amr_safety` 3개 성공 | 현재 작업본 컴파일·설치 가능 |
-| 전체 단위시험 | 367개 통과, 2.708초 | 현재 구현의 순수 로직 회귀 |
+| 인터페이스 | 16종 소스·설치 타입 대조 PASS, manifest `d6f24b6e…a80c6d9` | 기존 15종 + AMR 내부 MissionExecutionEvent 배포 정합 |
+| 전체 단위시험 | 397개 통과, 최종 재실행 2.730초 | 현재 구현의 순수 로직 회귀 |
 | 배터리 ROS | `BATTERY_MONITOR_ROS_SMOKE_PASS` | 격리된 원본 입력→상태 발행 |
 | 상태·결과 ROS | `AMR07_STATUS_REPORTER_SMOKE_PASS` | outbox 복구와 임시 상태 축 |
-| 기존 명령 lifecycle ROS | `COMMAND_LIFECYCLE_SMOKE_PASS` | 아래 신규 구현 전 기준선 결과. 새 이벤트 경로는 재빌드 후 별도 판정 |
-| gateway 재시작 ROS | `GATEWAY_PERSISTENCE_PASS`, domain 135 | 기존 Discovery Server 변수를 제거한 격리 환경에서 중복 dispatch 방지·retention 확인 |
-| 안전 ROS robot1 | `AMR_SMOKE_PASS`, domain 136, 상태 67건, 변경 최단 0.100초 | 실물·Nav2가 아닌 로컬 게이트 시험 |
+| 신규 명령 event ROS | `MISSION_EXECUTION_EVENT_SMOKE_PASS`, domain 149 | 실제 gateway에 6종 명령·거절·중복·충돌·ADMITTED/STARTED/RESULT·4초 timeout·늦은 admission 차단을 ROS 통신으로 입력/관측. mission은 probe이며 로봇 주행 없음 |
+| gateway 재시작 ROS | `GATEWAY_PERSISTENCE_PASS`, domain 153 | 응답 완료 명령 중복 실행 방지, PENDING 명령 crash 후 retained 복원·admission 후 수락, Q-14 retention 확인 |
+| 안전 ROS robot1 | `AMR_SMOKE_PASS`, domain 155, 상태 66건, 변경 최단 0.100초 | 수정한 안전 launch 4개 노드, 시험 전용 토픽·임시 저장 경로에서 배터리·권한·E-stop·속도·odom·pose 종단 확인. 실물·Nav2는 없음 |
 | 안전 ROS robot6 | `AMR_SMOKE_PASS`, domain 137, 상태 70건, 변경 최단 0.100초 | 실물·Nav2가 아닌 로컬 게이트 시험 |
-| 이중 namespace ROS | `AMR_DUAL_NAMESPACE_SMOKE_PASS`, domain 138 | 한 domain에서 robot1/robot6 상태·명령·DB·token·E-stop 분리 |
+| 이중 namespace ROS | `AMR_DUAL_NAMESPACE_SMOKE_PASS`, domain 158 | 한 domain에서 robot1/robot6 상태·명령·DB·token·E-stop·시험용 최종 속도 발행자 분리 |
 
-첫 스모크 시도는 실행 샌드박스의 UDP 소켓 제한으로 실패했고, gateway 단독 첫 재시도는 셸에 남아 있던 `ROS_DISCOVERY_SERVER`·`ROS_SUPER_CLIENT` 때문에 발견 timeout이 났다. 로컬 DDS 허용과 해당 외부 Discovery 변수 제거 후 통과했으므로 코드 FAIL로 판정하지 않는다. 이 결과는 RT-01~12 실물·다중 PC 시험 PASS를 대신하지 않는다. 오늘 자동 시험 뒤의 구현 시작점은 9절에 정리한다.
+중간 재시작 시험에서 pull 병합으로 사라진 PENDING 메시지 복원 함수와 gateway 프로세스 중첩 시 SQLite primary-key 경합을 발견해 복원·원자 등록으로 수정했다. 또한 VOLATILE 시험 구독이 retained dispatch를 놓치는 현상으로 성현님 `mission_supervisor`의 동일 QoS 문제를 확인했다. 최종 PASS는 이 수정 후 결과다. 이 결과는 RT-01~12 실물·다중 PC 시험 PASS를 대신하지 않는다. 오늘 자동 시험 뒤의 구현 시작점은 9절에 정리한다.
 
 ## 2. 화살표·타입 읽는 법
 
@@ -85,7 +86,7 @@ flowchart LR
     S -->|"/{r}/motion_allowed · D06 Bool<br/>data:bool, true=Action 허용 / false=중단"| M
     M -->|"/{r}/navigate_to_pose · D13 Action<br/>goal pose:PoseStamped"| N[Nav2 및 충돌 검사]
     N -->|"/{r}/cmd_vel_safe · D07 TwistStamped<br/>stamp:Time, linear.x·angular.z:float64"| S
-    M -.->|"/{r}/cmd_vel_yaw · D07 TwistStamped<br/>linear.x=0, angular.z:float64 · 중재 미연결"| S
+    M -.->|"/{r}/cmd_vel_yaw · D07 TwistStamped<br/>linear.x=0, abs angular.z=0.08~0.25 · 계약 결정/코드 미연결"| S
     S -->|"/{r}/cmd_vel · D07 Twist<br/>허용 속도 또는 0.0:float64"| R[TurtleBot 4]
     R -->|"/{r}/battery_state · D08 BatteryState<br/>SOC:float32, present:bool, 충방전:uint8"| B[조정묵: 배터리 판정]
     R -->|"/{r}/odom · D09 Odometry<br/>stamp:Time, 실제 속도:float64"| S
@@ -195,8 +196,8 @@ D14 `/{r}/patrol_report`와 내부 재전달 통로 `/{r}/report_replay_request`
 
 | 번호 | 논리 값·종류·의미 | 결정할 경계 |
 |---|---|---|
-| P01 감지 후보 | `candidate_id:string` 동일 후보 ID, `event_type` 화재/누수/장애물 등 분류, `confidence:float32` 0~1, `horizontal_error:float32` 중심 오차, `stamp:Time` 측정 시각 | 후보 토픽·분류 숫자·좌우 부호·단위·동일 대상 기준: TBD-AMR-001·TBD-IF-006. 후보 메시지의 제안 FIRE=0과 DetectionEvent의 FIRE=1을 직접 대입하지 않음 |
-| P02 정렬·스캔 판단 | `aligned:bool`, `same_target:bool`, `detected:bool`, `continuous_s:float` 유지 초, `scan_state:string` 실제 단계 | 오차·속도·timeout·단절 시 계수·단계 문자열: TBD-AMR-001·005. 1초 확인 의도는 유지 |
+| P01 감지 후보 | `candidate_id:string` 동일 후보 ID, `event_type` 화재/누수/장애물 등 분류, `confidence:float32` 0~1, `horizontal_error:float32` 중심 오차, `stamp:Time` 측정 시각 | AMR 요청안 토픽은 `/{robot}/vision/detection_candidate`, RELIABLE/VOLATILE/KEEP_LAST(10), 비전 단일 발행·AMR 구독이다. 기존 wire의 FIRE=0·LEAK=1·OBSTACLE=2와 좌/중앙/우 부호를 유지한다. confidence≥0.70, 동일 candidate ID 유지, 단절 0.6초는 2026-09-09 결정 |
+| P02 정렬·스캔 판단 | `aligned:bool`, `same_target:bool`, `detected:bool`, `continuous_s:float` 유지 초, `scan_state:string` 실제 단계 | 정렬은 오차≤0.05를 0.5초 연속, yaw 0.08~0.25rad/s, timeout 10초, 후보 단절 0.6초로 결정. 정렬 뒤 비전의 동일 대상 1초 최종 확인·이벤트 생산 상세는 TBD-IF-006에 남음 |
 | P03 확정 이벤트·증적 | `event_id, evidence_id, robot_id:string`; 이벤트 분류·위험도, `confidence:float32`, `location_valid:bool`, 위치·측정 시각; 증적 `media_type, sha256:string`, `chunk_index, chunk_count, total_size:uint32`, `data:uint8[]` 이미지 등 bytes | `DetectionEvent`·`Evidence` 정의는 있으나 생산·전송·저장 ACK 전체 계약은 TBD-IF-006·007. 최종 토픽 TBD, 수신자는 관제·시스템 모니터 협의 |
 | P04 LiDAR 검증 요청·결과 | `request_id, robot_id:string`, 기준·측정 pose, `position_error_m:float`, `yaw_error_deg:float`, `consecutive_count:int`, `verified:bool`, `reason:string` | 대상·연산 위치·토픽/서비스·wire 타입·timeout: TBD-AMR-002. Q-06의 0.5m·15도·3회 연속을 만족해야 verified=true |
 | P05 재개 판단 | `mission_id:string`, `checkpoint:int`, `resume_allowed:bool`; checkpoint는 다음에 방문할 waypoint index | `next_waypoint`는 9월 9일 AMR 공동 기준. PAUSED/WAITING_SAFE_ZONE, 동일 mission, 유효 checkpoint와 별도 RESUME 명령을 검사한다. robot6 LiDAR 검증 요청·결과 통로는 P04로 별도 결정. AMR이 DriveToken을 직접 발행하지 않음 |
@@ -250,7 +251,7 @@ flowchart TD
     P -->|"/{r}/battery_status · UInt8<br/>data:uint8=기존 값"| O
 ```
 
-배터리 분류는 도킹 성공의 대체 센서가 아니다. 높은 SOC의 `PATROL_READY/FULL`과 실제 충전 상태를 구분하는 기준은 TBD-AMR-004에서 확인한다.
+배터리 분류는 도킹 성공의 대체 센서가 아니다. 2026-09-09 결정에 따라 원본 `BatteryState.present=true`와 `power_supply_status=CHARGING/FULL`, `DockStatus.is_docked=true`를 사용하며 각 입력 age≤1초·동시 2초 연속을 확인한다.
 
 <a id="32-local_safety_supervisorpy"></a>
 
@@ -263,7 +264,7 @@ flowchart TD
     V -->|"내부 bool=true"| P[Action 실행 허용 상태]
     P -->|"/{r}/motion_allowed · Bool<br/>data:bool=true · 새 명령은 별도"| M[성현님: 임무 허가 확인]
     N[Nav2 속도 후보] -->|"/{r}/cmd_vel_safe · D07<br/>stamp:Time, v·w:float64"| A[후보 선택]
-    Y[성현님 yaw 후보] -.->|"/{r}/cmd_vel_yaw · D07<br/>v:float64=0, w:float64 · TBD-AMR-001"| A
+    Y[성현님 yaw 후보] -->|"/{r}/cmd_vel_yaw · D07<br/>v:float64=0, abs w=0.08~0.25 · age≤0.5초"| A
     A -->|"내부 candidate:속도 묶음, age_s:float"| F{선택된 후보가 유효하고 age 0.5초 이하인가}
     P -->|"내부 permission:bool=true"| F
     F -->|"내부 bool=false"| B[속도 0, 후보 복구 대기]
@@ -280,7 +281,7 @@ flowchart TD
     S -->|"/{r}/safety_state · UInt8<br/>D06 1 정상 / 2 확인 중 / 3 정지 / 4 E-stop, uint8"| T[상태 전달]
 ```
 
-후보 신선도 차단과 `motion_allowed`의 권한 차단은 구분한다. **yaw와 Nav2의 선택 정책은 아직 미연결**이다. 안전 입력이 바뀌면 후보 처리 중에도 차단을 우선한다. odom 무효·stale이면 정지 완료로 간주하지 않는다. 실제 정지 감속·거리 합격 수치는 TBD-AMR-006이며 실측만으로 계약 확정 처리하지 않는다.
+후보 신선도 차단과 `motion_allowed`의 권한 차단은 구분한다. 2026-09-09 결정에 따라 Nav2와 yaw 중 하나만 신선할 때 그 후보를 검사하며, 둘 다 신선하면 선택을 추측하지 않고 최종 0을 출력한다. yaw는 Nav2 goal 취소와 실제 정지 확인 뒤 시작하며 terminal 뒤 자동 재개하지 않는다. 안전 입력이 바뀌면 후보 처리 중에도 차단을 우선한다. odom 무효·stale이면 정지 완료로 간주하지 않는다. 실제 정지 감속·거리 합격 수치는 TBD-AMR-006이며 실측만으로 계약 확정 처리하지 않는다.
 
 ### 4.4 상태·결과 전달과 임시 상태 교체
 
@@ -375,7 +376,7 @@ flowchart TD
     OK -.->|"내부 dock_confirmed:bool=true · D16 OFF 조건"| B[5.3 화재 부저 해제]
 ```
 
-**현행 Q-09:** DOCKING 진입 후 60초 이내에 DOCKED와 CHARGING이 모두 2초 연속. 단순 Action 성공·dock_visible·SOC 증가만으로 성공 처리하지 않는다. 원본 작업표의 3초는 사용하지 않는다. 실제 충전 status=FULL 및 높은 SOC의 취급·센서 신선도는 TBD-AMR-004에서 합의 후 판정에 반영한다. TB4 Dock/Undock의 자체 구동 경로가 최종 안전 차단을 우회하는지도 RT-07에서 반드시 확인한다.
+**현행 Q-09:** DOCKING 진입 후 60초 이내에 `DockStatus.is_docked=true`와 원본 `BatteryState.present=true`, `power_supply_status=CHARGING/FULL`이 모두 신선한 상태로 2초 연속이어야 한다. 각 입력 age는 1초 이하다. 단순 Action 성공·dock_visible·SOC 증가만으로 성공 처리하지 않는다. TB4 Dock/Undock의 자체 구동 경로가 최종 안전 차단을 우회하는지도 RT-07에서 반드시 확인한다.
 
 ### 5.3 AMR-14 감지·yaw·증적·화재 부저 — 전체 연결 필요
 
@@ -402,7 +403,7 @@ flowchart TD
     AB -.->|"/{r}/cmd_vel_yaw · D07<br/>v·w:float64=0.0 · 안전 게이트 적용"| S
 ```
 
-오전 합의 항목: 정렬 허용 오차·속도·timeout, 동일 대상 식별, 탐지 단절 시 계수, Nav2/yaw 동시 요청 처리, 이벤트 중복 기준, 증적 수신·저장 확인, 부저 소유자와 OFF 조건. 모두 TBD-AMR-001·004 및 TBD-IF-006·007에 연결한다. 제안으로는 안전 차단 최우선·동시 주행 금지·불명확하면 정지 방향을 사용하되, 숫자와 복구 조건을 확정한 것으로 취급하지 않는다. E-stop 해제 부저는 사용하지 않는다.
+2026-09-09에 정렬 허용 오차·속도·timeout, 후보 단절과 Nav2/yaw 동시 입력의 fail-safe 0, 도킹 입력·신선도와 부저 소유·OFF 조건을 확정했다. 남은 합의는 정렬 뒤 동일 대상 1초 최종 확인·이벤트 중복과 증적 수신·저장 ACK이며 TBD-IF-006·007에 연결한다. E-stop 해제 부저는 사용하지 않는다.
 
 ### 5.4 AMR-18 중단·복구 — Action 종료와 실제 정지를 따로 확인
 
@@ -487,13 +488,15 @@ flowchart TD
 | 결정 항목 | 근거·소유 경계 | 9월 9일 확인란 |
 |---|---|---|
 | 실제 센서·Action 이름·타입·QoS, namespace·map·TF | architecture의 TBD-ARCH-001, 실제 TB4 조회 | 미확인 |
-| Nav2·yaw 후보 중재, 정렬·탐지 판정 수치 | AMR 공동, TBD-AMR-001·006 | 미합의 |
-| DOCKED+CHARGING과 FULL/높은 SOC·센서 신선도·부저 OFF | AMR 공동·관제, TBD-AMR-004, Q-09·12 | 미합의 잔여 |
+| AlignmentStatus 토픽·QoS·상태 수명 | AMR·비전, TBD-IF-006 | AMR 요청안 확정: `/{robot}/vision/alignment_status`, RELIABLE/VOLATILE/KEEP_LAST(10), 비전 회신 대기 |
+| DetectionCandidate 토픽·QoS·ID 수명 | AMR·비전, TBD-IF-006 | AMR 요청안 확정: `/{robot}/vision/detection_candidate`, RELIABLE/VOLATILE/KEEP_LAST(10), 비전 회신 대기 |
+| Nav2·yaw 후보 중재, 정렬·탐지 판정 수치 | AMR 공동, TBD-AMR-001·006 | TBD-AMR-001 결정: confidence 0.70, 오차 0.05·0.5초, yaw 0.08~0.25rad/s, timeout 10초, 단절 0.6초, 동시 후보는 최종 0. 장애물·정지 감속은 TBD-AMR-006에 남음 |
+| DOCKED+CHARGING과 FULL/높은 SOC·센서 신선도·부저 OFF | AMR 공동·관제, TBD-AMR-004, Q-09·12 | 결정: DockStatus+원본 BatteryState, 각 age≤1초·2초 연속, 60초 timeout, 다른 활성 화재 없을 때 OFF. 코드 반영 대기 |
 | LiDAR 비교 대상·위치·요청/결과·timeout | AMR 공동·관제, TBD-AMR-002 | 미합의 |
 | 재개 점·30초의 시작/경계·만료 보고·token 회수 요청 | 성현님·관제, TBD-AMR-005 | 미합의 |
 | 실제 operational/docking/scan 값의 생산자와 재시작 의미 | AMR 공동, 임시 정책 문서·TBD-AMR-005 | 임시 구현, 교체 미합의 |
 | 이벤트·증적의 분류 매핑·토픽·ACK·실패/재전송 | AMR·관제·모니터, TBD-IF-006·007 | 미합의 |
-| PatrolReport 저장 확인·ACK·삭제 조건 | AMR·관제·모니터, TBD-IF-003 | 로컬 전달과 저장 보장 구분 |
+| PatrolReport 저장 확인·ACK·삭제 조건 | AMR·관제·모니터, TBD-IF-003 | AMR 요청안 확정: System monitor 단일 ACK, 1초 재발행, STORED/DUPLICATE만 삭제, 영향 팀 회신 대기 |
 
 기존 검토 요청: [실제 정지 판단](change_requests/CR-AMR_09-08_23-02_실제_정지_safety_state_판정.md), [운영·도킹 입력 연결](change_requests/CR-AMR_09-08_23-06_운영_도킹_상태_입력_연결.md), [결과 ACK](change_requests/CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md). 새 합의는 관련 기준 문서의 기존 TBD에 결정일·근거·영향 범위를 남긴 뒤 구현·시험 상태를 따로 갱신한다.
 
@@ -571,10 +574,397 @@ AMR-14·15·19는 미합의와 미구현이 남아 있어 전 항목의 정오 �
 | 상태·결과 영속화 | `mission_state.py`, `mission_status_store.py`, `mission_reporter.py`, `patrol_report_outbox.py` | 실행 snapshot·completion → 검증/원자 저장 → status 파일·동일 report ID | “내부 상태와 영속성” |
 | 화재·부저 기초 | `fire_event_registry.py`, `audio_note_sequence_adapter.py` | event ID·음표 → 활성 집계/Action 중복 차단 → 부저 시작·취소 | “이벤트 기능 기초” |
 
-현재 원본 `mission_supervisor.py`에는 커밋 `1574ade`에서 들어온 미해결 Git 충돌 표식이 있어 Python 로드가 실패한다. 따라서 해당 파일을 “구현 대조 완료”로 판정할 수 없으며, 성현님이 충돌을 해결한 뒤 D17 admission/event 생산과 함께 다시 대조해야 한다. 조정묵 승인 범위에서는 이 파일을 수정하지 않는다.
+pull 후 원본 `mission_supervisor.py`의 Git 충돌 표식은 제거됐다. 그러나 `command_lifecycle` import가 없는 상태에서 기존 호출이 남아 있어 실행 시 `NameError`가 발생하며, `mission_dispatch` 구독 QoS도 계약의 TRANSIENT_LOCAL이 아닌 VOLATILE이다. D17 admission/event 생산부가 아직 없으므로 이 파일은 “구현 대조 완료”로 판정하지 않는다. 조정묵 승인 범위에서는 이 성현님 파일을 수정하지 않는다.
+
+## 10. AMR 파트 전체 플로우차트 — 구현 대조
+
+이 절은 `patrol_amr_safety`(조정묵)와 `patrol_amr`(성현님)을 하나로 이은 **AMR 파트 전체 그림**이다. 4절·5절이 담당별 설계라면 이 절은 두 패키지를 합쳐 실제 코드에서 확인한 연결만 그린다. 실선은 코드에 존재하는 연결, 점선은 계약만 있고 코드 연결이 아직 없는 경계다. 파일·모듈 단위 상세 그림은 이 절이 대체하지 않는다. 안전 파트는 아래 3절, 미션 파트는 [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md)를 함께 본다.
+
+### 10.1 로봇 한 대의 프로세스 전체 구성
+
+`N`은 `1` 또는 `6`이다. 모든 상대 토픽은 `/robotN` namespace 안에서 해석된다.
+
+```mermaid
+flowchart TB
+    subgraph EXT[AMR 밖 개발 단위]
+        CTRL[관제 Control Server]
+        ARB[관제 Safety Arbiter]
+        MON[System monitor]
+    end
+
+    subgraph SAFETY["patrol_amr_safety 실행 노드 4개"]
+        GW[command_gateway]
+        BAT[battery_monitor]
+        LSS[local_safety_supervisor]
+        SR[status_reporter]
+    end
+
+    subgraph MISSION["patrol_amr 실행 노드 1개"]
+        MS[mission_supervisor]
+    end
+
+    subgraph NAV2["Nav2 스택 — launch가 기동"]
+        AMCL[map_server · amcl]
+        BT[bt_navigator]
+        CTL[controller_server]
+        VS[velocity_smoother]
+        CM[collision_monitor]
+        DOCK[docking_server]
+        KEEP[keepout mask · filter info 4개]
+    end
+
+    subgraph HW["TurtleBot 4 · Create 3"]
+        DRV[구동부 · 배터리 · odom · scan]
+    end
+
+    CTRL -->|"/robotN/mission_command"| GW
+    GW -->|"/robotN/command_check"| CTRL
+    GW -->|"mission_dispatch"| MS
+    MS -.->|"mission_execution_event 미생산"| GW
+
+    CTRL -->|"/control/drive_token"| LSS
+    CTRL -->|"/control/heartbeat"| LSS
+    ARB -->|"/control/estop"| LSS
+
+    MS -->|"NavigateToPose"| BT
+    MS -->|"Dock · Undock"| DOCK
+    BT --> CTL
+    CTL -->|"cmd_vel_nav"| VS
+    VS -->|"cmd_vel_smoothed"| CM
+    CM -->|"cmd_vel_safe"| LSS
+    LSS -->|"cmd_vel 유일한 최종 출력"| DRV
+    LSS -->|"motion_allowed"| MS
+    KEEP -->|"costmap filter"| CTL
+
+    DRV -->|"battery_state"| BAT
+    DRV -->|"battery_state"| SR
+    DRV -->|"odom"| LSS
+    DRV -->|"odom"| SR
+    DRV -->|"scan"| AMCL
+    AMCL -->|"amcl_pose"| SR
+
+    BAT -->|"battery_status"| SR
+    LSS -->|"safety_state"| SR
+    LSS -->|"accepted_token_id"| SR
+    GW -->|"active_command"| SR
+    GW -->|"report_replay_request"| SR
+    MS -->|"mission_status.json"| SR
+    MS -->|"patrol_report_outbox.json"| SR
+
+    SR -->|"/robotN/robot_status"| CTRL
+    SR -->|"/robotN/robot_status"| MON
+    SR -->|"/robotN/patrol_report"| CTRL
+    SR -->|"/robotN/patrol_report"| MON
+```
+
+실행 노드는 두 패키지를 합쳐 **5개**다. `setup.py`의 entry point가 그 근거다.
+
+| 패키지 | 실행 노드 | 시작 방법 |
+|---|---|---|
+| `patrol_amr_safety` | `command_gateway`, `battery_monitor`, `local_safety_supervisor`, `status_reporter` | `amr_safety_status.launch.py` |
+| `patrol_amr` | `mission_supervisor` | `patrol.launch.py` |
+
+나머지 파일은 모두 이 5개 프로세스 안에서 import되는 모듈이다. 시나리오마다 노드를 만들지 않는다.
+
+### 10.2 명령 한 건의 종단 흐름
+
+관제가 `MissionCommand` 하나를 보낸 시점부터 `PatrolReport`가 나갈 때까지다. 굵은 분기는 실제 코드의 조건문이다.
+
+```mermaid
+flowchart TD
+    A["관제 /robotN/mission_command"] --> B["command_gateway._on_mission_command"]
+    B --> C["MissionCommandParser.parse"]
+    C -->|InvalidMissionCommand| C1["command_check REJECTED<br/>reason_code 포함 · 여기서 종료"]
+    C -->|"ID조차 못 읽음"| C2["로그만 남기고 폐기<br/>보낼 대상이 없어 check 미발행"]
+    C -->|통과| D["mission_ingress.observe<br/>SQLite CommandStore 조회"]
+    D --> E{"판정 결과 3가지를 동시에 낸다"}
+    E -->|check_meaning| F["command_check 발행<br/>REJECTED가 아니면 active_command 동시 발행"]
+    E -->|replay_report| G["report_replay_request 발행<br/>완료된 명령의 기존 결과 재전송 요청"]
+    E -->|dispatch_new| H{"pending_dispatch.decide<br/>수신 후 4초 경과?"}
+    H -->|"4초 이상"| I["command_check REJECTED 206<br/>MISSION_DISPATCH_TIMEOUT"]
+    H -->|"4초 미만"| J["mission_dispatch 발행"]
+
+    J --> K["mission_supervisor MissionCommandCallback"]
+    K --> L["MissionArbiter.submit"]
+    L -->|DUPLICATE · CONFLICT · INVALID_STATE · SAFETY_NOT_READY| L1["재실행 없이 로그"]
+    L -->|"우선순위 더 높음"| L2["기존 command SUPERSEDED · Action 취소"]
+    L -->|수락| M["MissionWorker queue"]
+    L2 --> M
+    M --> N["CommandStore.claim 영속 저장"]
+    N --> O["MissionController.execute<br/>시나리오 선택"]
+    O --> P["NavigationAdapter → Nav2 · Dock Action"]
+    P --> Q{"결과 분류"}
+    Q -->|"STOP · SUPERSEDED · 안전구역 도착"| R["비종결 상태만 mission_status.json 저장<br/>PatrolReport 없음"]
+    Q -->|"그 외 종료"| S["patrol_report_outbox.json 저장"]
+
+    R --> T["status_reporter 0.1초 파일 polling"]
+    S --> T
+    T --> U["RobotStatus의 active_command_id ·<br/>active_mission_id · mission_state 갱신"]
+    T --> V["outbox drain → /robotN/patrol_report"]
+    G --> V
+
+    S -.->|"MissionExecutionEvent 미생산"| W["command_gateway가 기다리는<br/>ADMITTED · STARTED · RESULT_STORED"]
+    W -.-> X["command_check ACCEPTED · EXECUTING<br/>현재 발행되지 않음"]
+```
+
+**실행 이벤트 구간이 끊겨 있다.** `mission_supervisor`는 실행 수명을 `mission_lifecycle` 토픽에 `std_msgs/String` JSON으로 내보내려 하지만, `command_gateway`가 구독하는 것은 `mission_execution_event` 토픽의 `patrol_interfaces/MissionExecutionEvent`다. 이름과 타입이 모두 다르고 기존 producer에는 런타임 참조 오류도 있다. 따라서 현재 gateway는 잘못된 명령의 REJECTED와 admission 4초 timeout은 발행하지만, 유효 명령의 ACCEPTED·EXECUTING은 성현님 D17 producer가 연결되기 전까지 발행하지 않는다. 관련 공용 메시지 요청은 [CR-AMR 09-09 08:46](change_requests/CR-AMR_09-09_08-46_MissionExecutionEvent_공용_메시지_추가.md)에 있다.
+
+### 10.3 최종 주행 속도 한 줄 경로
+
+바퀴로 나가는 값은 이 경로 하나뿐이다. `local_safety_supervisor`가 `cmd_vel`의 유일한 발행자다.
+
+```mermaid
+flowchart LR
+    MS[mission_supervisor] -->|NavigateToPose goal| BT[bt_navigator]
+    BT --> CTL[controller_server]
+    CTL -->|cmd_vel_nav| VS[velocity_smoother]
+    VS -->|cmd_vel_smoothed| CM[collision_monitor]
+    CM -->|"cmd_vel_safe<br/>TwistStamped"| LSS[local_safety_supervisor]
+    LSS -->|"cmd_vel<br/>Twist"| DRV[Create 3 구동부]
+    YAW["cmd_vel_yaw — 중재 계약 결정<br/>현재 구독 구현 대기"]:::pending -.-> LSS
+    classDef pending fill:#eee,stroke:#999,color:#666
+```
+
+`cmd_vel_yaw`의 토픽·수치·중재 계약은 2026-09-09 결정됐지만 현재 `local_safety_supervisor`는 아직 구독하지 않는다. 구현 후에는 Nav2·yaw 중 하나만 신선할 때만 통과시키고 둘 다 신선하면 0을 출력한다. 현재 코드는 후보 하나만 받아 그대로 통과시키므로 계약 반영 전 상태다. 장애물 대응 감속과 일반 속도 상한은 TBD-AMR-006으로 남아 있다.
+
+### 10.4 안전 판정 — 세 가지 출력을 따로 만든다
+
+`SafetyGate`는 같은 입력으로 서로 다른 세 값을 만든다. 한 값으로 합치지 않은 이유가 코드에 그대로 있다.
+
+```mermaid
+flowchart TD
+    IN1["/control/drive_token<br/>DriveTokenGuard · monotonic lease"] --> G{판정}
+    IN2["/control/estop<br/>EStopGuard · 기본값 stopped=true"] --> G
+    IN3["/control/heartbeat<br/>HeartbeatGuard · 1.0초 timeout"] --> G
+    IN4["cmd_vel_safe 후보<br/>최대 나이 0.5초"] --> G
+    IN5["odom<br/>실제 정지 여부"] --> G
+
+    G --> P1["motion_allowed · Bool<br/>token · E-stop · heartbeat만 사용"]
+    G --> P2["cmd_vel · Twist<br/>위 3개 + 후보 존재·신선도"]
+    G --> P3["safety_state · UInt8"]
+
+    P1 --> Q1{"차단 사유 있음?"}
+    Q1 -->|없음| A1["true — mission_supervisor Action 허용"]
+    Q1 -->|있음| A2["false — 진행 중 Action 취소"]
+
+    P2 --> Q2{"차단 사유 있음?"}
+    Q2 -->|없음| B1["후보를 그대로 통과"]
+    Q2 -->|있음| B2["STOP 0.0, 0.0<br/>차단 중에는 0.1초마다 계속 발행"]
+
+    P3 --> Q3{"E-stop 활성?"}
+    Q3 -->|예| C1[SAFETY_ESTOPPED]
+    Q3 -->|아니오| Q4{"차단 사유 있음?"}
+    Q4 -->|없음| C2[SAFETY_NORMAL]
+    Q4 -->|있음| Q5{"odom 기준 실제로 멈췄나?"}
+    Q5 -->|예| C3[SAFETY_STOPPED]
+    Q5 -->|아니오| C4[SAFETY_STOPPING]
+```
+
+`motion_allowed`에 후보 신선도를 넣지 않은 것이 핵심이다. Nav2가 지금 후보를 내지 않는 것은 "낼 값이 없다"는 뜻이지 "주행 권한이 없다"는 뜻이 아니다. 두 가지를 합치면 Nav2 기동·정지마다 임무 권한이 흔들린다.
+
+차단 사유는 `MotionBlockReason` 5개이며 우선순위 없이 해당하는 것을 모두 보고한다. 출력은 어느 사유든 STOP으로 같기 때문이다.
+
+| 사유 | 발생 조건 | `motion_allowed`에 반영 |
+|---|---|---|
+| `DRIVE_TOKEN_NOT_GRANTED` | token 미보유·lease 만료·revoke | 반영 |
+| `ESTOP_ACTIVE` | `/control/estop` 활성. 수신 전 기본값도 활성 | 반영 |
+| `HEARTBEAT_NOT_HEALTHY` | 관제 heartbeat 1.0초 초과 | 반영 |
+| `CANDIDATE_MISSING` | 후보를 한 번도 받지 못함 | 반영 안 함 |
+| `CANDIDATE_STALE` | 후보 stamp가 0.5초보다 오래됨 | 반영 안 함 |
+
+### 10.5 주기와 발행 조건
+
+코드리뷰에서 "이 값은 언제 나가느냐"를 묻는 자리에 쓸 표다.
+
+| 노드 | 타이머 | 발행 조건 |
+|---|---|---|
+| `battery_monitor` | 0.1초 신선도 확인 | 값이 바뀔 때만. 3초 이상 입력이 끊기면 즉시 `UNKNOWN` |
+| `local_safety_supervisor` | 0.1초 재확인 | `cmd_vel`은 후보를 받을 때마다, 그리고 차단 중에는 매 주기. `motion_allowed`·`safety_state`·`accepted_token_id`는 값이 바뀔 때만 |
+| `status_reporter` | 0.02초 tick, 0.1초 파일 polling | 기본 0.5초 주기. 값이 바뀌면 최소 간격 0.1초까지 앞당김 |
+| `command_gateway` | 0.1초 pending 확인, 60초 prune | 명령 수신·실행 이벤트 수신 시점. 접수 4초 초과 시 `REJECTED` |
+
+배터리 상태 전이에는 3초 유지 조건이 있다. 새 분류가 3초 연속 관측되어야 상태를 바꾸며, `CRITICAL`만 즉시 반영한다. 관측이 끊기거나 무효하면 유지 조건 없이 바로 `UNKNOWN`이 된다.
+
+### 10.6 전체 그림에서 아직 끊긴 연결
+
+문서에 그림이 있다는 이유로 완료로 처리하지 않는다. 아래는 코드를 직접 확인한 결과다.
+
+| 끊긴 지점 | 확인한 내용 | 영향 |
+|---|---|---|
+| 실행 수명 이벤트 | `mission_supervisor`는 `mission_lifecycle`/`String`, `command_gateway`는 `mission_execution_event`/`MissionExecutionEvent` | `CommandCheck`가 접수 단계에서 멈춘다. 관제는 실행 시작·완료를 `CommandCheck`로 받지 못한다 |
+| `mission_supervisor` 실행 | `command_lifecycle` import 없이 호출만 남아 있다 | 이벤트 발행 경로 진입 시 `NameError` |
+| `mission_dispatch` 구독 QoS | 계약은 TRANSIENT_LOCAL, 코드는 VOLATILE | gateway가 먼저 발행하고 supervisor가 늦게 뜨면 명령 유실 |
+| 안전 launch | `_nodes()`의 17개 인자와 status 파일 경로 전달 | 2026-09-09 수정, `--show-args` 및 격리 ROS domain 155 `AMR_SMOKE_PASS` |
+| 하드웨어 launch | `command_gateway` 이름이 정의 없이 사용된다 | `hardware_patrol.launch.py` 실행 즉시 `NameError`. 11절 참조 |
+
+앞의 세 개와 하드웨어 launch는 `patrol_amr` 파일이므로 조정묵이 수정하지 않는다. 안전 launch는 승인된 조정묵 범위에서 모든 인자와 status 경로를 연결했다.
+
+## 11. launch 파일이 무엇을 구동하는가 — 코드리뷰용
+
+10분 안에 끝내는 발표용 축약본은 [AMR 파트 10분 코드리뷰 진행안](development/amr-code-review-10min.md)에 따로 두었다. 이 절은 그 근거가 되는 전체 내용이다.
+
+AMR 파트의 launch 파일은 6개다. 안전 패키지에 1개, 미션 패키지에 5개 있다. 이 절은 "이 파일을 실행하면 어떤 프로세스가 몇 개 뜨는가"만 다룬다. 노드 사이 메시지는 10절을 본다.
+
+AGENTS.md는 launch를 코드 변경과 같은 수준으로 취급한다. 이 절은 현재 파일 내용을 옮긴 설명이며, 아래에서 지적한 결함도 문서로만 기록하고 파일을 수정하지 않았다.
+
+### 11.1 한눈에 보는 대응표
+
+| launch 파일 | 소유 패키지 | 직접 띄우는 프로세스 | 포함하는 다른 launch |
+|---|---|---|---|
+| `amr_safety_status.launch.py` | `patrol_amr_safety` | `command_gateway`, `battery_monitor`, `local_safety_supervisor`, `status_reporter` | 없음 |
+| `patrol.launch.py` | `patrol_amr` | `mission_supervisor` | 없음 |
+| `patrol_localization.launch.py` | `patrol_amr` | `patrol_lifecycle_manager_localization` | `nav2_bringup/localization_launch.py` |
+| `patrol_nav2.launch.py` | `patrol_amr` | `patrol_lifecycle_manager_navigation` | `turtlebot4_navigation/navigation_launch.py` |
+| `hardware_patrol.launch.py` | `patrol_amr` | `local_safety_supervisor`, `status_reporter` | 위 세 개 |
+| `amr_nav2_keepout.launch.py` | `patrol_amr` | keepout mask·filter info 서버 4개, `keepout_lifecycle_manager` | `turtlebot4_navigation`의 `localization.launch.py`, `nav2.launch.py` |
+
+### 11.2 포함 관계
+
+```mermaid
+flowchart TD
+    HP["hardware_patrol.launch.py<br/>통합 실기 진입점"] --> LOC["patrol_localization.launch.py"]
+    HP --> NAV["patrol_nav2.launch.py"]
+    HP --> PAT["patrol.launch.py"]
+    HP --> N1["local_safety_supervisor 직접 기동"]
+    HP --> N2["status_reporter 직접 기동"]
+
+    LOC --> LI["nav2_bringup<br/>localization_launch.py<br/>autostart=false"]
+    LOC --> LM["patrol_lifecycle_manager_localization<br/>10초 뒤 map_server · amcl 활성화"]
+
+    NAV --> NI["turtlebot4_navigation<br/>navigation_launch.py<br/>autostart=false"]
+    NAV --> NM["patrol_lifecycle_manager_navigation<br/>지연 후 8개 노드만 활성화"]
+
+    PAT --> MS["mission_supervisor"]
+
+    SAFE["amr_safety_status.launch.py<br/>안전 파트 단독 진입점"] --> S1[command_gateway]
+    SAFE --> S2[battery_monitor]
+    SAFE --> S3[local_safety_supervisor]
+    SAFE --> S4[status_reporter]
+
+    KO["amr_nav2_keepout.launch.py<br/>별도 keepout 실험 경로"] --> K1["mask server 2개<br/>filter info server 2개"]
+    KO --> K2["turtlebot4 localization.launch.py"]
+    KO --> K3["turtlebot4 nav2.launch.py<br/>nav2_keepout_filters.yaml 덮어쓰기"]
+```
+
+`hardware_patrol.launch.py`와 `amr_nav2_keepout.launch.py`는 서로 다른 Nav2 기동 경로다. 앞은 `navigation_launch.py`를 직접 포함해 lifecycle 대상을 줄인 순찰용이고, 뒤는 TurtleBot 4 표준 `nav2.launch.py` 위에 keepout 파라미터를 덮어쓰는 경로다. 두 개를 동시에 띄우면 같은 namespace에 Nav2가 두 벌 뜬다.
+
+### 11.3 파일별 상세
+
+#### `amr_safety_status.launch.py` — 안전 파트 4개 노드
+
+인자 18개를 선언한다. `robot_id`와 `source_session_id`는 기본값이 없어 반드시 넘겨야 한다.
+
+| 인자 | 기본값 | 무엇을 정하는가 |
+|---|---|---|
+| `robot_id` | 없음 | 노드 파라미터이자 namespace. `robot1` 또는 `robot6` |
+| `source_session_id` | 없음 | 이번 실행을 식별한다. 재시작마다 바꿔야 관제가 이전 실행과 구분한다 |
+| `push_namespace` | `true` | `/robotN`을 여기서 붙일지 여부. 상위 launch가 이미 붙였다면 `false` |
+| `battery_state_topic` | `battery_state` | 배터리 드라이버 위치. 장치 배치가 TBD-ARCH-001이라 밖으로 뺄 수 있다 |
+| `battery_status_topic` | `battery_status` | 분류 결과 내부 토픽 |
+| `candidate_topic` | `cmd_vel_safe` | Nav2 collision_monitor 출력 입구 |
+| `output_topic` | `cmd_vel` | 최종 속도 출력. 시험할 때 로봇 밖 sink로 돌릴 수 있다 |
+| `odom_topic` | `odom` | 실제 속도·정지 판정 입력 |
+| `pose_topic` | `amcl_pose` | AMCL 위치 입력 |
+| `drive_token_topic` | `/control/drive_token` | 관제 주행 권한 |
+| `heartbeat_topic` | `/control/heartbeat` | 관제 생존 신호 |
+| `estop_topic` | `/control/estop` | 안전 정지 |
+| `motion_allowed_topic` | `motion_allowed` | 임무 허용 출력 |
+| `safety_state_topic` | `safety_state` | 안전 상태 출력 |
+| `accepted_token_topic` | `accepted_token_id` | 유효 token ID 출력 |
+| `database_path` | `''` | `command_gateway`의 SQLite 경로. 비우면 로봇별 기본 경로 |
+| `mission_status_path` | `''` | 3A `mission_status.json` 경로 |
+| `report_outbox_path` | `''` | 3A `patrol_report_outbox.json` 경로 |
+
+`push_namespace` 인자가 있는 이유가 이 파일의 설계 요점이다. namespace는 겹쳐 쌓이기 때문에 상위 launch가 이미 `/robot1`을 붙인 상태에서 이 파일이 또 붙이면 `/robot1/robot1/cmd_vel`이 된다. 그런데 `status_reporter`만은 `/{robot_id}/robot_status`를 절대 이름으로 발행하므로 겹치지 않는다. 일부만 어긋난 채 조용히 동작하는 상태가 되므로, 상위에서 namespace를 붙이는 호출자는 `push_namespace:=false`를 넘겨야 한다.
+
+노드 목록을 만드는 `_nodes()`의 필수 인자 17개를 namespace 적용/미적용 두 `GroupAction`에서 모두 전달한다. 두 경로는 조건이 배타적이다.
+
+```
+_nodes(robot_id, source_session_id,
+       battery_state_topic, battery_status_topic,
+       candidate_topic, output_topic, odom_topic, pose_topic,
+       drive_token_topic, heartbeat_topic, estop_topic,
+       motion_allowed_topic, safety_state_topic, accepted_token_topic,
+       database_path, mission_status_path, report_outbox_path)
+```
+
+`battery_status_topic`, `output_topic`, 세 관제 안전 토픽, 세 내부 상태 토픽, `database_path`, `mission_status_path`, `report_outbox_path`가 각 노드의 parameter/remapping으로 연결된다. 마지막 두 경로는 `status_reporter`에 명시적으로 전달하므로 `mission_supervisor`와 같은 파일을 지정할 수 있고, 비우면 양쪽 모두 `$ROS_HOME/patrol_amr/<robot_id>/` 기본 경로를 사용한다.
+
+#### `patrol.launch.py` — `mission_supervisor` 하나
+
+`patrol_params.yaml`을 먼저 적용하고 그 위에 launch 인자를 덮어쓴다. namespace는 노드에 직접 지정한다.
+
+| 인자 | 기본값 | 설명 |
+|---|---|---|
+| `robot_id` | `robot1` | `robot1`·`robot6`만 허용 |
+| `params_file` | `config/patrol_params.yaml` | W1~W7 좌표, 체류 시간, 재개 정책, 도킹 timeout |
+| `safety_path_ready` | `false` | 최종 `cmd_vel` 경로 검증 후에만 `true` |
+| `hardware_test_mode` | `false` | TurtleBot 4 기본 주행 경로로 시험할 때만 `true` |
+| `motion_enable_token` | `''` | `ENABLE_<ROBOT_ID>_MOTION`과 일치해야 주행 허용 |
+| `source_session_id` | 시각·PID 자동 생성 | `<robot_id>-<YYYYMMDDTHHMMSS>-<PID>` |
+| `command_store_path` | `''` | 명령·checkpoint 저장소 |
+| `mission_status_path` | `''` | `status_reporter`와 공유할 상태 파일 |
+| `report_outbox_path` | `''` | `status_reporter`와 공유할 결과 대기열 |
+
+기본값만으로 실행하면 `motion_enable_token`이 비어 있어 주행이 차단된 상태로 뜬다. 이 파일은 노드를 띄우는 것과 실제 주행을 허용하는 것을 일부러 분리한다.
+
+#### `patrol_localization.launch.py` — 지도와 위치 추정
+
+`nav2_bringup`의 `localization_launch.py`를 `autostart=false`로 포함해 `map_server`와 `amcl`을 만들되 활성화하지 않는다. 그리고 기본 10초 뒤 `patrol_lifecycle_manager_localization`이 그 두 노드만 활성화한다. Fast DDS가 lifecycle 서비스 endpoint를 발견하기 전에 전환 요청을 보내면 bringup이 통째로 막히기 때문에, 포함된 manager는 놀리고 지연된 manager 하나만 활성화 권한을 갖는다.
+
+인자는 `namespace`(기본 `robot6`), `map`(기본 `config/final_project_map.yaml`), `use_sim_time`, `params_file`(기본 TurtleBot 4의 `localization.yaml`), `lifecycle_start_delay`(기본 10.0), `log_level`이다.
+
+#### `patrol_nav2.launch.py` — Nav2 순찰용 축소 구성
+
+`turtlebot4_navigation`의 `navigation_launch.py`를 역시 `autostart=false`로 포함하고, 지연된 `patrol_lifecycle_manager_navigation`이 **8개 노드만** 활성화한다.
+
+```
+controller_server, smoother_server, planner_server, behavior_server,
+velocity_smoother, collision_monitor, bt_navigator, docking_server
+```
+
+`route_server`와 `waypoint_follower`는 이 목록에 없다. 현재 순찰은 W1~W7을 `NavigateToPose` 하나씩으로 보내므로 두 API를 쓰지 않고, 목록에서 빼면 route 서비스 지연이 순찰 bringup 전체를 막지 않는다.
+
+`SetRemap`으로 `global_costmap/scan`과 `local_costmap/scan`을 로봇 namespace의 `scan`으로 돌린다. 포함할 때 namespace를 절대 이름으로 넘겨 그룹이 이미 붙인 상대 namespace와 겹치지 않게 한다.
+
+#### `hardware_patrol.launch.py` — 실기 통합 진입점
+
+기본 `robot_id`가 `robot6`이다. 아래를 한 번에 띄운다.
+
+1. `command_gateway` — **이름만 있고 정의가 없다. 아래 결함 참조**
+2. `local_safety_supervisor` — `start_local_safety`가 `true`일 때
+3. `status_reporter` — `start_status_reporter`가 `true`일 때
+4. `patrol_localization.launch.py` — `start_localization`이 `true`일 때, lifecycle 지연 10초
+5. `patrol_nav2.launch.py` — `start_nav2`가 `true`일 때, lifecycle 지연 20초
+6. `patrol.launch.py` — 조건 없이 항상. `safety_path_ready=true`, `hardware_test_mode=false`로 고정하고 `motion_enable_token`을 그대로 넘긴다
+
+`start_*` 인자 5개는 모두 기본 `true`이며, 해당 노드가 이미 떠 있을 때만 `false`로 내린다. 중복 기동은 `cmd_vel` 단일 발행자 규칙을 깨뜨린다.
+
+**현재 이 파일도 실행되지 않는다.** 반환 목록에 `command_gateway`가 들어 있는데 함수 안에서 그 이름에 아무것도 대입하지 않는다. 실행 즉시 `NameError`가 난다. `start_command_gateway` 인자는 선언되어 있으므로 노드 정의만 빠진 상태다.
+
+**결함과 별개로 확인할 점이 두 가지 더 있다.** 이 파일은 `battery_monitor`를 띄우지 않는다. `battery_status`를 발행하는 노드가 없으므로 `status_reporter`의 `battery_state` 축은 `UNKNOWN`에서 움직이지 않는다. 그리고 여기서 띄우는 `local_safety_supervisor`와 `status_reporter`에는 remapping이 하나도 없다. 토픽 이름을 바꿔야 하는 배치에서는 `amr_safety_status.launch.py` 쪽을 써야 한다.
+
+#### `amr_nav2_keepout.launch.py` — 두 겹 Keepout 실험 경로
+
+`robot_id`는 기본값이 없어 반드시 넘긴다. 띄우는 것은 다음과 같다.
+
+- `base_keepout_mask_server`, `center_corridor_keepout_mask_server` — 두 mask 지도를 `keepout/<이름>/mask`로 발행
+- `base_keepout_filter_info_server`, `center_corridor_filter_info_server` — costmap이 읽을 filter info. mask 토픽 이름을 절대 이름으로 넣는다. 더 깊은 namespace의 costmap 노드가 이 값을 그대로 쓰기 때문이다
+- `keepout_lifecycle_manager` — 위 4개를 관리. `autostart` 기본 `true`
+- TurtleBot 4 표준 `localization.launch.py`와 `nav2.launch.py`
+
+Nav2 포함 시 `nav2_keepout_filters.yaml`을 덮어쓴다. 이 파일에서 `<robot_namespace>`를 `/robot1` 또는 `/robot6`으로 치환한다. 빨간색 base 필터는 항상 `enabled: true`, 노란색 center corridor 필터는 `enabled: false`로 시작한다. 후자를 켜고 끄는 것은 관제가 CCTV 판단을 받아 결정하며 이 launch는 비전 토픽을 구독하지 않는다.
+
+### 11.4 코드리뷰에서 설명할 순서
+
+1. 실행 노드는 5개뿐이고 나머지 파일은 모듈이라는 점 — 10.1의 표
+2. 안전 4개는 `amr_safety_status.launch.py`, 미션 1개는 `patrol.launch.py`가 띄운다
+3. Nav2는 두 launch가 `autostart=false`로 만들어 두고 지연된 전용 lifecycle manager가 필요한 노드만 활성화한다
+4. `hardware_patrol.launch.py`가 이 조각들을 묶는 실기 진입점이고, `start_*` 인자로 중복 기동을 막는다
+5. `amr_safety_status.launch.py` 인자 누락은 수정됐다. `hardware_patrol.launch.py`의 미정의 `command_gateway`는 성현님 범위에 남아 있어 실기 전에 해결해야 한다
 
 <details>
-<summary>2026-09-08 이전 설계 읽기본(참고용, 위 1~9절과 충돌하면 사용하지 않음)</summary>
+<summary>2026-09-08 이전 설계 읽기본(참고용, 위 1~11절과 충돌하면 사용하지 않음)</summary>
 
 # `amr_patrol_safety` 문서 기준 노드·모듈·메시지 연결도
 

@@ -4,7 +4,7 @@
 
 상태: v1.0 공용 계약 확정 · 차기 버전 TBD 분리 · 담당: AMR·관제·시스템 모니터·비전 공동
 
-이 문서는 통신 이름, 메시지 필드·enum, ID, QoS와 공통 시간 기준의 원본이다. `patrol_interfaces`의 패키지 버전은 `1.0.0`이며 CMake에 등록된 15개 `.msg`의 wire schema를 v1.0으로 고정한다. 의미 계약이 차기 버전 TBD인 메시지도 v1.0 안에서 필드를 임의로 바꾸지 않는다. 아래 값은 공유 설계 기준이며 실제 장비 동작 검증 결과가 아니다.
+이 문서는 통신 이름, 메시지 필드·enum, ID, QoS와 공통 시간 기준의 원본이다. `patrol_interfaces`의 패키지 버전은 `1.0.0`이며 CMake에 등록된 16개 `.msg`의 wire schema를 배포 단위로 고정한다. 기존 v1.0 15종에 2026-09-09 승인된 AMR 내부 `MissionExecutionEvent`가 추가됐으며, 기존 메시지의 wire 선언은 바뀌지 않았다. 의미 계약이 차기 버전 TBD인 메시지도 v1.0 안에서 필드를 임의로 바꾸지 않는다. 아래 값은 공유 설계 기준이며 실제 장비 동작 검증 결과가 아니다.
 
 관제 구현의 확정 입력 버전은 [v1.0 기준선](decisions/2026-09-08-control-interface-baseline.md)이다. 해당 기준선에 열거한 필드·enum·명령 전이·Heartbeat·E-stop·RobotStatus·Keepout parameter 의미는 2026-09-08 합의 상태로 고정한다. 기준선 밖의 TBD는 차기 버전으로 이관하며 v1.0 완료 조건이 아니다. 확정 범위를 바꾸려면 새 수정 요청서와 기준선 갱신이 필요하다.
 
@@ -26,7 +26,7 @@
 | /control/heartbeat | patrol_interfaces/msg/ControlHeartbeat | 관제 → AMR 로컬 안전 | 타입·필드·주기·timeout·QoS와 `.msg`·AMR 수신부 반영, 관제 발행부 미구현 |
 | /control/estop | patrol_interfaces/msg/EStop | Safety Arbiter → AMR·시스템 모니터 | `.msg`와 AMR·시스템 모니터 소비부 반영, 대표 원인 우선순위 확정, 관제 발행부 미구현 |
 | 로봇별 Keepout 설정 | Nav2 parameter API | 관제 → AMR global/local costmap | base 상시 ON·center corridor 제어 parameter 확정, 관제 transaction·실환경 검증 미실시 |
-| DetectionCandidate | patrol_interfaces/msg/DetectionCandidate | 비전 감지 → AMR 확정 처리 | v1.0 wire schema 고정, 의미·중재는 차기 버전 TBD-IF-006 |
+| `/{robot}/vision/detection_candidate` | patrol_interfaces/msg/DetectionCandidate | 비전 감지 → AMR 정렬 처리 | AMR 토픽·QoS 요청안 확정, 비전 회신 대기; 임계값·중재는 TBD-IF-006 |
 | DetectionEvent·증적 | patrol_interfaces/msg/DetectionEvent·EvidenceChunk | AMR → 시스템 모니터(수집·저장), 관제(제어용 이벤트) | v1.0 wire schema 고정, 의미·재전송은 차기 버전 TBD-IF-006·007 |
 
 표의 시스템 모니터 수신 표기는 기존 관측·저장 기능의 담당 팀을 구분한 것이다. 직접 구독·중계 여부와 제어 상태·로그 전달 경로는 TBD-IF-003·004·006·007·008·010·011에서 합의하며, 팀 분리만으로 새 토픽이나 메시지를 확정하지 않는다.
@@ -479,7 +479,7 @@ mission_supervisor(yaw 정렬)      → /robotN/cmd_vel_yaw
   → local_safety_supervisor      → /robotN/cmd_vel  → 구동부
 ```
 
-후보 두 토픽은 `geometry_msgs/TwistStamped`이며 Nav2 노드에 `enable_stamped_cmd_vel: true`를 적용한다. 후보의 `header.stamp` 신선도 기준은 Q-17이다. namespace는 `robot_id`에서 파생하고 관제 launch는 `PushRosNamespace`·`RewrittenYaml`을 사용한다. `cmd_vel_yaw`는 `mission_supervisor`가 단독 발행한다. 두 후보 사이의 주행 중재는 [TBD-AMR-001](amr.md#tbd)로 남는다. 적용 근거는 [요청서](change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md)와 [확정 회신](change_requests/CR-AMR_09-08_10-06_AMR_cmd_vel_계약_5개_확정_회신.md)을 따른다.
+후보 두 토픽은 `geometry_msgs/TwistStamped`이며 Nav2 노드에 `enable_stamped_cmd_vel: true`를 적용한다. 후보의 `header.stamp` 신선도 기준은 Q-17이다. namespace는 `robot_id`에서 파생하고 관제 launch는 `PushRosNamespace`·`RewrittenYaml`을 사용한다. `cmd_vel_yaw`는 `mission_supervisor`가 단독 발행한다. 두 후보 중 하나만 신선할 때만 통과시키고 둘 다 신선하면 최종 0을 출력하는 중재는 [2026-09-09 결정](change_requests/CR-AMR_09-09_10-53_yaw_정렬_Nav2_중재_확정.md)을 따른다. 실제 코드 반영은 대기 중이다.
 
 ## 8. Battery enum과 임계값
 
@@ -507,7 +507,7 @@ CRITICAL 진입은 즉시, 나머지 전이는 조건 연속 유지 후 적용�
 
 관제 임무 정책은 다음과 같다. CRITICAL이면 현재 waypoint 완료를 기다리지 않고 즉시 복귀 또는 도킹을 판단한다. LOW이면 새 mission을 시작하지 않고 현재 mission의 순찰·복귀·도킹까지 완료한다. LOW 상태에서 CRITICAL로 전환되면 mission 완료 대기를 중단한다. UNKNOWN은 신규 순찰과 교대 투입 대상에서 제외한다. 이 정책은 E-stop, token, permit과 AMR 로컬 안전을 우회하지 않는다.
 
-도킹 성공은 도킹 완료 센서가 DOCKED를 보고하고 도킹 기능의 별도 충전 감지 신호가 활성인 조건이 모두 2초 연속 유지될 때다. 이 충전 감지 조건은 `BatteryState.CHARGING`과 독립적이므로 SOC에 따라 `PATROL_READY`나 `FULL`을 보고하는 동안에도 성립할 수 있다. 도킹 timeout은 DOCKING 진입 후 60초다. 기존 3초 기준을 변경한 결정이며 [관제 수정 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md)에 결정 이력을 남겼고 AMR 설계 문서에도 반영했다. 도킹 완료 센서와 충전 감지 신호의 출처·생성 기준은 TBD-AMR-004에 남긴다.
+도킹 성공은 `DockStatus.is_docked=true`와 원본 `BatteryState.present=true`, `power_supply_status`가 `CHARGING` 또는 `FULL`인 조건을 사용한다. 두 입력은 각각 age 1초 이하여야 하며 모든 조건을 2초 연속 유지한다. 하나라도 false·무효·stale이면 유지시간을 초기화한다. 내부 SOC 구간 상태인 `PATROL_READY/FULL`로 충전을 대신 판단하지 않는다. Dock Action 성공·`dock_visible`·SOC 증가만으로도 완료하지 않는다. 도킹 timeout은 DOCKING 진입 후 60초다. [2026-09-09 결정](change_requests/CR-AMR_09-09_11-05_도킹_충전_부저_OFF_조건_확정.md)을 따른다.
 
 ## 9. QoS와 공통 시간·거리 기준
 
@@ -518,6 +518,9 @@ CRITICAL 진입은 즉시, 나머지 전이는 조건 연속 유지 후 적용�
 | drive_token | BEST_EFFORT | VOLATILE | KEEP_LAST(3) | deadline 200 ms, lifespan 500 ms |
 | robot_status | RELIABLE | VOLATILE | KEEP_LAST(5) | deadline 500 ms |
 | patrol_report | RELIABLE | VOLATILE | KEEP_LAST(20) | 결과 ID 연결 |
+| detection_candidate | RELIABLE | VOLATILE | KEEP_LAST(10) | AMR 확정 요청안; 비전→AMR, candidate ID 연결, 비전팀 검토 대기 |
+| alignment_status | RELIABLE | VOLATILE | KEEP_LAST(10) | AMR 확정 요청안; candidate ID 연결, 비전팀 검토 대기 |
+| ingestion_ack | RELIABLE | VOLATILE | KEEP_LAST(20) | AMR 확정 요청안; PatrolReport 저장 ACK, 영향 팀 검토 대기 |
 | CCTV event | RELIABLE | VOLATILE | KEEP_LAST(20) | 과거 이벤트 replay 방지 |
 | patrol_allowed | RELIABLE | VOLATILE | KEEP_LAST(1) | deadline 500 ms, timeout 시 마지막 값 유지 |
 | estop | RELIABLE | TRANSIENT_LOCAL | 단일 상태, 정확한 depth TBD | 발행자 하나 |
@@ -534,10 +537,10 @@ CRITICAL 진입은 즉시, 나머지 전이는 조건 연속 유지 후 적용�
 | Q-06 | 복구 참고 위치 검증 | 마지막 pose age ≤ 30초, AMR2 LiDAR 오차 ≤ 0.5 m, 방향 오차 ≤ 15도, 3회 연속 |
 | Q-07 | Keepout 시도 | 시도당 timeout 2초, 총 2회, 첫 실패 후 200 ms 대기 |
 | Q-08 | 안전구역 후보 | Keepout 밖 free cell; footprint-장애물 ≥ 0.5 m, 차량 동선 ≥ 1.0 m, 경로 가능, 다른 AMR과 비중첩 |
-| Q-09 | 도킹 | DOCKING 진입 후 60초 이내, DOCKED 완료 센서와 별도 충전 감지 신호 활성을 2초 연속 확인 (`BatteryState` enum과 독립) |
+| Q-09 | 도킹 | DOCKING 진입 후 60초 이내, 신선한 `DockStatus.is_docked=true`와 원본 `BatteryState`의 `present=true`·`CHARGING/FULL`을 2초 연속 확인. 입력 age는 각각 1초 이하 |
 | Q-10 | E-stop | 활성화 즉시, 모든 활성 원인 제거 상태가 3초 연속일 때만 해제 가능; 조건 재발생 시 계수 초기화 |
 | Q-11 | 배터리 전이 | CRITICAL 즉시; 기타 조건 3초 연속 |
-| Q-12 | 화재 부저 OFF | DOCKED 완료 센서와 별도 충전 감지 신호 활성을 2초 연속 확인; 도킹 실패 시 다른 활성 화재가 없으면 OFF하고 관제 경고 |
+| Q-12 | 화재 부저 OFF | Q-09 성공 뒤 다른 활성 화재가 없으면 OFF. 도킹 실패·timeout·취소는 결과·관제 경고를 먼저 기록하고 다른 활성 화재가 없을 때 OFF. E-stop 해제와 무관 |
 | Q-13 | CCTV 중복 제거 | cam_master가 event_id 10분 보관 |
 | Q-14 | 명령 중복 제거 | 24시간 이내 전체 보존, 24시간 경과 항목 중 최신 1,000개 유지 |
 | Q-15 | CommandCheck | 각 시도 5초, 동일 command ID·payload 최대 2회 재전송 |
@@ -566,13 +569,13 @@ DB 테이블·컬럼 매핑·인덱스·보존·백업 등 내부 저장 설계�
 |---|---|---|
 | TBD-IF-001 | **결정(2026-09-08):** CommandCheck 0~3 수치, 정상·복구 예외·역방향 전이, 일치하는 EXECUTING 후 재전송 중단, 명령별 mission/target, `parameters_json` 제거, 203~206 reason code, `target_pose` 필드 유지·기본값 강제, robot별 default plan ID. [기존 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) · [관제 요청서](change_requests/CR-관제_09-08_15-15_AMR_명령_Heartbeat_E-stop_상태_계약.md) · [AMR 확정 회신](change_requests/CR-AMR_09-08_17-00_명령_Heartbeat_E-stop_상태_계약_확정_회신.md) | AMR·관제 |
 | TBD-IF-002 | **일부 결정(2026-09-07):** control session, token ID, message sequence, holder 회수·교대·정지 기준. 잔여: 송신 timestamp 기반 message age 검증. [요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) | AMR·관제 |
-| TBD-IF-003 | **일부 결정(2026-09-08):** RobotStatus·PatrolReport 의미 필드와 ID 연결, safety_state 0~5와 의미, 유효 ID의 최종 report 수락, AMR 로컬 영속 outbox·동일 report ID 발행 구현. 잔여: waypoint·visit·scan 상세 타입, 안전구역 계산 결과·도착 보고, 수신 애플리케이션 저장 ACK와 ACK 이후 큐 삭제 조건. [관제 요청서](change_requests/CR-관제_09-07_15-55_AMR_명령_토큰_상태_안전_계약_변경.md) · [AMR 계약 요청서](change_requests/CR-관제_09-08_15-15_AMR_명령_Heartbeat_E-stop_상태_계약.md) · [AMR ACK 검토 요청서](change_requests/CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md) | AMR·관제·시스템 모니터 |
+| TBD-IF-003 | **일부 결정(2026-09-08):** RobotStatus·PatrolReport 의미 필드와 ID 연결, safety_state 0~5와 의미, 유효 ID의 최종 report 수락, AMR 로컬 영속 outbox·동일 report ID 발행 구현. **AMR 확정 요청안(2026-09-09):** System monitor가 `/{robot}/ingestion_ack`의 단일 ACK 발행자이며 RELIABLE/VOLATILE/KEEP_LAST(20)을 사용한다. 일치하는 `STORED`·동일 payload의 `DUPLICATE`에서만 삭제하고 `REJECTED`·`INCOMPLETE`·무응답은 보존한다. 같은 report를 1초 간격으로 재발행하고 30초 무응답은 경고하되 삭제하지 않는다. 관제·System monitor 회신 전에는 팀 간 합의 미완료다. 잔여: waypoint·visit·scan 상세 타입, 안전구역 계산 결과·도착 보고. [ACK 상세 요청안](change_requests/CR-AMR_09-08_13-54_E-stop_reset과_PatrolReport_ACK_인터페이스_명세.md) | AMR·관제·시스템 모니터 |
 | TBD-IF-004 | **v1.0 일부 결정(2026-09-08):** `ControlHeartbeat` 타입·필드·5 Hz·1초 timeout·QoS, E-stop reason 0~6, 전체 대상 `all`, 대표 원인 발행과 우선순위 `SYSTEM_FAULT → UNKNOWN → OPERATOR → KEEPOUT_FAILURE → COMMUNICATION → OBSTACLE → TOKEN`, 원인 제거 3초 해제, 하드웨어 E-stop·manual reset 제외. **차기 버전 이관:** 원인별 상세 활성/해제 조건·TRANSIENT_LOCAL depth, UI 요청 API와 전체 원인 집합 표시 계약. [AMR 요청서](change_requests/CR-관제_09-08_15-15_AMR_명령_Heartbeat_E-stop_상태_계약.md) · [System monitor 요청서](change_requests/CR-관제_09-08_15-15_System_monitor_E-stop_UI_운영상태_연계.md) | AMR·관제·시스템 모니터 |
 | TBD-IF-005 | **v1.0 결정(2026-09-08):** `patrol_interfaces/msg/CameraState`, state 0~4, `gate_cam`·`center_cam`, event ID와 source session·sequence, topic별 허용 state, RELIABLE·VOLATILE·KEEP_LAST(20) | 비전·관제·시스템 모니터 |
-| TBD-IF-006 | **v1.0 wire 결정:** `DetectionCandidate`·`DetectionEvent` 필드·상수를 고정. **차기 버전 이관:** 정식 토픽·발행자, event_type 의미·후보 중재 임계값·중복 보존 정책 | AMR·관제·시스템 모니터·비전 |
+| TBD-IF-006 | **v1.0 wire 결정:** `DetectionCandidate`·`DetectionEvent`·`AlignmentStatus` 필드·상수를 고정. **AMR 확정 요청안(2026-09-09):** 비전→AMR은 `/{robot}/vision/detection_candidate`, AMR→비전은 `/{robot}/vision/alignment_status`를 사용한다. 둘 다 RELIABLE/VOLATILE/KEEP_LAST(10)이며 robot ID와 namespace를 일치시키고 같은 candidate ID를 왕복한다. AlignmentStatus terminal 상태는 candidate마다 한 번이다. 비전팀 회신 전에는 팀 간 합의 미완료다. 잔여: confidence·정렬 임계값, 후보 중재·보존 정책과 DetectionEvent 정식 토픽. [Candidate 요청안](change_requests/CR-AMR_09-09_10-49_DetectionCandidate_토픽_QoS_확정_요청.md) · [Alignment 요청안](change_requests/CR-AMR_09-09_10-45_AlignmentStatus_토픽_QoS_확정_요청.md) | AMR·관제·시스템 모니터·비전 |
 | TBD-IF-007 | **v1.0 wire 결정:** `EvidenceChunk`·`IngestionAck` 필드·상수와 evidence ID 필드를 고정. **차기 버전 이관:** 증적 메타데이터 의미·재전송·실패·저장 완료 ACK 정책 | AMR·관제·시스템 모니터 |
 | TBD-IF-008 | **v1.0 일부 결정(2026-09-08):** base Keepout 상시 ON·관제 변경 금지, center corridor global/local parameter 이름·초기값·permit 대응과 transaction 대상, `KeepoutStatus` wire 필드·상수. **차기 버전 이관:** 정식 상태 토픽 바인딩·발행자·상태 의미·생산 조건, 실환경 lifecycle/read-back 검증, BatteryEvent·ActionFeedback 필요 여부. [AMR 요청서](change_requests/CR-AMR_09-08_13-02_이중_Keepout_parameter_계약.md) | AMR·관제·시스템 모니터 |
-| TBD-IF-009 | **결정(2026-09-08):** 최종 `/robotN/cmd_vel`, 후보 `/robotN/cmd_vel_safe`·`/robotN/cmd_vel_yaw`, `enable_stamped_cmd_vel: true`, Q-17 후보 신선도 0.5초, namespace는 `robot_id` 파생, `cmd_vel_yaw`는 `mission_supervisor` 단독 발행. 후보 중재는 TBD-AMR-001로 남는다. [요청서](change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md) · [확정 회신](change_requests/CR-AMR_09-08_10-06_AMR_cmd_vel_계약_5개_확정_회신.md) | AMR·관제 |
+| TBD-IF-009 | **결정(2026-09-08):** 최종 `/robotN/cmd_vel`, 후보 `/robotN/cmd_vel_safe`·`/robotN/cmd_vel_yaw`, `enable_stamped_cmd_vel: true`, Q-17 후보 신선도 0.5초, namespace는 `robot_id` 파생, `cmd_vel_yaw`는 `mission_supervisor` 단독 발행. **후보 중재 결정(2026-09-09):** 한 후보만 신선할 때만 통과하고 두 후보가 동시에 신선하면 최종 0을 출력한다. Nav2 취소와 odometry 실제 정지 뒤 yaw를 시작하며 terminal 뒤 자동 재개하지 않는다. [중재 결정](change_requests/CR-AMR_09-09_10-53_yaw_정렬_Nav2_중재_확정.md) | AMR·관제 |
 | TBD-IF-010 | **v1.0 일부 결정:** patrol_allowed 변경 즉시·5 Hz 반복 발행, 관제 5초 timeout과 마지막 값 유지. **차기 버전 이관:** RobotStatus 변경 발행 rate 제한의 세부 의미와 카메라 장애 공용 전달 | AMR·관제·시스템 모니터·비전 |
 | TBD-IF-011 | **일부 결정(2026-09-08):** 관제 운영 event ID 형식과 `CONTROL_SHUTDOWN`·`COMMAND_CHECK_TIMEOUT`·`ACCEPTED_MISSING` 분류, 정상 종료·재기동 순서. 잔여: 표시용 토픽과 공용 로그 필드·타입·시간·QoS·발행 정책·초기 상태·재연결·중복 전달. [System monitor 요청서](change_requests/CR-관제_09-08_15-15_System_monitor_E-stop_UI_운영상태_연계.md) | AMR·관제·시스템 모니터·비전 |
 

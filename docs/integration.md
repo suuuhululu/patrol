@@ -16,7 +16,7 @@ UC별 목표·사전 조건·기본/예외 흐름·완료 조건과 W 흐름의 
 
 다음은 권장 점검 순서이며 정확한 실행 명령·서비스 의존성은 TBD-ARCH-001에서 확정한다.
 
-1. [AGENTS.md](../AGENTS.md)의 승인 범위와 개발 단위별 반영 버전을 확인한다. 모든 PC에서 같은 Git commit의 `patrol_interfaces 1.0.0`을 로컬 빌드하고 `scripts/verify_interface_v1.py --installed`의 `message_manifest_sha256`이 v1.0 기준값 `5db7945d3495d954c195935e96a499535f052578d6755be622cd3a223b6816d6`과 일치하지 않으면 통합시험을 시작하지 않는다. 이 값은 주석·빈 줄을 제외한 ROS 선언 기준이다.
+1. [AGENTS.md](../AGENTS.md)의 승인 범위와 개발 단위별 반영 버전을 확인한다. 모든 PC에서 같은 Git commit의 `patrol_interfaces 1.0.0`을 로컬 빌드하고 `scripts/verify_interface_v1.py --installed`의 `message_manifest_sha256`이 2026-09-09 16종 기준값 `d6f24b6e42d851f229994626cf376a5241d7321060fd2d5888849cf66a80c6d9`과 일치하지 않으면 통합시험을 시작하지 않는다. 이 값은 주석·빈 줄을 제외한 ROS 선언 기준이다.
 2. robot1/robot6, /robot1·/robot6, AMR1/AMR2 매핑 및 대상 장비를 확인한다.
 3. 기존 TB4 Onboard 서버 ID 1·6 설정이 유지되는지 확인한다. 단일 서버로 통합하지 않는다.
 4. PC 3 Offboard 서버 ID 0, UDP 11811의 접속 주소와 서비스를 확인한다.

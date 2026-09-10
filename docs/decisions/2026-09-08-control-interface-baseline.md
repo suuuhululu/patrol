@@ -9,9 +9,9 @@
 
 이 기준선은 관제 노드 개발에서 사용할 메시지 레이아웃과 확정 동작을 `v1.0`으로 고정한다. 아래 확정 범위만 v1.0 완료 조건이며 남은 TBD는 차기 버전으로 이관한다. 배포 릴리스나 장비 검증 완료를 뜻하지 않으며 Git release tag를 대신하지 않는다.
 
-`patrol_interfaces 1.0.0`은 CMake에 등록된 15개 `.msg`의 wire schema를 하나의 배포 단위로 고정한다. 의미 계약의 일부가 차기 버전 TBD인 메시지도 v1.0에서 임의로 필드를 바꾸지 않는다. 네 팀은 같은 Git commit의 소스를 각 PC에서 빌드하고 `scripts/verify_interface_v1.py`가 출력하는 manifest SHA-256을 비교한다.
+`patrol_interfaces 1.0.0`은 CMake에 등록된 16개 `.msg`의 wire schema를 하나의 배포 단위로 고정한다. 2026-09-09 AMR 공동 구현 승인으로 기존 15종의 선언은 유지한 채 AMR 내부 `MissionExecutionEvent` 1종을 추가했다. 의미 계약의 일부가 차기 버전 TBD인 메시지도 v1.0에서 임의로 필드를 바꾸지 않는다. 네 팀은 같은 Git commit의 소스를 각 PC에서 빌드하고 `scripts/verify_interface_v1.py`가 출력하는 manifest SHA-256을 비교한다.
 
-2026-09-08 로컬 빌드에서 소스 선언과 설치 Python 타입의 필드·상수가 일치했고, `message_manifest_sha256`은 `5db7945d3495d954c195935e96a499535f052578d6755be622cd3a223b6816d6`이다. 이 값은 주석·빈 줄을 제외하고 정규화한 메시지 15개의 wire 선언 식별자이며 Git commit을 대신하지 않는다. PC 1·2·4 설치 결과 비교와 실제 PC 간 DDS 통합시험은 아직 실행하지 않았다.
+2026-09-08의 15종 기준 manifest는 `5db7945d3495d954c195935e96a499535f052578d6755be622cd3a223b6816d6`이었다. 2026-09-09 `MissionExecutionEvent` 추가 후 16종 소스 manifest는 `d6f24b6e42d851f229994626cf376a5241d7321060fd2d5888849cf66a80c6d9`다. 이 값은 주석·빈 줄을 제외한 wire 선언 식별자이며 Git commit을 대신하지 않는다. 설치 타입 대조와 PC 1·2·4 비교, 실제 PC 간 DDS 통합시험은 별도로 수행한다.
 
 ## 확정 범위
 

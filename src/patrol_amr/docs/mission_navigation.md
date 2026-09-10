@@ -1,9 +1,10 @@
 # 미션·내비게이션 구현 대조
 
-구현 대조 기준: `patrol_amr` 0.4.0, 커밋 `1574ade` 작업 트리,
+구현 대조 기준: `patrol_amr` 0.4.0, 커밋 `1933d4c` 작업 트리,
 2026-09-09. 각 Mermaid 그림은 표기된 원본 파일의 함수·분기를 기준으로
-대조했다. 단, `mission_supervisor.py`는 현재 미해결 Git 충돌 표식 때문에
-Python 로드가 불가능하므로 해당 노드 구성 그림과 신규 실행 이벤트 연결은
+대조했다. 단, `mission_supervisor.py`는 충돌 표식은 제거됐지만 삭제된
+`command_lifecycle` import의 호출이 남아 있고 D17 생산부·TRANSIENT_LOCAL
+구독이 없으므로 해당 노드 구성 그림과 신규 실행 이벤트 연결은
 **설계 대조 / 재확인 필요**다. 나머지 파일은 **구현 대조 완료**다.
 
 이 문서는 박성현 담당 미션·내비게이션 코드와 조정묵 담당
@@ -47,6 +48,50 @@ manager는 Nav2 프로세스 시작 10초 뒤에 실행한다.
 확인되어 `patrol_localization.launch.py`가 두 노드를 먼저 생성하고 기본 10초
 후 별도 lifecycle manager를 시작한다. 기존 manager는 `autostart=false`로
 유지해 활성화 요청이 중복되지 않게 한다.
+
+## Localization 설정 및 launch 흐름
+
+구현 대조 완료: `1933d4c` 기반 2026-09-10 작업 트리의 아래 두 launch 파일.
+기준: 2026-09-10 사용자가 제공한 localization 설정과 프로젝트 설정 추가 승인.
+두 진입점의 기본 설정은 [patrol_localization.yaml](../config/patrol_localization.yaml)이다.
+기존 AMCL·map_saver 값은 제공된 설정을 유지했다. `map_saver` 설정 자체는
+노드를 실행하지 않으며, 지도는 기존 `final_project_map.yaml` 인자로 전달한다.
+
+초기 위치 자동 적용은 실제 시작 좌표가 제공되지 않아 `set_initial_pose: false`다.
+`initial_pose`의 0.0은 자리표시자다. 지도 기준 실제 x/y(m), yaw(rad)를 입력하고
+`set_initial_pose: true`로 변경하면 AMCL이 초기 위치 파라미터를 사용한다.
+두 로봇의 시작 위치가 다르면 각각의 YAML을 인자로 전달한다.
+설정 추가는 AMR 내부 변경이며 공용 계약 변경이나 다른 팀 코드 변경은 없다.
+실기 실행·위치 추정 검증은 수행하지 않았다.
+
+### `launch/patrol_localization.launch.py`
+
+```mermaid
+flowchart TD
+    A[generate_launch_description] --> B[namespace / map / params_file / use_sim_time / delay 선언]
+    B --> C[OpaqueFunction: _launch_setup]
+    C --> D[PushRosNamespace]
+    D --> E[Nav2 localization_launch.py 포함\nautostart=false / 전달받은 YAML]
+    D --> F[TimerAction: 기본 10초]
+    F --> G[patrol_lifecycle_manager_localization\nmap_server / amcl 활성화 시도]
+    G --> H{활성화 성공?}
+    H -->|성공| I[AMCL 위치 추정\n초기 위치 정책은 YAML 사용]
+    H -->|실패| J[Nav2 lifecycle 오류 처리\n이 wrapper에 별도 재시도 없음]
+```
+
+### `launch/hardware_patrol.launch.py`
+
+```mermaid
+flowchart TD
+    A[generate_launch_description] --> B[robot_id 및 실행 인자 선언\nlocalization_params_file 기본: patrol_localization.yaml]
+    B --> C{start_localization?}
+    C -->|true| D[patrol_localization.launch.py 포함\nnamespace=robot_id / params_file 전달]
+    C -->|false| E[localization 시작 생략]
+    B --> F[각 실행 조건에 따라 command_gateway / local_safety / status_reporter 구성]
+    B --> G[start_nav2 조건에 따라 patrol_nav2.launch.py 포함]
+    B --> H[patrol.launch.py 포함\nmission 설정 / motion_enable_token 전달]
+    D --> I[활성화 및 실패 흐름은 위 localization 그림 참조]
+```
 
 ## 파일 책임
 
@@ -93,7 +138,7 @@ manager는 Nav2 프로세스 시작 10초 뒤에 실행한다.
 
 `mission_supervisor.py`
 
-상태: **설계 대조 / 충돌 해결 후 재확인 필요**
+상태: **설계 대조 / D17 producer와 런타임 참조 수정 후 재확인 필요**
 
 ~~~mermaid
 flowchart TD

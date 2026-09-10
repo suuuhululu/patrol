@@ -39,10 +39,9 @@ import time
 # shell. A caller can select another test-only domain when 127 is already used.
 os.environ["ROS_DOMAIN_ID"] = os.environ.get("PATROL_SMOKE_DOMAIN_ID", "127")
 os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "LOCALHOST"
-os.environ.pop('ROS_DISCOVERY_SERVER', None)
-os.environ.pop('ROS_SUPER_CLIENT', None)
-os.environ.pop('FASTRTPS_DEFAULT_PROFILES_FILE', None)
-os.environ.pop('FASTDDS_DEFAULT_PROFILES_FILE', None)
+for key in ('ROS_DISCOVERY_SERVER', 'ROS_SUPER_CLIENT', 'ROS_LOCALHOST_ONLY',
+            'FASTRTPS_DEFAULT_PROFILES_FILE', 'FASTDDS_DEFAULT_PROFILES_FILE'):
+    os.environ.pop(key, None)
 
 _LOG_DIRECTORY = tempfile.TemporaryDirectory(prefix="patrol-amr-smoke-ros-log-")
 os.environ.setdefault("ROS_LOG_DIR", _LOG_DIRECTORY.name)
@@ -840,6 +839,21 @@ def main():
                 "amr_safety_status.launch.py",
                 f"robot_id:={ROBOT_ID}",
                 f"source_session_id:={SOURCE_SESSION_ID}",
+                f"battery_state_topic:={TEST_NS}/battery_state",
+                f"battery_status_topic:={TEST_NS}/battery_status",
+                f"candidate_topic:={TEST_NS}/cmd_vel_safe",
+                f"output_topic:={TEST_NS}/cmd_vel",
+                f"odom_topic:={TEST_NS}/odom",
+                f"pose_topic:={TEST_NS}/amcl_pose",
+                f"drive_token_topic:={TEST_CONTROL_NS}/drive_token",
+                f"heartbeat_topic:={TEST_CONTROL_NS}/heartbeat",
+                f"estop_topic:={TEST_CONTROL_NS}/estop",
+                f"motion_allowed_topic:={TEST_NS}/motion_allowed",
+                f"safety_state_topic:={TEST_NS}/safety_state",
+                f"accepted_token_topic:={TEST_NS}/accepted_token_id",
+                f"database_path:={runtime_root / 'command_store.sqlite3'}",
+                f"mission_status_path:={runtime_root / 'mission_status.json'}",
+                f"report_outbox_path:={runtime_root / 'patrol_report_outbox.json'}",
             ],
             stdout=launch_log,
             stderr=subprocess.STDOUT,
