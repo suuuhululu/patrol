@@ -36,7 +36,6 @@ EVENT_ID_TTL_SEC = 600.0          # Q-13: event_id 중복 판정 캐시를 10분
 EVENT_TIMEOUT_WARN_SEC = 5.0      # 이 시간 이상 이벤트 미수신 시 경고 로그(값 자체는 유지)
 PATROL_ALLOWED_PUBLISH_HZ = 5.0   # patrol_allowed를 값 변화와 무관하게 반복 발행하는 주기
 
-
 class CamMaster(Node):
     def __init__(self):
         super().__init__('cam_master')                                # ROS2 노드 이름 등록

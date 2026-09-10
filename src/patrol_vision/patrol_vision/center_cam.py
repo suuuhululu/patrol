@@ -40,7 +40,7 @@ class CenterCam(Node):
         self.image_publisher_ = self.create_publisher(                 # 대시보드용 영상 스트림 발행자 생성
             CompressedImage, '/vision/cctv/center_image/compressed', IMAGE_STREAM_QOS)
 
-        self.model = YOLO("/home/hv-06/patrol/car_data/car_best.pt")   # YOLO 가중치 경로(설치된 실제 장비 기준)
+        self.model = YOLO("/home/hv-06/patrol/data/car_data/car_best_v2.pt")   # YOLO 가중치 경로(설치된 실제 장비 기준)
         self.cap = cv2.VideoCapture(4, cv2.CAP_V4L2)                   # 센터 카메라 장치 인덱스(설치 완료, 고정값)
         if not self.cap.isOpened():
             self.get_logger().error('camera_source=4 열기 실패')
@@ -144,8 +144,6 @@ class CenterCam(Node):
             self._exit_confirm_confs = []                              # 누적 conf도 초기화
             self._last_state_text = 'WAITING'
 
-
-##############################################################################핵심내용2
     # PARKED/EXITING을 판정하는 핵심 함수. current_roi가 있으면(ROI 안) [갈래 1]로,
     # None이면(ROI 밖) [갈래 2]로 간다.
     def _on_detection(self, current_roi, conf):
@@ -224,7 +222,6 @@ class CenterCam(Node):
             self._parked_confirmed = False
             self._exit_confirm_start = None
             self._exit_confirm_confs = []
-##############################################################################핵심내용
 
     def _publish_state(self, state: str, confidence: float):
         state_map = {                                                  # 문자열 상태 -> CameraState enum 값 변환표

@@ -28,7 +28,7 @@ class GateCam(Node):
         self.image_publisher_ = self.create_publisher(                # 대시보드용 영상 스트림 발행자 생성
             CompressedImage, '/vision/cctv/gate_image/compressed', IMAGE_STREAM_QOS)
 
-        self.model = YOLO("/home/hv-06/patrol/car_data/car_best.pt")  # YOLO 가중치 경로(설치된 실제 장비 기준)
+        self.model = YOLO("/home/hv-06/patrol/data/car_data/car_best_v2.pt")  # YOLO 가중치 경로(설치된 실제 장비 기준)
         self.cap = cv2.VideoCapture(2, cv2.CAP_V4L2)                  # 게이트 카메라 장치 인덱스(설치 완료, 고정값)
         if not self.cap.isOpened():
             self.get_logger().error('camera_source=2 열기 실패')
@@ -129,8 +129,6 @@ class GateCam(Node):
             self._crossing_history.clear()                            # 교차 이력도 초기화
             self._last_state_text = 'WAITING'
 
-
-##############################################################################핵심내용
     # "차가 들어왔다/나갔다"를 판정하는 핵심 함수. 크게 두 갈래로 나뉜다:
     # self._pending이 없으면(아직 대기 중인 판정이 없으면) 아래쪽 "선 교차 감지" 코드로 가고,
     # self._pending이 있으면(방금 선을 넘어서 확정 대기 중이면) 바로 아래 if문에서 확정 여부만 본다.
@@ -191,9 +189,6 @@ class GateCam(Node):
                 self._pending = {'state': 'ENTERING', 'side': 'right', 'confs': [conf], 'start_time': now}
             elif seq[-2:] == ['R', 'L']:                               # 오른쪽→왼쪽 순서 완성 = 출차 방향
                 self._pending = {'state': 'EXITED', 'side': 'left', 'confs': [conf], 'start_time': now}
-##############################################################################핵심내용
-
-
 
     def _publish_state(self, state: str, confidence: float):
         state_map = {                                                  # 문자열 상태 -> CameraState enum 값 변환표

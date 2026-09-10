@@ -32,6 +32,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/KeepoutStatus.msg"
   "msg/AlignmentStatus.msg"
   "msg/DetectionEvidence.msg"
+  "srv/ReportDetection.srv"
   DEPENDENCIES std_msgs sensor_msgs
   DEPENDENCIES std_msgs sensor_msgs geometry_msgs builtin_interfaces
 )
