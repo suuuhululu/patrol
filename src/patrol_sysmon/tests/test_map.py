@@ -24,6 +24,7 @@ class MapTests(unittest.TestCase):
             "ROBOT_API_KEY": "map-device-test-key",
             "MAP_MAX_CELLS": 100,
             "ROBOT_OFFLINE_AFTER_SECONDS": 30,
+            "ROBOT_STATUS_HISTORY_MIN_INTERVAL_SECONDS": 0,
         }
         self.app = create_app(self.config)
         self.client = self.app.test_client()

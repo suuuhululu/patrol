@@ -28,9 +28,9 @@ class DashboardClearTests(unittest.TestCase):
             db.execute("INSERT INTO robots(robot_id,name) VALUES ('AMR1','로봇 1')")
             db.execute(
                 """INSERT INTO events
-                   (event_id,message_id,robot_id,event_type,occurred_at,risk_level,status,received_at)
-                   VALUES ('event-old','event-message-old','AMR1','FIRE',
-                           '2026-09-06T01:00:00.000Z','HIGH','NEW','2026-09-06T01:00:01.000Z')"""
+                   (event_id,robot_id,event_type,occurred_at,status,received_at)
+                   VALUES ('event-old','AMR1','FIRE',
+                           '2026-09-06T01:00:00.000Z','NEW','2026-09-06T01:00:01.000Z')"""
             )
             db.execute(
                 """INSERT INTO vehicle_access_logs
@@ -84,9 +84,9 @@ class DashboardClearTests(unittest.TestCase):
             db = get_db()
             db.execute(
                 """INSERT INTO events
-                   (event_id,message_id,robot_id,event_type,occurred_at,risk_level,status,received_at)
-                   VALUES ('event-new','event-message-new','AMR1','LEAK',
-                           '9999-01-01T00:00:00.000Z','MEDIUM','NEW','9999-01-01T00:00:00.000Z')"""
+                   (event_id,robot_id,event_type,occurred_at,status,received_at)
+                   VALUES ('event-new','AMR1','LEAK',
+                           '9999-01-01T00:00:00.000Z','NEW','9999-01-01T00:00:00.000Z')"""
             )
             db.execute(
                 """INSERT INTO vehicle_access_logs

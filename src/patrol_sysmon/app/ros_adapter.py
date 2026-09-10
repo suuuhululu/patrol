@@ -6,7 +6,7 @@
 - `ros/registry.py`: 구독 토픽 등록표와 계약 enum 대응표
 - `ros/payloads.py`: ROS 메시지 → 서비스 입력 변환 (ROS 없이도 시험 가능)
 - `ros/qos.py`: interfaces.md 5절 QoS 계약
-- `ros/node.py`: 구독 노드 생성·callback·IngestionAck 회신·실행
+- `ros/node.py`: 구독 노드 생성·callback·ReportDetection 서비스·실행
 """
 
 from .ros.errors import RosAdapterUnavailable, RosMessageMappingError
@@ -14,9 +14,7 @@ from .ros.node import build_node, spin
 from .ros.payloads import (
     camera_state_payload,
     compressed_image_input,
-    detection_event_payload,
     estop_payload,
-    evidence_chunk_payload,
     keepout_status_payload,
     occupancy_grid_payload,
     patrol_allowed_payload,
@@ -30,10 +28,6 @@ from .ros.registry import (
     CAMERA_STATE_SOURCES_BY_TOPIC,
     CAMERA_STATE_TYPES,
     COSTMAP_SOURCES_BY_TOPIC,
-    DETECTION_EVENT_TYPES,
-    DETECTION_RISK_LEVELS,
-    DETECTION_SOURCES_BY_TOPIC,
-    EVIDENCE_SOURCES_BY_TOPIC,
     KEEPOUT_SOURCES_BY_TOPIC,
     KEEPOUT_STATES,
     MISSION_STATES,
@@ -53,12 +47,11 @@ __all__ = [
     "SUBSCRIPTIONS", "active_subscriptions", "dependency_report",
     "build_node", "spin", "_qos_profiles",
     "robot_status_payload", "occupancy_grid_payload", "compressed_image_input",
-    "detection_event_payload", "evidence_chunk_payload", "camera_state_payload",
+    "camera_state_payload",
     "patrol_allowed_payload", "patrol_visit_payload", "patrol_report_payload",
     "keepout_status_payload", "estop_payload",
     "ROBOT_DISPLAY_IDS", "MISSION_STATES", "CAMERA_IDS_BY_TOPIC",
-    "COSTMAP_SOURCES_BY_TOPIC", "DETECTION_SOURCES_BY_TOPIC",
-    "EVIDENCE_SOURCES_BY_TOPIC", "DETECTION_EVENT_TYPES", "DETECTION_RISK_LEVELS",
+    "COSTMAP_SOURCES_BY_TOPIC",
     "PATROL_VISIT_SOURCES_BY_TOPIC", "PATROL_REPORT_SOURCES_BY_TOPIC",
     "KEEPOUT_SOURCES_BY_TOPIC", "PATROL_VISIT_RESULTS", "PATROL_REPORT_RESULTS",
     "KEEPOUT_STATES", "CAMERA_STATE_SOURCES_BY_TOPIC", "CAMERA_STATE_TYPES",

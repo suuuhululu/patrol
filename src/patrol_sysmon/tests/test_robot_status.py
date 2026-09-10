@@ -22,6 +22,8 @@ class RobotStatusTests(unittest.TestCase):
             "SECRET_KEY": "robot-tests-only-key",
             "ROBOT_API_KEY": "robot-device-test-key",
             "ROBOT_OFFLINE_AFTER_SECONDS": 15,
+            "ROBOT_STATUS_HISTORY_MIN_INTERVAL_SECONDS": 1.0,
+            "ROBOT_STATUS_HISTORY_RETENTION_DAYS": 7,
         }
         self.app = create_app(self.config)
         self.client = self.app.test_client()
@@ -173,6 +175,52 @@ class RobotStatusTests(unittest.TestCase):
             expired = robot_service.dashboard_robots(now=now + timedelta(seconds=16))[0]
         self.assertEqual(current["connection_status"], "ONLINE")
         self.assertEqual(expired["connection_status"], "OFFLINE")
+
+    def test_rapid_updates_refresh_latest_but_sample_history(self):
+        """2 Hz 수신은 최신 표만 갱신하고 이력은 1초 간격으로만 남는다."""
+        base = datetime(2026, 9, 9, 10, 0, 0, tzinfo=timezone.utc)
+        with self.app.app_context():
+            for index, offset in enumerate((0.0, 0.5, 0.9, 1.0, 1.4, 2.2)):
+                observed = (base + timedelta(seconds=offset)).isoformat()
+                outcome, stored = robot_service.receive_status(
+                    self.payload(message_id=f"amr1-fast-{index}", battery=90 - index,
+                                 observed_at=observed),
+                    now=base + timedelta(seconds=offset + 0.1),
+                )
+                self.assertEqual(outcome, "accepted")
+                self.assertEqual(stored["history_recorded"], offset in (0.0, 1.0, 2.2))
+            db = get_db()
+            self.assertEqual(db.execute("SELECT battery FROM robot_latest_status").fetchone()[0], 85)
+            rows = db.execute(
+                "SELECT message_id FROM robot_status_history ORDER BY observed_at"
+            ).fetchall()
+            self.assertEqual([row[0] for row in rows], ["amr1-fast-0", "amr1-fast-3", "amr1-fast-5"])
+
+    def test_history_older_than_retention_is_pruned_once_per_minute(self):
+        """보존 기간이 지난 이력은 저장 경로에서 지우되 1분에 한 번만 DELETE를 돌린다."""
+        now = datetime(2026, 9, 9, 10, 0, 0, tzinfo=timezone.utc)
+        with self.app.app_context():
+            eight_days_ago = now - timedelta(days=8)
+            # 8일 전 시점에 저장된 이력. 그때는 보존 기간 안이라 지워지지 않는다.
+            _, first = robot_service.receive_status(
+                self.payload(message_id="old", observed_at=eight_days_ago.isoformat()), now=eight_days_ago
+            )
+            self.assertEqual(first["history_pruned"], 0)
+            # 1분 넘게 지난 뒤의 저장은 정리를 돌려 8일 전 행을 지운다.
+            _, second = robot_service.receive_status(
+                self.payload(message_id="kept", observed_at=(now - timedelta(days=6)).isoformat()),
+                now=now - timedelta(seconds=30),
+            )
+            self.assertEqual(second["history_pruned"], 1)
+            # 마지막 정리 뒤 1분 안의 저장은 DELETE를 건너뛴다.
+            _, third = robot_service.receive_status(
+                self.payload(message_id="fresh", observed_at=now.isoformat()), now=now
+            )
+            self.assertEqual(third["history_pruned"], 0)
+            rows = get_db().execute(
+                "SELECT message_id FROM robot_status_history ORDER BY observed_at"
+            ).fetchall()
+            self.assertEqual([row[0] for row in rows], ["kept", "fresh"])
 
     def test_simultaneous_retry_creates_one_history_row(self):
         payload = self.payload()

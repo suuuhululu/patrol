@@ -31,19 +31,19 @@ SUBSCRIPTIONS = (
         "map", "/map", "nav_msgs/msg/OccupancyGrid", "map", True,
     ),
     SubscriptionSpec(
-        "robot1_image", "/robot1/oakd/image/compressed",
+        "robot1_image", "/robot1/oakd/rgb/image_raw/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
-        "robot6_image", "/robot6/oakd/image/compressed",
+        "robot6_image", "/robot6/oakd/rgb/image_raw/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
-        "gate_image", "/vision/cctv/gate/image/compressed",
+        "gate_image", "/vision/cctv/gate_image/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
-        "center_image", "/vision/cctv/center/image/compressed",
+        "center_image", "/vision/cctv/center_image/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
@@ -51,33 +51,13 @@ SUBSCRIPTIONS = (
         "nav_msgs/msg/OccupancyGrid", "costmap", True,
     ),
     SubscriptionSpec(
-        "robot1_local_costmap", "/robot1/local_costmap/costmap",
-        "nav_msgs/msg/OccupancyGrid", "costmap", True,
-    ),
-    SubscriptionSpec(
         "robot6_global_costmap", "/robot6/global_costmap/costmap",
         "nav_msgs/msg/OccupancyGrid", "costmap", True,
     ),
-    SubscriptionSpec(
-        "robot6_local_costmap", "/robot6/local_costmap/costmap",
-        "nav_msgs/msg/OccupancyGrid", "costmap", True,
-    ),
-    SubscriptionSpec(
-        "robot1_detection", "/robot1/detection/event",
-        "patrol_interfaces/msg/DetectionEvent", "detection_event", True,
-    ),
-    SubscriptionSpec(
-        "robot6_detection", "/robot6/detection/event",
-        "patrol_interfaces/msg/DetectionEvent", "detection_event", True,
-    ),
-    SubscriptionSpec(
-        "robot1_evidence", "/robot1/detection/evidence",
-        "patrol_interfaces/msg/EvidenceChunk", "evidence_chunk", True,
-    ),
-    SubscriptionSpec(
-        "robot6_evidence", "/robot6/detection/evidence",
-        "patrol_interfaces/msg/EvidenceChunk", "evidence_chunk", True,
-    ),
+    # [local costmap 미구독] Nav2 local costmap은 odom 좌표계라 map 검증에서 매번 거부되고,
+    # NAV 지도는 global costmap만 바탕으로 쓰므로 구독하지 않는다.
+    # [사건 보고] DetectionEvent·EvidenceChunk 토픽은 구독하지 않는다. 확정 사건과 사진은
+    # ReportDetection 서비스(REPORT_DETECTION_SERVICE) 한 번으로 받는다.
     SubscriptionSpec(
         "gate_event", "/vision/cctv/gate_event",
         "patrol_interfaces/msg/CameraState", "camera_state", True,
@@ -121,6 +101,10 @@ SUBSCRIPTIONS = (
 )
 
 ROBOT_DISPLAY_IDS = {"robot1": "AMR1", "robot6": "AMR2"}
+# [ReportDetection] 확정 사건·증거 사진을 서비스 한 번으로 받는다. System monitor가 서버다.
+REPORT_DETECTION_SERVICE = "/system_monitor/report_detection"
+# v1.1 기준선의 FIRE=1·LEAK=2·OBSTACLE=3 과 같은 값. 0(UNKNOWN)은 "안 채운 값"으로 보고 거부한다.
+REPORT_EVENT_TYPES = {1: "FIRE", 2: "LEAK", 3: "OBSTACLE"}
 MISSION_STATES = {
     0: "IDLE",
     1: "UNDOCKING",
@@ -155,30 +139,15 @@ ESTOP_REASONS = {
 }
 ESTOP_TARGETS = ("robot1", "robot6", "all")
 CAMERA_IDS_BY_TOPIC = {
-    "/robot1/oakd/image/compressed": "amr1",
-    "/robot6/oakd/image/compressed": "amr2",
-    "/vision/cctv/gate/image/compressed": "webcam1",
-    "/vision/cctv/center/image/compressed": "webcam2",
+    "/robot1/oakd/rgb/image_raw/compressed": "amr1",
+    "/robot6/oakd/rgb/image_raw/compressed": "amr2",
+    "/vision/cctv/gate_image/compressed": "webcam1",
+    "/vision/cctv/center_image/compressed": "webcam2",
 }
 COSTMAP_SOURCES_BY_TOPIC = {
     "/robot1/global_costmap/costmap": ("AMR1", "global"),
-    "/robot1/local_costmap/costmap": ("AMR1", "local"),
     "/robot6/global_costmap/costmap": ("AMR2", "global"),
-    "/robot6/local_costmap/costmap": ("AMR2", "local"),
 }
-DETECTION_SOURCES_BY_TOPIC = {
-    "/robot1/detection/event": "robot1",
-    "/robot6/detection/event": "robot6",
-}
-EVIDENCE_SOURCES_BY_TOPIC = {
-    "/robot1/detection/evidence": "robot1",
-    "/robot6/detection/evidence": "robot6",
-}
-DETECTION_EVENT_TYPES = {
-    1: "FIRE", 2: "LEAK", 3: "OBSTACLE",
-    4: "LIGHTING", 5: "FACILITY_DAMAGE",
-}
-DETECTION_RISK_LEVELS = {1: "LOW", 2: "MEDIUM", 3: "HIGH"}
 PATROL_VISIT_SOURCES_BY_TOPIC = {
     "/robot1/patrol_visit": "robot1",
     "/robot6/patrol_visit": "robot6",
@@ -211,6 +180,14 @@ def active_subscriptions():
     return tuple(spec for spec in SUBSCRIPTIONS if spec.active)
 
 
+def _module_available(module_name):
+    try:
+        importlib.import_module(module_name)
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+    return True
+
+
 def dependency_report():
     """실행 환경을 바꾸지 않고 ROS adapter 시작 가능 여부를 점검한다."""
     modules = {
@@ -234,6 +211,9 @@ def dependency_report():
         "dependencies": available,
         "errors": errors,
         "active_topics": [spec.topic for spec in active_subscriptions()],
+        "report_service": REPORT_DETECTION_SERVICE,
+        # 서비스 타입은 patrol_interfaces를 srv 포함으로 다시 빌드해야 보인다. 없어도 토픽 수신은 동작한다.
+        "report_service_available": _module_available("patrol_interfaces.srv"),
         "pending_topics": [
             spec.topic for spec in SUBSCRIPTIONS if not spec.active
         ],

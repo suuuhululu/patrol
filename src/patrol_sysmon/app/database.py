@@ -49,9 +49,9 @@ def init_db():
         connection.rollback()
         raise
     _migrate_vehicle_access(connection)
-    _migrate_detection_storage(connection)
     _migrate_pose_validity(connection)
     _migrate_safety_state(connection)
+    _migrate_events_service_only(connection)
 
 
 ESTOP_COLUMNS = {
@@ -118,6 +118,78 @@ def _migrate_safety_state(connection):
     except sqlite3.Error:
         connection.rollback()
         raise
+
+
+EVENT_COLUMNS = (
+    "event_id", "robot_id", "event_type", "occurred_at", "x", "y", "frame_id",
+    "status", "received_at", "content_hash",
+)
+EVIDENCE_COLUMNS = ("id", "event_id", "image_path", "captured_at", "created_at")
+# DetectionEvent·EvidenceChunk 토픽 경로 전용이던 표. ReportDetection 서비스로 바꾸며 쓰지 않는다.
+LEGACY_DETECTION_TABLES = ("evidence_chunks", "evidence_ingestions", "detection_event_messages")
+
+
+def _migrate_events_service_only(connection):
+    """사건 저장을 ReportDetection 서비스 기준으로 줄인다.
+
+    events의 message_id·confidence·location_valid·evidence_id·risk_level과
+    event_evidence의 evidence_id를 없애고, 청크 조립용 표 세 개를 지운다.
+    SQLite는 열 삭제와 제약 변경이 제한적이라 표를 다시 만들어 옮긴다. 사건·사진·처리 이력 행은 모두 보존한다.
+    """
+    event_info = [row[1] for row in connection.execute("PRAGMA table_info(events)")]
+    evidence_info = [row[1] for row in connection.execute("PRAGMA table_info(event_evidence)")]
+    present = {
+        row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    stale_events = set(event_info) != set(EVENT_COLUMNS)
+    stale_evidence = set(evidence_info) != set(EVIDENCE_COLUMNS)
+    legacy_tables = [name for name in LEGACY_DETECTION_TABLES if name in present]
+    if not (stale_events or stale_evidence or legacy_tables):
+        return
+    schema = Path(__file__).with_name("schema.sql").read_text(encoding="utf-8")
+
+    def create_statement(table):
+        start = schema.index(f"CREATE TABLE IF NOT EXISTS {table} (")
+        return schema[start:schema.index(");", start) + 2]
+
+    def rebuild(table, columns, existing):
+        # 새 표에 있는 열 중 옛 표에도 있던 열만 옮긴다. 옛 DB에 없던 열(content_hash 등)은 NULL로 둔다.
+        # 옛 표 이름을 바꾸면 SQLite가 다른 표의 외래 키 참조까지 옛 이름으로 고치므로,
+        # 새 표를 만들어 옮긴 뒤 옛 표를 지우고 새 표 이름을 원래 이름으로 바꾼다.
+        copied = ", ".join(column for column in columns if column in existing)
+        connection.execute(create_statement(table).replace(
+            f"CREATE TABLE IF NOT EXISTS {table} (", f"CREATE TABLE {table}_new (", 1
+        ))
+        connection.execute(f"INSERT INTO {table}_new ({copied}) SELECT {copied} FROM {table}")
+        connection.execute(f"DROP TABLE {table}")
+        connection.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
+
+    # 다른 표가 events를 참조하므로 표를 바꾸는 동안만 외래 키 검사를 끄고, 끝나기 전에 직접 검사한다.
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        for name in legacy_tables:
+            connection.execute(f"DROP TABLE {name}")
+        # 옛 증적 식별자 인덱스는 열과 함께 사라져야 한다.
+        connection.execute("DROP INDEX IF EXISTS idx_events_evidence_id")
+        connection.execute("DROP INDEX IF EXISTS idx_event_evidence_evidence_id")
+        if stale_events:
+            rebuild("events", EVENT_COLUMNS, event_info)
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_events_occurred ON events(occurred_at)")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_robot_time ON events(robot_id, occurred_at)"
+            )
+        if stale_evidence:
+            rebuild("event_evidence", EVIDENCE_COLUMNS, evidence_info)
+        problems = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if problems:
+            raise sqlite3.IntegrityError(f"events 재구성 후 외래 키 불일치 {len(problems)}건")
+        connection.commit()
+    except sqlite3.Error:
+        connection.rollback()
+        raise
+    finally:
+        connection.execute("PRAGMA foreign_keys = ON")
 
 
 def _drop_legacy_patrol_tables(connection):
@@ -238,45 +310,6 @@ def _migrate_pose_validity(connection):
                 )
             if "last_valid_pose_at" not in columns:
                 connection.execute(f"ALTER TABLE {name} ADD COLUMN last_valid_pose_at TEXT")
-        connection.commit()
-    except sqlite3.Error:
-        connection.rollback()
-        raise
-
-
-def _migrate_detection_storage(connection):
-    """기존 이벤트 이력을 보존하며 ROS Detection 연결에 필요한 열만 추가한다."""
-    event_columns = {
-        row[1] for row in connection.execute("PRAGMA table_info(events)")
-    }
-    evidence_columns = {
-        row[1] for row in connection.execute("PRAGMA table_info(event_evidence)")
-    }
-    try:
-        connection.execute("BEGIN IMMEDIATE")
-        if "confidence" not in event_columns:
-            connection.execute(
-                "ALTER TABLE events ADD COLUMN confidence REAL "
-                "CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 1))"
-            )
-        if "location_valid" not in event_columns:
-            connection.execute(
-                "ALTER TABLE events ADD COLUMN location_valid INTEGER NOT NULL DEFAULT 1 "
-                "CHECK (location_valid IN (0, 1))"
-            )
-        if "evidence_id" not in event_columns:
-            connection.execute("ALTER TABLE events ADD COLUMN evidence_id TEXT")
-        if "evidence_id" not in evidence_columns:
-            connection.execute("ALTER TABLE event_evidence ADD COLUMN evidence_id TEXT")
-        # [증적 식별자] NULL인 기존 HTTP 증적은 유지하고 ROS UUID만 전역 중복을 막는다.
-        connection.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_evidence_id "
-            "ON events(evidence_id) WHERE evidence_id IS NOT NULL"
-        )
-        connection.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_event_evidence_evidence_id "
-            "ON event_evidence(evidence_id) WHERE evidence_id IS NOT NULL"
-        )
         connection.commit()
     except sqlite3.Error:
         connection.rollback()

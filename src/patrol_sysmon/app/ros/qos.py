@@ -70,9 +70,6 @@ def _qos_profiles():
         "patrol_allowed_writer": permit_writer,
         "robot_status": robot_status, "map": map_qos,
         "camera_frame": image, "costmap": costmap,
-        "detection_event": reliable_events,
-        "evidence_chunk": reliable_events,
-        "ingestion_ack": reliable_events,
         "camera_state": reliable_events,
         "patrol_allowed": permit,
     }

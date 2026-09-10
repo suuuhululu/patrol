@@ -1,4 +1,4 @@
-"""이상 이벤트의 인증·종류·검증·원자적 저장을 확인한다."""
+"""HTTP 이상 이벤트 입력(ReportDetection과 같은 필드)의 인증·종류·검증·원자적 저장을 확인한다."""
 
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -13,6 +13,13 @@ from app.services import auth_service
 from app.services.map_service import occupancy_to_png
 
 
+# [event_id 형식] ReportDetection과 같이 소문자 UUID v4만 받는다.
+FIRE_ID = "10000000-0000-4000-8000-000000000001"
+LEAK_ID = "20000000-0000-4000-8000-000000000002"
+OBSTACLE_ID = "30000000-0000-4000-8000-000000000003"
+OTHER_FIRE_ID = "40000000-0000-4000-8000-000000000004"
+
+
 class EventTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
@@ -23,7 +30,7 @@ class EventTests(unittest.TestCase):
             "EVIDENCE_DIR": str(Path(self.folder.name) / "instance/evidence"),
             "SECRET_KEY": "event-tests-only-key",
             "ROBOT_API_KEY": "event-device-test-key",
-            "EVENT_IMAGE_MAX_BYTES": 1024,
+            "REPORT_IMAGE_MAX_BYTES": 1024,
         }
         self.app = create_app(self.config)
         self.client = self.app.test_client()
@@ -32,19 +39,15 @@ class EventTests(unittest.TestCase):
             self.user_id = auth_service.create_user("viewer", "Test-pass-123", "VIEWER")
             self.operator_id = auth_service.create_user("operator", "Test-pass-456", "OPERATOR")
 
-    def metadata(self, event_id="fire-event-001", message_id="fire-message-001", **changes):
+    def metadata(self, event_id=FIRE_ID, **changes):
         happened = datetime.now(timezone.utc) - timedelta(seconds=2)
         payload = {
-            "event_id": event_id,
-            "message_id": message_id,
             "robot_id": "AMR1",
-            "event_type": "FIRE",
-            "occurred_at": happened.isoformat(),
-            "captured_at": (happened + timedelta(milliseconds=100)).isoformat(),
+            "event_id": event_id,
+            "detected_at": happened.isoformat(),
             "x": 12.5,
             "y": 8.25,
-            "frame_id": "map",
-            "risk_level": "HIGH",
+            "event_type": "FIRE",
         }
         payload.update(changes)
         return payload
@@ -81,30 +84,26 @@ class EventTests(unittest.TestCase):
     def test_valid_fire_event_saves_metadata_and_one_evidence_file(self):
         response = self.send_event()
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.get_json()["result"], "accepted")
-        evidence_files = list(Path(self.config["EVIDENCE_DIR"]).glob("event-*.png"))
+        self.assertEqual(response.get_json(), {"result": "accepted", "event_id": FIRE_ID, "detail": ""})
+        evidence_files = list(Path(self.config["EVIDENCE_DIR"]).glob("evidence-*.png"))
         self.assertEqual(len(evidence_files), 1)
         self.assertEqual(evidence_files[0].read_bytes(), self.png)
         with self.app.app_context():
             db = get_db()
             event = db.execute("SELECT * FROM events").fetchone()
             evidence = db.execute("SELECT * FROM event_evidence").fetchone()
-            self.assertEqual((event["robot_id"], event["event_type"], event["risk_level"], event["status"]),
-                             ("AMR1", "FIRE", "HIGH", "NEW"))
+            self.assertEqual((event["robot_id"], event["event_type"], event["status"]),
+                             ("AMR1", "FIRE", "NEW"))
             self.assertEqual((event["x"], event["y"], event["frame_id"]), (12.5, 8.25, "map"))
             self.assertEqual(evidence["event_id"], event["event_id"])
             self.assertEqual(evidence["image_path"], evidence_files[0].name)
+            # 촬영 시각 필드가 따로 없으므로 사진 시각은 감지 시각과 같다.
+            self.assertEqual(evidence["captured_at"], event["occurred_at"])
             self.assertEqual(db.execute("SELECT name FROM robots WHERE robot_id='AMR1'").fetchone()[0], "로봇 1")
 
     def test_leak_and_obstacle_events_use_common_event_flow(self):
-        leak = self.metadata(
-            event_id="leak-event-001", message_id="leak-message-001",
-            event_type="LEAK", risk_level="MEDIUM",
-        )
-        obstacle = self.metadata(
-            event_id="obstacle-event-001", message_id="obstacle-message-001",
-            event_type="OBSTACLE", risk_level="LOW",
-        )
+        leak = self.metadata(event_id=LEAK_ID, event_type="LEAK")
+        obstacle = self.metadata(event_id=OBSTACLE_ID, event_type="OBSTACLE")
         self.assertEqual(self.send_event(leak).status_code, 201)
         self.assertEqual(self.send_event(obstacle).status_code, 201)
         self.login_session()
@@ -117,9 +116,14 @@ class EventTests(unittest.TestCase):
         duplicate = self.send_event(metadata)
         self.assertEqual(duplicate.status_code, 200)
         self.assertEqual(duplicate.get_json()["result"], "duplicate")
-        self.assertEqual(self.send_event({**metadata, "risk_level": "LOW"}).status_code, 409)
-        same_message = self.metadata(event_id="fire-event-002", message_id=metadata["message_id"])
-        self.assertEqual(self.send_event(same_message).status_code, 409)
+        conflict = self.send_event({**metadata, "x": 99.0})
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(conflict.get_json()["error"], "event_conflict")
+        # [사건 억제] 새 event_id라도 같은 로봇·같은 종류가 억제 시간 안이면 저장하지 않는다.
+        suppressed = self.send_event(self.metadata(event_id=OTHER_FIRE_ID))
+        self.assertEqual(suppressed.status_code, 200)
+        self.assertEqual(suppressed.get_json()["result"], "duplicate")
+        self.assertIn(FIRE_ID, suppressed.get_json()["detail"])
         self.assertEqual(len(list(Path(self.config["EVIDENCE_DIR"]).iterdir())), 1)
         with self.app.app_context():
             self.assertEqual(get_db().execute("SELECT COUNT(*) FROM events").fetchone()[0], 1)
@@ -128,15 +132,18 @@ class EventTests(unittest.TestCase):
         invalid = [
             self.metadata(event_type="SMOKE"),
             self.metadata(robot_id="AMR3"),
-            self.metadata(risk_level="CRITICAL"),
+            self.metadata(event_id="fire-event-001"),
+            self.metadata(event_id="A0000000-0000-4000-8000-00000000000A"),
             self.metadata(x=True),
-            self.metadata(frame_id="잘못된 좌표계"),
-            self.metadata(occurred_at="2026-09-06 12:00:00"),
-            self.metadata(captured_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()),
+            self.metadata(y=None),
+            self.metadata(detected_at="2026-09-06 12:00:00"),
+            self.metadata(detected_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()),
         ]
         for metadata in invalid:
             with self.subTest(metadata=metadata):
-                self.assertEqual(self.send_event(metadata).status_code, 400)
+                response = self.send_event(metadata)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.get_json()["error"], "invalid_event")
         with self.app.app_context():
             self.assertEqual(get_db().execute("SELECT COUNT(*) FROM events").fetchone()[0], 0)
         self.assertEqual(list(Path(self.config["EVIDENCE_DIR"]).iterdir()), [])
@@ -158,7 +165,7 @@ class EventTests(unittest.TestCase):
 
     def test_evidence_image_requires_login_and_blocks_paths_outside_folder(self):
         self.send_event()
-        event_url = "/api/events/fire-event-001/evidence"
+        event_url = f"/api/events/{FIRE_ID}/evidence"
         self.assertEqual(self.client.get(event_url).location, "/login")
         self.login_session()
         image = self.client.get(event_url)
@@ -175,34 +182,37 @@ class EventTests(unittest.TestCase):
         self.assertEqual(self.client.get(event_url).status_code, 404)
 
     def test_invalid_metadata_json_is_rejected(self):
-        response = self.client.post(
-            "/api/events",
-            data={"metadata": "{broken", "image": (BytesIO(self.png), "evidence.png")},
-            headers={"X-Robot-Token": "event-device-test-key"},
-            content_type="multipart/form-data",
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.get_json()["error"], "invalid_metadata")
+        for text in ("{broken", "[]"):
+            with self.subTest(metadata=text):
+                response = self.client.post(
+                    "/api/events",
+                    data={"metadata": text, "image": (BytesIO(self.png), "evidence.png")},
+                    headers={"X-Robot-Token": "event-device-test-key"},
+                    content_type="multipart/form-data",
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.get_json()["error"], "invalid_metadata")
 
     def test_event_list_detail_and_dashboard_use_saved_values(self):
         self.send_event()
         self.assertEqual(self.client.get("/api/events").location, "/login")
-        self.assertEqual(self.client.get("/api/events/fire-event-001").location, "/login")
+        self.assertEqual(self.client.get(f"/api/events/{FIRE_ID}").location, "/login")
         self.login_session()
         listing = self.client.get("/api/events").get_json()
         self.assertEqual(listing["count"], 1)
         event = listing["events"][0]
         self.assertEqual(
-            (event["event_label"], event["robot_id"], event["risk_label"], event["status_label"]),
-            ("화재", "AMR1", "상", "신규"),
+            (event["event_label"], event["robot_id"], event["status_label"]),
+            ("화재", "AMR1", "신규"),
         )
+        self.assertNotIn("risk_level", event)
         self.assertEqual(event["location_label"], "map (12.50, 8.25)")
-        self.assertTrue(event["evidence_url"].endswith("/api/events/fire-event-001/evidence"))
-        detail = self.client.get("/api/events/fire-event-001").get_json()["event"]
+        self.assertTrue(event["evidence_url"].endswith(f"/api/events/{FIRE_ID}/evidence"))
+        detail = self.client.get(f"/api/events/{FIRE_ID}").get_json()["event"]
         self.assertEqual(detail["changes"], [])
         page = self.client.get("/")
         self.assertEqual(page.status_code, 200)
-        self.assertIn("fire-event-001", page.get_data(as_text=True))
+        self.assertIn(FIRE_ID, page.get_data(as_text=True))
         self.assertIn("상세 보기", page.get_data(as_text=True))
         with self.app.app_context():
             db = get_db()
@@ -216,7 +226,7 @@ class EventTests(unittest.TestCase):
         csrf = "event-status-csrf"
         self.login_session(csrf_token=csrf)
         forbidden = self.client.post(
-            "/api/events/fire-event-001/status",
+            f"/api/events/{FIRE_ID}/status",
             json={"status": "REVIEWING", "memo": "확인"},
             headers={"X-CSRF-Token": csrf},
         )
@@ -224,7 +234,7 @@ class EventTests(unittest.TestCase):
 
         self.login_session(self.operator_id, csrf)
         skipped = self.client.post(
-            "/api/events/fire-event-001/status",
+            f"/api/events/{FIRE_ID}/status",
             json={"status": "WORK_REQUESTED"},
             headers={"X-CSRF-Token": csrf},
         )
@@ -235,13 +245,13 @@ class EventTests(unittest.TestCase):
             ("RESOLVED", "현장 조치 확인"),
         ]:
             response = self.client.post(
-                "/api/events/fire-event-001/status",
+                f"/api/events/{FIRE_ID}/status",
                 json={"status": status, "memo": memo},
                 headers={"X-CSRF-Token": csrf},
             )
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.get_json()["status"], status)
-        detail = self.client.get("/api/events/fire-event-001").get_json()["event"]
+        detail = self.client.get(f"/api/events/{FIRE_ID}").get_json()["event"]
         self.assertEqual(detail["status"], "RESOLVED")
         self.assertEqual([change["new_status"] for change in detail["changes"]],
                          ["REVIEWING", "WORK_REQUESTED", "RESOLVED"])
@@ -256,18 +266,18 @@ class EventTests(unittest.TestCase):
         csrf = "event-status-csrf"
         self.login_session(self.operator_id, csrf)
         self.assertEqual(
-            self.client.post("/api/events/fire-event-001/status",
+            self.client.post(f"/api/events/{FIRE_ID}/status",
                              json={"status": "REVIEWING"}).status_code,
             400,
         )
         headers = {"X-CSRF-Token": csrf}
         self.assertEqual(
-            self.client.post("/api/events/fire-event-001/status", data="text",
+            self.client.post(f"/api/events/{FIRE_ID}/status", data="text",
                              headers=headers, content_type="text/plain").status_code,
             400,
         )
         self.assertEqual(
-            self.client.post("/api/events/fire-event-001/status",
+            self.client.post(f"/api/events/{FIRE_ID}/status",
                              json={"status": "REVIEWING", "memo": "x" * 501},
                              headers=headers).status_code,
             400,
