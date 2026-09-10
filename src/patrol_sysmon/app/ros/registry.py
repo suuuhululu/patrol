@@ -123,6 +123,8 @@ SUBSCRIPTIONS = (
 ROBOT_DISPLAY_IDS = {"robot1": "AMR1", "robot6": "AMR2"}
 # [ReportDetection] 확정 사건·증거 사진을 서비스 한 번으로 받는다. System monitor가 서버다.
 REPORT_DETECTION_SERVICE = "/system_monitor/report_detection"
+# v1.1 기준선의 FIRE=1·LEAK=2·OBSTACLE=3 과 같은 값. 0(UNKNOWN)은 "안 채운 값"으로 보고 거부한다.
+REPORT_EVENT_TYPES = {1: "FIRE", 2: "LEAK", 3: "OBSTACLE"}
 MISSION_STATES = {
     0: "IDLE",
     1: "UNDOCKING",

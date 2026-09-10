@@ -40,7 +40,7 @@ class DetectionReportTests(unittest.TestCase):
         data = {
             "robot_id": "AMR2", "event_id": EVENT_ID,
             "detected_at": (self.now - timedelta(seconds=1)).isoformat(),
-            "x": 2.0, "y": 3.0, "image": PNG,
+            "x": 2.0, "y": 3.0, "image": PNG, "event_type": "LEAK",
         }
         data.update(changes)
         return data
@@ -54,7 +54,7 @@ class DetectionReportTests(unittest.TestCase):
             db = get_db()
             row = db.execute("SELECT * FROM events WHERE event_id=?", (EVENT_ID,)).fetchone()
             self.assertEqual((row["robot_id"], row["x"], row["y"], row["frame_id"]), ("AMR2", 2.0, 3.0, "map"))
-            self.assertEqual(row["event_type"], "UNKNOWN")
+            self.assertEqual(row["event_type"], "LEAK")
             self.assertIsNone(row["risk_level"])
             self.assertEqual(row["message_id"], EVENT_ID)
             self.assertTrue(row["content_hash"])
@@ -69,7 +69,7 @@ class DetectionReportTests(unittest.TestCase):
             events = event_service.recent_events(50)
             self.assertEqual(len(events), 1)
             view = events[0]
-            self.assertEqual(view["event_label"], "미분류")
+            self.assertEqual(view["event_label"], "누수")
             self.assertEqual(view["risk_label"], "—")
             self.assertIsNone(view["risk_level"])
             self.assertTrue(view["has_evidence"])
@@ -103,6 +103,7 @@ class DetectionReportTests(unittest.TestCase):
             "좌표 NaN": self.payload(x=float("nan")),
             "빈 이미지": self.payload(image=b""),
             "이미지 형식": self.payload(image=b"not-an-image"),
+            "종류 없음": self.payload(event_type="UNKNOWN"),
         }
         with self.app.app_context():
             for label, payload in cases.items():
@@ -115,17 +116,56 @@ class DetectionReportTests(unittest.TestCase):
             self.assertEqual(get_db().execute("SELECT COUNT(*) FROM events").fetchone()[0], 0)
             self.assertEqual(list(Path(self.config["EVIDENCE_DIR"]).iterdir()), [])
 
+    def test_repeated_report_of_same_kind_is_suppressed_for_a_window(self):
+        """감지 노드가 3초마다 새 event_id로 다시 보고해도 60초 안에는 사진 한 장만 남는다."""
+        with self.app.app_context():
+            first, _ = detection_service.receive_report(self.payload(), self.now)
+            self.assertEqual(first, "accepted")
+            later = self.now + timedelta(seconds=3)
+            outcome, stored = detection_service.receive_report(
+                self.payload(event_id=OTHER_ID, detected_at=later.isoformat(), x=2.1), later
+            )
+            self.assertEqual(outcome, "duplicate")
+            self.assertEqual(stored["suppressed_by"], EVENT_ID)
+            self.assertIn("60초", stored["detail"])
+            db = get_db()
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0], 1)
+            self.assertEqual(len(list(Path(self.config["EVIDENCE_DIR"]).iterdir())), 1)
+            # 다른 종류는 억제하지 않는다.
+            outcome, _ = detection_service.receive_report(
+                self.payload(event_id=OTHER_ID, event_type="FIRE", detected_at=later.isoformat()), later
+            )
+            self.assertEqual(outcome, "accepted")
+            # 창이 지나면 같은 종류도 새 사건이다.
+            after = self.now + timedelta(seconds=61)
+            outcome, _ = detection_service.receive_report(
+                self.payload(event_id="30000000-0000-4000-8000-000000000003",
+                             detected_at=after.isoformat()), after
+            )
+            self.assertEqual(outcome, "accepted")
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0], 3)
+            # 0이면 끈다.
+            self.app.config["REPORT_SUPPRESS_SECONDS"] = 0
+            outcome, _ = detection_service.receive_report(
+                self.payload(event_id="40000000-0000-4000-8000-000000000004",
+                             detected_at=(after + timedelta(seconds=2)).isoformat()), after
+            )
+            self.assertEqual(outcome, "accepted")
+
     def test_ros_request_maps_to_payload(self):
         request = SimpleNamespace(
             robot_id="robot6", event_id=EVENT_ID,
             detected_at=SimpleNamespace(sec=1700000000, nanosec=250000000),
-            position=SimpleNamespace(x=2.0, y=3.0, z=0.0), image=list(PNG),
+            position=SimpleNamespace(x=2.0, y=3.0, z=0.0), image=list(PNG), event_type=2,
         )
         payload = report_detection_payload(request)
         self.assertEqual(payload["robot_id"], "AMR2")
         self.assertEqual(payload["detected_at"], "2023-11-14T22:13:20.250Z")
         self.assertEqual((payload["x"], payload["y"]), (2.0, 3.0))
         self.assertEqual(payload["image"], PNG)
+        self.assertEqual(payload["event_type"], "LEAK")
+        with self.assertRaises(RosMessageMappingError):
+            report_detection_payload(SimpleNamespace(**{**vars(request), "event_type": 0}))
         with self.assertRaises(RosMessageMappingError):
             report_detection_payload(SimpleNamespace(**{**vars(request), "robot_id": "robot9"}))
 

@@ -145,10 +145,14 @@ def validate_report(payload, now=None):
     except event_service.EvidenceValidationError as exc:
         raise DetectionValidationError("image는 실제 PNG 또는 JPEG여야 합니다.") from exc
     image_hash = sha256(image).hexdigest()
+    event_type = payload.get("event_type")
+    if event_type not in EVENT_TYPES:
+        raise DetectionValidationError("event_type은 FIRE, LEAK, OBSTACLE 중 하나여야 합니다.")
     record = {
         "event_id": _uuid_v4(payload.get("event_id"), "event_id"),
         "robot_id": robot_id,
         "robot_name": ROBOT_NAMES[robot_id],
+        "event_type": event_type,
         "occurred_at": _timestamp(payload.get("detected_at"), "detected_at", current),
         "x": _finite(payload.get("x"), "position.x"),
         "y": _finite(payload.get("y"), "position.y"),
@@ -159,7 +163,7 @@ def validate_report(payload, now=None):
     }
     # [중복 판정 열쇠] message_id 없이 event_id + 내용 해시로 재시도와 잘못된 재사용을 가른다.
     hash_source = {key: record[key] for key in (
-        "event_id", "robot_id", "occurred_at", "x", "y", "image_sha256")}
+        "event_id", "robot_id", "event_type", "occurred_at", "x", "y", "image_sha256")}
     record["content_hash"] = sha256(
         json.dumps(hash_source, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -178,6 +182,19 @@ def receive_report(payload, now=None):
         if existing["content_hash"] == record["content_hash"]:
             return "duplicate", dict(existing)
         raise DetectionMessageConflictError("같은 event_id에 다른 내용이 이미 저장돼 있습니다.")
+    # [사건 억제] 감지 노드는 대상이 보이는 동안 몇 초마다 새 event_id로 다시 보고할 수 있다.
+    # 같은 로봇·같은 종류 사건이 억제 시간 안에 이미 있으면 저장하지 않고 DUPLICATE로 답한다.
+    window = current_app.config.get("REPORT_SUPPRESS_SECONDS") or 0
+    if window > 0:
+        recent = detection_model.find_recent_report(
+            record["robot_id"], record["event_type"], record["occurred_at"], window
+        )
+        if recent is not None:
+            return "duplicate", {
+                **dict(recent),
+                "suppressed_by": recent["event_id"],
+                "detail": f'{window}초 안에 같은 로봇의 같은 종류 사건 {recent["event_id"]}이 이미 저장돼 있어 억제했습니다.',
+            }
     image_name = f'evidence-{record["event_id"]}-{record["image_sha256"][:24]}{record["extension"]}'
     directory = Path(current_app.config["EVIDENCE_DIR"])
     image_path = directory / image_name
