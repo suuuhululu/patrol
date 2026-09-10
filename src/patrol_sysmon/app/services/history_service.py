@@ -17,7 +17,7 @@ RECORD_TYPE_LABELS = {
     "PATROL_VISIT": "관측점 방문", "ESTOP": "비상정지",
 }
 PATROL_STATUS_LABELS = {
-    # [20단계] 순찰 결과는 PatrolReport 계약 enum을 그대로 쓴다.
+    # [20단계] 순찰 결과 이름. v2에서는 Patrol Action 목표 상태에서 옮긴다.
     "SUCCEEDED": "완료", "FAILED": "실패", "CANCELED": "취소",
 }
 HANDOVER_STATUS_LABELS = {

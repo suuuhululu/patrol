@@ -100,7 +100,7 @@ def create_app(test_config=None):
     from .routes.cctv import cctv_bp
     app.register_blueprint(cctv_bp)
 
-    # [20단계: 순찰·안전] 방문·보고와 Keepout·E-stop 관측 결과 조회 경로를 등록한다.
+    # [20단계: 순찰·안전] 방문·보고와 E-stop 관측 결과 조회 경로를 등록한다.
     from .routes.patrol import patrol_bp
     app.register_blueprint(patrol_bp)
 

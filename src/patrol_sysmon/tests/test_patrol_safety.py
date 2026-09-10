@@ -1,4 +1,4 @@
-"""20단계 순찰 방문·보고와 Keepout·E-stop 저장·표시를 검증한다."""
+"""20단계 순찰 방문·보고와 E-stop 저장·표시를 검증한다."""
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -63,17 +63,6 @@ class PatrolSafetyTests(unittest.TestCase):
         payload.update(changes)
         return payload
 
-    def keepout(self, **changes):
-        payload = {
-            "robot_id": "AMR1", "message_id": str(uuid.uuid4()),
-            "transaction_id": str(uuid.uuid4()), "state": "APPLIED",
-            "global_enabled": True, "local_enabled": True,
-            "reason_code": 0, "detail": "",
-            "observed_at": (self.now - timedelta(seconds=5)).isoformat(),
-        }
-        payload.update(changes)
-        return payload
-
     def estop(self, **changes):
         # 계약 EStop(interfaces.md 3.1절): 대상·활성·대표 원인·순번만 있다.
         payload = {
@@ -133,11 +122,6 @@ class PatrolSafetyTests(unittest.TestCase):
             for payload in cases:
                 with self.assertRaises(patrol_service.PatrolValidationError):
                     patrol_service.receive_visit(payload, self.now)
-            # 실패·취소 보고에는 원인 코드와 설명이 필수다.
-            with self.assertRaises(patrol_service.PatrolValidationError):
-                patrol_service.receive_report(
-                    self.report(result="FAILED", reason_code=0, reason=""), self.now
-                )
             with self.assertRaises(patrol_service.PatrolValidationError):
                 patrol_service.receive_report(
                     self.report(planned_visit_count=1, completed_visit_count=2), self.now
@@ -146,41 +130,26 @@ class PatrolSafetyTests(unittest.TestCase):
                 get_db().execute("SELECT COUNT(*) FROM patrol_runs").fetchone()[0], 0
             )
 
-    def test_keepout_keeps_latest_row_and_marks_rollback_failure(self):
+    def test_action_result_counts_stored_visits_and_allows_missing_reason(self):
+        """v2 Action 상태에는 결과 사유가 없다. 방문 수는 저장된 방문에서 센다."""
         with self.app.app_context():
-            safety_service.receive_keepout(self.keepout(), self.now)
-            safety_service.receive_keepout(
-                self.keepout(
-                    state="ROLLBACK_FAILED", reason_code=12, detail="parameter 적용 실패",
-                    observed_at=self.now.isoformat(),
-                ),
-                self.now,
-            )
-            rows = get_db().execute("SELECT COUNT(*) FROM keepout_latest").fetchone()[0]
-            view = safety_service.dashboard_safety(self.now)
-        self.assertEqual(rows, 1)
-        self.assertEqual(view["keepouts"][0]["state_label"], "되돌리기 실패")
-        self.assertTrue(view["keepouts"][0]["warning"])
-        self.assertEqual(view["keepout_warning_count"], 1)
-
-    def test_keepout_can_arrive_before_first_robot_status(self):
-        """DDS 메시지 도착 순서와 무관하게 첫 Keepout 상태를 저장한다."""
-        with self.app.app_context():
-            db = get_db()
-            db.execute("DELETE FROM robots WHERE robot_id = 'AMR1'")
-            db.commit()
-            self.assertEqual(
-                safety_service.receive_keepout(self.keepout(), self.now)[0],
-                "accepted",
-            )
-            robot = db.execute(
-                "SELECT name FROM robots WHERE robot_id = 'AMR1'"
-            ).fetchone()
-            keepout = db.execute(
-                "SELECT state FROM keepout_latest WHERE robot_id = 'AMR1'"
-            ).fetchone()
-        self.assertEqual(robot["name"], "로봇 1")
-        self.assertEqual(keepout["state"], "APPLIED")
+            patrol_service.receive_visit(self.visit(waypoint_id="P1"), self.now)
+            patrol_service.receive_visit(self.visit(waypoint_id="P2"), self.now)
+            result = {
+                "patrol_id": "patrol-0001", "report_id": str(uuid.uuid4()),
+                "message_id": str(uuid.uuid4()), "robot_id": "AMR1", "result": "FAILED",
+                "started_at": (self.now - timedelta(minutes=5)).isoformat(),
+                "ended_at": self.now.isoformat(),
+            }
+            outcome, stored = patrol_service.receive_action_result(result, self.now)
+            # 같은 목표가 상태 토픽으로 다시 들어오면 같은 값이라 중복이다.
+            again, _ = patrol_service.receive_action_result(result, self.now)
+        self.assertEqual((outcome, again), ("accepted", "duplicate"))
+        self.assertEqual(
+            (stored["result"], stored["reason"], stored["planned_visit_count"],
+             stored["completed_visit_count"]),
+            ("FAILED", "", 2, 2),
+        )
 
     def test_estop_records_only_state_changes_and_keeps_last_value(self):
         first = self.estop()

@@ -162,7 +162,7 @@ python3 ros_adapter.py
 
 현재 가상환경에는 `PyYAML`·`numpy`를 설치했고 PC 3 ROS workspace에는 `patrol_interfaces` v1.0을 빌드했다. workspace source 후 `--check`는 `rclpy`, `patrol_interfaces`, `nav_msgs`, `sensor_msgs`를 모두 찾아 종료 코드 0을 반환한다. 실제 AMR·비전 publisher 수신은 아직 실행하지 않았다.
 
-현재 활성 입력은 RobotStatus 2개, `/map` 1개, 압축 영상 4개, global costmap 2개, CameraState 2개, patrol_allowed 1개, PatrolVisit 2개, PatrolReport 2개, KeepoutStatus 2개, EStop 1개로 총 19개 토픽이다. 확정 사건과 증거 사진은 토픽이 아니라 `/system_monitor/report_detection` 서비스(ReportDetection)로 받고, 응답(STORED·DUPLICATE·REJECTED)이 곧 저장 결과다. `ingestion_ack` 회신은 받는 노드가 없어 발행하지 않는다(AMR 순찰 결과 재전송은 ACK 없이 구독자 재연결 시 같은 ID로 다시 보낸다). 실제 상대 PC publisher와 운영 도메인의 종단 통합시험은 아직 실행하지 않았다.
+2026-09-10 `patrol_interfaces 2.0.0` 기준 활성 입력은 `/map` 1개, 압축 영상 4개, global costmap 2개, CameraState 2개, patrol_allowed 1개, EStop 1개(v2에서 발행자 없는 예약 토픽), 로봇별 Patrol Action 피드백 `/{robot}/patrol_action/_action/feedback`·목표 상태 `/{robot}/patrol_action/_action/status`·`/{robot}/battery_state` 각 2개로 총 17개 토픽이다. v2에는 RobotStatus·PatrolVisit·PatrolReport·KeepoutStatus가 없어서, 관제가 호출하는 Patrol Action의 피드백·상태 토픽을 옆에서 구독해 임무 상태·위치·관측점 방문(`WAYPOINT_REACHED`)·순찰 결과를 만들고 배터리는 TurtleBot4 `battery_state`로 받는다(`app/ros/patrol_action.py`). 순찰 결과의 실패·취소 사유와 계획 방문 수는 v2 상태 토픽에 없어 비워 두거나 저장된 방문 수로 채운다. 확정 사건과 증거 사진은 `/system_monitor/report_detection` 서비스(ReportDetection)로 받고, 응답(STORED·DUPLICATE·REJECTED)이 곧 저장 결과다. `ingestion_ack` 회신은 하지 않는다.
 
 2026-09-08 v1.0 통일 검증에서는 전체 120개 시험과 86개 subtest가 통과했다. 별도 프로세스 DDS 시험 중 첫 `KeepoutStatus`가 첫 `RobotStatus`보다 먼저 도착하는 경우도 저장하도록 소비부를 보완했으며, 격리 DDS 시험 6개가 모두 통과했다. 실제 상대 PC publisher 시험은 여전히 **NOT_RUN**이다.
 

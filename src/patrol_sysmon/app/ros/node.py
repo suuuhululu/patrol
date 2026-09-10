@@ -4,10 +4,11 @@ from collections import Counter
 import time
 
 from .errors import RosAdapterUnavailable, RosMessageMappingError
+from .patrol_action import PatrolActionTracker
 from .payloads import (
-    camera_state_payload, compressed_image_input, report_detection_payload,
-    estop_payload, keepout_status_payload, occupancy_grid_payload, patrol_allowed_payload,
-    patrol_report_payload, patrol_visit_payload, robot_status_payload,
+    battery_state_payload, camera_state_payload, compressed_image_input, estop_payload,
+    occupancy_grid_payload, patrol_allowed_payload, patrol_feedback_payload,
+    patrol_goal_status_payload, report_detection_payload,
 )
 from .qos import _qos_profiles
 from .registry import (
@@ -25,17 +26,17 @@ def build_node(app, node_name="sysmon_ros_adapter"):
         )
         raise RosAdapterUnavailable(f"ROS adapter 의존성이 없습니다: {missing}")
 
+    from action_msgs.msg import GoalStatusArray
     from nav_msgs.msg import OccupancyGrid
-    from patrol_interfaces.msg import (
-        CameraState, EStop, KeepoutStatus, PatrolReport, PatrolVisit, RobotStatus,
-    )
+    from patrol_interfaces.action import Patrol
+    from patrol_interfaces.msg import CameraState, EStop
     from rclpy.node import Node
     try:
         from patrol_interfaces.srv import ReportDetection
     except ImportError:
         # [구버전 빌드] srv 없이 빌드한 patrol_interfaces면 토픽 수신만 하고 서비스는 띄우지 않는다.
         ReportDetection = None
-    from sensor_msgs.msg import CompressedImage
+    from sensor_msgs.msg import BatteryState, CompressedImage
     from std_msgs.msg import Bool
 
     from ..models.costmap import CostmapMessageConflictError, StaleCostmapError
@@ -61,13 +62,29 @@ def build_node(app, node_name="sysmon_ros_adapter"):
             # 카메라가 더 빨리 발행해도 파일 교체와 다른 callback을 밀어내지 않게 버린다.
             max_hz = app.config.get("CAMERA_MAX_HZ", 5.0)
             self._camera_min_interval = 1.0 / max_hz if max_hz else 0.0
-            self._camera_last_processed = {}
+            # 토픽별 다음 처리 예정 시각. 직전 처리 시각이 아니라 일정표 기준으로 센다.
+            self._camera_next_due = {}
             self.processing_counts = Counter()
+            # [v2 로봇 상태] Action 피드백·상태와 배터리를 합쳐 로봇 상태·방문·결과를 만든다.
+            self._patrol_tracker = PatrolActionTracker()
             for spec in active_subscriptions():
-                if spec.handler == "robot_status":
+                if spec.handler == "patrol_feedback":
                     self.create_subscription(
-                        RobotStatus, spec.topic, self._receive_robot_status,
-                        qos["robot_status"],
+                        Patrol.Impl.FeedbackMessage, spec.topic,
+                        lambda message, topic=spec.topic: self._receive_patrol_feedback(topic, message),
+                        qos["patrol_feedback"],
+                    )
+                elif spec.handler == "patrol_goal_status":
+                    self.create_subscription(
+                        GoalStatusArray, spec.topic,
+                        lambda message, topic=spec.topic: self._receive_patrol_status(topic, message),
+                        qos["patrol_goal_status"],
+                    )
+                elif spec.handler == "battery_state":
+                    self.create_subscription(
+                        BatteryState, spec.topic,
+                        lambda message, topic=spec.topic: self._receive_battery(topic, message),
+                        qos["battery_state"],
                     )
                 elif spec.handler == "map":
                     self.create_subscription(
@@ -95,24 +112,6 @@ def build_node(app, node_name="sysmon_ros_adapter"):
                     self.create_subscription(
                         Bool, spec.topic, self._receive_patrol_allowed,
                         qos["patrol_allowed"],
-                    )
-                elif spec.handler == "patrol_visit":
-                    self.create_subscription(
-                        PatrolVisit, spec.topic,
-                        lambda message, topic=spec.topic: self._receive_patrol_visit(topic, message),
-                        qos["patrol_visit"],
-                    )
-                elif spec.handler == "patrol_report":
-                    self.create_subscription(
-                        PatrolReport, spec.topic,
-                        lambda message, topic=spec.topic: self._receive_patrol_report(topic, message),
-                        qos["patrol_report"],
-                    )
-                elif spec.handler == "keepout_status":
-                    self.create_subscription(
-                        KeepoutStatus, spec.topic,
-                        lambda message, topic=spec.topic: self._receive_keepout(topic, message),
-                        qos["keepout_status"],
                     )
                 elif spec.handler == "estop":
                     self.create_subscription(
@@ -159,20 +158,6 @@ def build_node(app, node_name="sysmon_ros_adapter"):
                 self.get_logger().error(f"ReportDetection 처리 실패: {exc}")
             return response
 
-        def _receive_robot_status(self, message):
-            try:
-                with self._app.app_context():
-                    outcome, _ = robot_service.receive_status(
-                        robot_status_payload(message)
-                    )
-                self.processing_counts[f"robot_status_{outcome}"] += 1
-            except (RosMessageMappingError, MessageIdConflictError, StaleStatusError) as exc:
-                self.processing_counts["robot_status_rejected"] += 1
-                self.get_logger().warning(f"RobotStatus 처리 거부: {exc}")
-            except Exception as exc:
-                self.processing_counts["robot_status_failed"] += 1
-                self.get_logger().error(f"RobotStatus 처리 실패: {exc}")
-
         def _receive_map(self, message):
             try:
                 with self._app.app_context():
@@ -189,12 +174,19 @@ def build_node(app, node_name="sysmon_ros_adapter"):
 
         def _receive_camera(self, topic, message):
             if self._camera_min_interval:
+                # [주기 제한] "직전 처리 뒤 0.2초 미만이면 버림"은 5 Hz 카메라가 조금만 일찍 와도
+                # 한 장씩 걸러 2.5 Hz가 된다. 0.2초 간격 일정표에 맞춰, 예정보다 간격의 25%까지
+                # 이른 프레임은 받는다. 받을 때마다 예정 시각을 한 칸씩 미루므로 평균은 5 Hz를 넘지 않는다.
+                interval = self._camera_min_interval
                 now = time.monotonic()
-                last = self._camera_last_processed.get(topic)
-                if last is not None and now - last < self._camera_min_interval:
+                due = self._camera_next_due.get(topic)
+                if due is not None and now < due - interval * 0.25:
                     self.processing_counts["camera_frame_throttled"] += 1
                     return
-                self._camera_last_processed[topic] = now
+                # 오래 끊겼다가 오면 밀린 몫을 몰아 받지 않도록 지금 기준으로 다시 시작한다.
+                self._camera_next_due[topic] = (
+                    due if due is not None and now - due < interval else now
+                ) + interval
             try:
                 camera_id, frame_id, captured_at, image_stream = compressed_image_input(
                     topic, message
@@ -265,54 +257,54 @@ def build_node(app, node_name="sysmon_ros_adapter"):
                 self.processing_counts["patrol_allowed_failed"] += 1
                 self.get_logger().error(f"patrol_allowed 처리 실패: {exc}")
 
-        # [ACK 없음] PatrolVisit·PatrolReport는 수집 결과를 회신하지 않는다. AMR은 ACK를 기다리지 않고
-        # 구독자가 다시 연결될 때 같은 ID로 재전송하며, 저장 서비스가 같은 ID를 DUPLICATE로 처리한다.
-        def _receive_patrol_visit(self, topic, message):
-            try:
-                payload = patrol_visit_payload(topic, message)
-                with self._app.app_context():
-                    outcome, _ = patrol_service.receive_visit(payload)
-                self.processing_counts[f"patrol_visit_{outcome}"] += 1
-            except (
-                RosMessageMappingError, patrol_service.PatrolValidationError,
-                PatrolConflictError,
-            ) as exc:
-                self.processing_counts["patrol_visit_rejected"] += 1
-                self.get_logger().warning(f"PatrolVisit 처리 거부: {exc}")
-            except Exception as exc:
-                self.processing_counts["patrol_visit_failed"] += 1
-                self.get_logger().error(f"PatrolVisit 처리 실패: {exc}")
+        def _store_patrol_outputs(self, outputs, label):
+            """추적기가 만든 상태 행·방문·결과를 기존 저장 서비스로 넘긴다. 한 건 실패가 나머지를 막지 않는다."""
+            handlers = {
+                "status": robot_service.receive_status,
+                "visit": patrol_service.receive_visit,
+                "report": patrol_service.receive_action_result,
+            }
+            for kind, payload in outputs:
+                try:
+                    with self._app.app_context():
+                        outcome, _ = handlers[kind](payload)
+                    self.processing_counts[f"{kind}_{outcome}"] += 1
+                except (
+                    robot_service.StatusValidationError, MessageIdConflictError, StaleStatusError,
+                    patrol_service.PatrolValidationError, PatrolConflictError,
+                ) as exc:
+                    self.processing_counts[f"{kind}_rejected"] += 1
+                    self.get_logger().warning(f"{label} {kind} 저장 거부: {exc}")
+                except Exception as exc:
+                    self.processing_counts[f"{kind}_failed"] += 1
+                    self.get_logger().error(f"{label} {kind} 저장 실패: {exc}")
 
-        def _receive_patrol_report(self, topic, message):
+        def _receive_patrol_feedback(self, topic, message):
             try:
-                payload = patrol_report_payload(topic, message)
-                with self._app.app_context():
-                    outcome, _ = patrol_service.receive_report(payload)
-                self.processing_counts[f"patrol_report_{outcome}"] += 1
-            except (
-                RosMessageMappingError, patrol_service.PatrolValidationError,
-                PatrolConflictError,
-            ) as exc:
-                self.processing_counts["patrol_report_rejected"] += 1
-                self.get_logger().warning(f"PatrolReport 처리 거부: {exc}")
-            except Exception as exc:
-                self.processing_counts["patrol_report_failed"] += 1
-                self.get_logger().error(f"PatrolReport 처리 실패: {exc}")
+                payload = patrol_feedback_payload(topic, message)
+            except RosMessageMappingError as exc:
+                self.processing_counts["patrol_feedback_rejected"] += 1
+                self.get_logger().warning(f"Patrol 피드백 거부: {exc}")
+                return
+            self._store_patrol_outputs(self._patrol_tracker.on_feedback(payload), "Patrol 피드백")
 
-        def _receive_keepout(self, topic, message):
-            # [상태 관측] Keepout 변경은 costmap parameter API가 수행하고 관제는 결과만 본다.
+        def _receive_patrol_status(self, topic, message):
             try:
-                with self._app.app_context():
-                    outcome, _ = safety_service.receive_keepout(
-                        keepout_status_payload(topic, message)
-                    )
-                self.processing_counts[f"keepout_{outcome}"] += 1
-            except (RosMessageMappingError, safety_service.SafetyValidationError) as exc:
-                self.processing_counts["keepout_rejected"] += 1
-                self.get_logger().warning(f"KeepoutStatus 처리 거부: {exc}")
-            except Exception as exc:
-                self.processing_counts["keepout_failed"] += 1
-                self.get_logger().error(f"KeepoutStatus 처리 실패: {exc}")
+                payload = patrol_goal_status_payload(topic, message)
+            except RosMessageMappingError as exc:
+                self.processing_counts["patrol_status_rejected"] += 1
+                self.get_logger().warning(f"Patrol 목표 상태 거부: {exc}")
+                return
+            self._store_patrol_outputs(self._patrol_tracker.on_goal_status(payload), "Patrol 목표 상태")
+
+        def _receive_battery(self, topic, message):
+            try:
+                payload = battery_state_payload(topic, message)
+            except RosMessageMappingError as exc:
+                self.processing_counts["battery_rejected"] += 1
+                self.get_logger().warning(f"battery_state 거부: {exc}")
+                return
+            self._store_patrol_outputs(self._patrol_tracker.on_battery(payload), "battery_state")
 
         def _receive_estop(self, message):
             # [안전 관측] E-stop 해제는 이동 명령이 아니므로 관제는 상태만 기록한다.

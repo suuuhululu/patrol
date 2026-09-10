@@ -211,10 +211,11 @@ def run_separate_process_ros_test(config=None):
             and publisher_process.exitcode == 0
             and not child_errors
             and len(matched) == (
-                7 + (2 if config.costmap_hz > 0 else 0)
+                # 배터리 2 + Patrol 피드백 2 + 지도 1 + 영상 4. 순찰은 Action 목표 상태 2개다.
+                9 + (2 if config.costmap_hz > 0 else 0)
                 + (3 if config.cctv_hz > 0 else 0)
-                + (4 if config.patrol_hz > 0 else 0)
-                + (3 if config.safety_hz > 0 else 0)
+                + (2 if config.patrol_hz > 0 else 0)
+                + (1 if config.safety_hz > 0 else 0)
             )
             and all(count >= 1 for count in matched.values())
             and set(storage["robot_latest_ids"]) == {"AMR1", "AMR2"}
@@ -241,7 +242,7 @@ def run_separate_process_ros_test(config=None):
             and (
                 config.safety_hz == 0
                 or (
-                    set(storage["keepout_states"]) and storage["estop_latest"] is not None
+                    storage["estop_latest"] is not None
                     and storage["estop_changes"] >= 2
                 )
             )

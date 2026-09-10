@@ -1,7 +1,8 @@
-"""Unit tests for PatrolControlNode callbacks with local test doubles."""
+"""Unit tests for PatrolControlNode callbacks using local test doubles."""
 
 from types import SimpleNamespace
 
+from patrol_control.control_core import EventType
 from patrol_control.control_core import TaskState
 from patrol_control.patrol_control_node import PatrolControlNode
 from patrol_interfaces.action import Patrol
@@ -11,7 +12,7 @@ from std_msgs.msg import Bool
 
 
 class FakeFuture:
-    """Small synchronous stand-in for an rclpy Future."""
+    """Synchronous stand-in for the rclpy futures used by the node."""
 
     def __init__(self) -> None:
         self._callbacks = []
@@ -28,6 +29,11 @@ class FakeFuture:
 
     def resolve(self, result) -> None:
         self._result = result
+        for callback in tuple(self._callbacks):
+            callback(self)
+
+    def reject(self, exception: Exception) -> None:
+        self._exception = exception
         for callback in tuple(self._callbacks):
             callback(self)
 
@@ -77,11 +83,12 @@ class RecordingPublisher:
 
 
 @pytest.fixture
-def control_node():
+def control_node(tmp_path, monkeypatch):
     """Create a real Node without spinning an executor or ROS peers."""
+    monkeypatch.setenv('ROS_LOG_DIR', str(tmp_path / 'ros-log'))
     if rclpy.ok():
         rclpy.shutdown()
-    rclpy.init()
+    rclpy.init(args=[])
     node = PatrolControlNode()
     try:
         yield node
@@ -109,7 +116,7 @@ def start_and_accept(node: PatrolControlNode, robot_id: str = 'robot1'):
     client = FakeActionClient()
     node._action_clients[robot_id] = client
     node._core.observe_permit(True)
-    assert node.start_patrol(robot_id) is True
+    assert node.start_patrol(robot_id)
     goal_handle = FakeGoalHandle()
     client.goal_future.resolve(goal_handle)
     return client, goal_handle
@@ -124,16 +131,19 @@ def feedback_message(*, state: int, event_type: int = 0, event_id: str = ''):
     return SimpleNamespace(feedback=feedback)
 
 
-def test_start_requires_permit_and_ready_server(control_node) -> None:
+def test_start_rejects_unknown_robot_missing_permit_and_unready_server(
+    control_node,
+) -> None:
     client = FakeActionClient(ready=True)
     control_node._action_clients['robot1'] = client
 
-    assert control_node.start_patrol('robot1') is False
+    assert not control_node.start_patrol('robot9')
+    assert not control_node.start_patrol('robot1')
     assert client.goals == []
 
     control_node._core.observe_permit(True)
     client.ready = False
-    assert control_node.start_patrol('robot1') is False
+    assert not control_node.start_patrol('robot1')
     assert client.goals == []
 
 
@@ -145,7 +155,7 @@ def test_goal_contains_identity_and_acceptance_does_not_grant_token(
 
     assert len(client.goals) == 1
     assert client.goals[0].robot_id == 'robot1'
-    assert client.goals[0].command_id.startswith('cmd-robot1-start-')
+    assert client.goals[0].command_id == 'cmd-robot1-start-000001'
 
     control_node._publish_token_frames()
     assert tokens['robot1'].messages[-1].token == ''
@@ -164,7 +174,7 @@ def test_waiting_feedback_grants_token_only_to_active_robot(control_node) -> Non
 
     robot1 = tokens['robot1'].messages[-1]
     robot6 = tokens['robot6'].messages[-1]
-    assert robot1.token != ''
+    assert robot1.token
     assert robot1.holder_robot_id == 'robot1'
     assert robot1.lease_duration.sec == 1
     assert robot1.lease_duration.nanosec == 0
@@ -172,6 +182,22 @@ def test_waiting_feedback_grants_token_only_to_active_robot(control_node) -> Non
     assert robot6.token == ''
     assert robot6.holder_robot_id == 'robot6'
     assert robot6.sequence == 1
+
+
+def test_feedback_from_non_active_robot_does_not_grant_token(
+    control_node,
+) -> None:
+    _, tokens = install_recorders(control_node)
+    start_and_accept(control_node)
+
+    control_node._on_patrol_feedback(
+        feedback_message(state=TaskState.WAITING_FOR_TOKEN),
+        robot_id='robot6',
+    )
+    control_node._publish_token_frames()
+
+    assert tokens['robot1'].messages[-1].token == ''
+    assert tokens['robot6'].messages[-1].token == ''
 
 
 def test_permit_edges_publish_one_command_each(control_node) -> None:
@@ -191,16 +217,23 @@ def test_permit_edges_publish_one_command_each(control_node) -> None:
     assert commands['robot6'].messages == []
 
 
-def test_rejected_goal_releases_active_slot(control_node) -> None:
+@pytest.mark.parametrize('failure_mode', ['rejected', 'exception'])
+def test_failed_goal_response_releases_active_slot(
+    control_node,
+    failure_mode,
+) -> None:
     client = FakeActionClient()
     control_node._action_clients['robot1'] = client
     control_node._core.observe_permit(True)
+    assert control_node.start_patrol('robot1')
 
-    assert control_node.start_patrol('robot1') is True
-    client.goal_future.resolve(FakeGoalHandle(accepted=False))
+    if failure_mode == 'rejected':
+        client.goal_future.resolve(FakeGoalHandle(accepted=False))
+    else:
+        client.goal_future.reject(RuntimeError('send failed'))
 
     assert control_node._core.active_robot_id is None
-    assert control_node._core.drive_granted is False
+    assert not control_node._core.drive_granted
 
 
 def test_cancel_revokes_token_before_action_result(control_node) -> None:
@@ -211,8 +244,8 @@ def test_cancel_revokes_token_before_action_result(control_node) -> None:
         robot_id='robot1',
     )
 
-    assert control_node.cancel_active_patrol() is True
-    assert goal_handle.cancel_called is True
+    assert control_node.cancel_active_patrol()
+    assert goal_handle.cancel_called
     assert tokens['robot1'].messages[-1].token == ''
     assert control_node._core.active_robot_id == 'robot1'
 
@@ -222,7 +255,44 @@ def test_cancel_revokes_token_before_action_result(control_node) -> None:
     goal_handle.result_future.resolve(SimpleNamespace(result=result))
 
     assert control_node._core.active_robot_id is None
-    assert control_node._core.drive_granted is False
+    assert not control_node._core.drive_granted
+
+
+def test_cancel_without_accepted_goal_returns_false(control_node) -> None:
+    assert not control_node.cancel_active_patrol()
+
+    control_node._core.observe_permit(True)
+    control_node._core.prepare_goal('robot1')
+    assert not control_node.cancel_active_patrol()
+
+
+def test_action_result_exception_still_releases_active_slot(control_node) -> None:
+    _, goal_handle = start_and_accept(control_node)
+
+    goal_handle.result_future.reject(RuntimeError('result failed'))
+
+    assert control_node._core.active_robot_id is None
+    assert 'robot1' not in control_node._goal_handles
+
+
+def test_fire_feedback_sets_hold_and_explicit_clear_removes_it(
+    control_node,
+) -> None:
+    start_and_accept(control_node)
+
+    control_node._on_patrol_feedback(
+        feedback_message(
+            state=TaskState.DETECTION_CONFIRMED,
+            event_type=EventType.FIRE,
+            event_id='fire-001',
+        ),
+        robot_id='robot1',
+    )
+
+    assert control_node._core.fire_hold
+    assert control_node._core.fire_event_id == 'fire-001'
+    control_node.clear_fire_hold()
+    assert not control_node._core.fire_hold
 
 
 def test_auto_start_sends_only_one_goal(control_node) -> None:
@@ -234,4 +304,4 @@ def test_auto_start_sends_only_one_goal(control_node) -> None:
     control_node._try_auto_start()
 
     assert len(client.goals) == 1
-    assert control_node._auto_start_done is True
+    assert control_node._auto_start_done

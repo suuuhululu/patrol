@@ -5,36 +5,36 @@
 
 - `ros/registry.py`: 구독 토픽 등록표와 계약 enum 대응표
 - `ros/payloads.py`: ROS 메시지 → 서비스 입력 변환 (ROS 없이도 시험 가능)
-- `ros/qos.py`: interfaces.md 5절 QoS 계약
+- `ros/patrol_action.py`: v2 Patrol Action 피드백·상태와 배터리를 로봇 상태·방문·결과로 옮기는 추적기
+- `ros/qos.py`: 구독 QoS
 - `ros/node.py`: 구독 노드 생성·callback·ReportDetection 서비스·실행
 """
 
 from .ros.errors import RosAdapterUnavailable, RosMessageMappingError
 from .ros.node import build_node, spin
+from .ros.patrol_action import PatrolActionTracker
 from .ros.payloads import (
+    battery_state_payload,
     camera_state_payload,
     compressed_image_input,
     estop_payload,
-    keepout_status_payload,
     occupancy_grid_payload,
     patrol_allowed_payload,
-    patrol_report_payload,
-    patrol_visit_payload,
-    robot_status_payload,
+    patrol_feedback_payload,
+    patrol_goal_status_payload,
 )
 from .ros.qos import _qos_profiles
 from .ros.registry import (
+    BATTERY_SOURCES_BY_TOPIC,
     CAMERA_IDS_BY_TOPIC,
     CAMERA_STATE_SOURCES_BY_TOPIC,
     CAMERA_STATE_TYPES,
     COSTMAP_SOURCES_BY_TOPIC,
-    KEEPOUT_SOURCES_BY_TOPIC,
-    KEEPOUT_STATES,
-    MISSION_STATES,
-    PATROL_REPORT_RESULTS,
-    PATROL_REPORT_SOURCES_BY_TOPIC,
-    PATROL_VISIT_RESULTS,
-    PATROL_VISIT_SOURCES_BY_TOPIC,
+    GOAL_STATUS_ACTIVE,
+    GOAL_STATUS_RESULTS,
+    PATROL_FEEDBACK_SOURCES_BY_TOPIC,
+    PATROL_STATUS_SOURCES_BY_TOPIC,
+    PATROL_TASK_STATES,
     ROBOT_DISPLAY_IDS,
     SUBSCRIPTIONS,
     SubscriptionSpec,
@@ -45,14 +45,12 @@ from .ros.registry import (
 __all__ = [
     "RosAdapterUnavailable", "RosMessageMappingError", "SubscriptionSpec",
     "SUBSCRIPTIONS", "active_subscriptions", "dependency_report",
-    "build_node", "spin", "_qos_profiles",
-    "robot_status_payload", "occupancy_grid_payload", "compressed_image_input",
-    "camera_state_payload",
-    "patrol_allowed_payload", "patrol_visit_payload", "patrol_report_payload",
-    "keepout_status_payload", "estop_payload",
-    "ROBOT_DISPLAY_IDS", "MISSION_STATES", "CAMERA_IDS_BY_TOPIC",
-    "COSTMAP_SOURCES_BY_TOPIC",
-    "PATROL_VISIT_SOURCES_BY_TOPIC", "PATROL_REPORT_SOURCES_BY_TOPIC",
-    "KEEPOUT_SOURCES_BY_TOPIC", "PATROL_VISIT_RESULTS", "PATROL_REPORT_RESULTS",
-    "KEEPOUT_STATES", "CAMERA_STATE_SOURCES_BY_TOPIC", "CAMERA_STATE_TYPES",
+    "build_node", "spin", "_qos_profiles", "PatrolActionTracker",
+    "occupancy_grid_payload", "compressed_image_input", "camera_state_payload",
+    "patrol_allowed_payload", "estop_payload",
+    "patrol_feedback_payload", "patrol_goal_status_payload", "battery_state_payload",
+    "ROBOT_DISPLAY_IDS", "CAMERA_IDS_BY_TOPIC", "COSTMAP_SOURCES_BY_TOPIC",
+    "PATROL_FEEDBACK_SOURCES_BY_TOPIC", "PATROL_STATUS_SOURCES_BY_TOPIC",
+    "BATTERY_SOURCES_BY_TOPIC", "PATROL_TASK_STATES", "GOAL_STATUS_ACTIVE",
+    "GOAL_STATUS_RESULTS", "CAMERA_STATE_SOURCES_BY_TOPIC", "CAMERA_STATE_TYPES",
 ]
