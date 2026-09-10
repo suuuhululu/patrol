@@ -6,7 +6,7 @@ import uuid
 
 from .errors import RosAdapterUnavailable, RosMessageMappingError
 from .payloads import (
-    camera_state_payload, compressed_image_input,
+    camera_state_payload, compressed_image_input, report_detection_payload,
     detection_event_payload, estop_payload, evidence_chunk_payload,
     keepout_status_payload, occupancy_grid_payload, patrol_allowed_payload,
     patrol_report_payload, patrol_visit_payload, robot_status_payload,
@@ -16,7 +16,7 @@ from .registry import (
     COSTMAP_SOURCES_BY_TOPIC,
     EVIDENCE_SOURCES_BY_TOPIC,
     PATROL_REPORT_SOURCES_BY_TOPIC,
-    ROBOT_DISPLAY_IDS,
+    ROBOT_DISPLAY_IDS, REPORT_DETECTION_SERVICE,
     CAMERA_STATE_SOURCES_BY_TOPIC, COSTMAP_SOURCES_BY_TOPIC,
     DETECTION_SOURCES_BY_TOPIC, EVIDENCE_SOURCES_BY_TOPIC,
     KEEPOUT_SOURCES_BY_TOPIC, PATROL_REPORT_SOURCES_BY_TOPIC,
@@ -39,6 +39,11 @@ def build_node(app, node_name="sysmon_ros_adapter"):
         KeepoutStatus, PatrolReport, PatrolVisit, RobotStatus,
     )
     from rclpy.node import Node
+    try:
+        from patrol_interfaces.srv import ReportDetection
+    except ImportError:
+        # [구버전 빌드] srv 없이 빌드한 patrol_interfaces면 토픽 수신만 하고 서비스는 띄우지 않는다.
+        ReportDetection = None
     from sensor_msgs.msg import CompressedImage
     from std_msgs.msg import Bool
 
@@ -141,9 +146,44 @@ def build_node(app, node_name="sysmon_ros_adapter"):
                     self.create_subscription(
                         EStop, spec.topic, self._receive_estop, qos["estop"],
                     )
+            # [ReportDetection] 확정 사건 + 사진을 서비스 한 번으로 받는다. 응답이 곧 저장 결과다.
+            self._report_service = None
+            if ReportDetection is not None:
+                self._report_service = self.create_service(
+                    ReportDetection, REPORT_DETECTION_SERVICE, self._handle_report_detection
+                )
             self.get_logger().info(
                 f"sysmon ROS adapter 구독 준비: {len(active_subscriptions())}개"
+                + (f" · 서비스 {REPORT_DETECTION_SERVICE}" if self._report_service else
+                   " · ReportDetection 서비스 없음(patrol_interfaces를 srv 포함으로 재빌드)")
             )
+
+        def _handle_report_detection(self, request, response):
+            """요청 5개 필드를 검증·저장하고 status·detail로 결과를 돌려준다."""
+            try:
+                payload = report_detection_payload(request)
+                with self._app.app_context():
+                    outcome, _ = detection_service.receive_report(payload)
+                response.status = (
+                    ReportDetection.Response.DUPLICATE if outcome == "duplicate"
+                    else ReportDetection.Response.STORED
+                )
+                response.detail = ""
+                self.processing_counts[f"report_detection_{outcome}"] += 1
+            except (
+                RosMessageMappingError, detection_service.DetectionValidationError,
+                DetectionMessageConflictError,
+            ) as exc:
+                response.status = ReportDetection.Response.REJECTED
+                response.detail = str(exc)[:240]
+                self.processing_counts["report_detection_rejected"] += 1
+                self.get_logger().warning(f"ReportDetection 거부: {exc}")
+            except Exception as exc:
+                response.status = ReportDetection.Response.REJECTED
+                response.detail = "storage failure"
+                self.processing_counts["report_detection_failed"] += 1
+                self.get_logger().error(f"ReportDetection 처리 실패: {exc}")
+            return response
 
         def _receive_robot_status(self, message):
             try:

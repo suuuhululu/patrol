@@ -24,6 +24,8 @@ EVENT_TYPE_LABELS = {
     "FIRE": "화재", "LEAK": "누수", "OBSTACLE": "장애물",
     # 아래 둘은 더 이상 저장하지 않는다. 범위 축소 전에 저장된 이력을 읽을 때만 사용한다.
     "LIGHTING": "조명 이상", "FACILITY_DAMAGE": "시설물 파손",
+    # ReportDetection 서비스로 받은 사건은 종류를 싣지 않는다.
+    "UNKNOWN": "미분류",
 }
 RISK_LABELS = {"HIGH": "상", "MEDIUM": "중", "LOW": "하"}
 STATUS_LABELS = {
@@ -236,7 +238,8 @@ def _event_view(row):
         ),
         "location_label": location_label,
         "risk_level": event["risk_level"],
-        "risk_label": RISK_LABELS[event["risk_level"]],
+        # 서비스로 받은 사건은 위험도가 없다(NULL). 화면에는 대시로 표시한다.
+        "risk_label": RISK_LABELS.get(event["risk_level"], "—"),
         "status": event["status"],
         "status_label": STATUS_LABELS[event["status"]],
         "next_status": STATUS_TRANSITIONS.get(event["status"]),
