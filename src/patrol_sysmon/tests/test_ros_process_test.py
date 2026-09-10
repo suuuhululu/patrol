@@ -43,7 +43,7 @@ class RosSeparateProcessTests(unittest.TestCase):
         self.assertTrue(report["temporary_storage_removed"])
         self.assertEqual(report["external_publishers"], "NOT_RUN")
         self.assertEqual(report["process_exit_codes"], {"adapter": 0, "publisher": 0})
-        self.assertEqual(len(report["matched_subscriptions"]), 7)
+        self.assertEqual(len(report["matched_subscriptions"]), 9)
         self.assertTrue(all(
             count >= 1 for count in report["matched_subscriptions"].values()
         ))
@@ -68,7 +68,7 @@ class RosSeparateProcessTests(unittest.TestCase):
         # 카메라 4개 × 5 Hz × 시험 시간에 여유를 둔 상한이다.
         self.assertLessEqual(processed.get("camera_frame_accepted", 0), 4 * 5 * 4)
 
-    def test_stage17_costmaps_exchange_all_nine_active_topics(self):
+    def test_stage17_costmaps_exchange_all_eleven_active_topics(self):
         report = run_separate_process_ros_test(RosTopicTestConfig(
             duration_seconds=2.5,
             domain_id=83,
@@ -80,7 +80,7 @@ class RosSeparateProcessTests(unittest.TestCase):
         self.assertTrue(report["process_pass"], _summary(report))
         self.assertTrue(report["temporary_storage_removed"])
         self.assertEqual(report["stage"], 17)
-        self.assertEqual(len(report["matched_subscriptions"]), 9)
+        self.assertEqual(len(report["matched_subscriptions"]), 11)
         self.assertEqual(set(report["storage"]["costmap_sources"]), {
             "AMR1:global", "AMR2:global",
         })
@@ -102,10 +102,9 @@ class RosSeparateProcessTests(unittest.TestCase):
         self.assertTrue(report["process_pass"], _summary(report))
         self.assertTrue(report["temporary_storage_removed"])
         self.assertEqual(report["stage"], 20)
-        self.assertEqual(len(report["matched_subscriptions"]), 19)
+        self.assertEqual(len(report["matched_subscriptions"]), 17)
         self.assertGreaterEqual(report["storage"]["patrol_visits"], 2)
         self.assertGreaterEqual(report["storage"]["patrol_reports"], 1)
-        self.assertTrue(report["storage"]["keepout_states"])
         self.assertIsNotNone(report["storage"]["estop_latest"])
         self.assertGreaterEqual(report["storage"]["estop_changes"], 2)
         self.assertEqual(report["processing_failures"], 0)
@@ -124,7 +123,7 @@ class RosSeparateProcessTests(unittest.TestCase):
         self.assertTrue(report["process_pass"], _summary(report))
         self.assertTrue(report["temporary_storage_removed"])
         self.assertEqual(report["stage"], 19)
-        self.assertEqual(len(report["matched_subscriptions"]), 12)
+        self.assertEqual(len(report["matched_subscriptions"]), 14)
         self.assertEqual(
             set(report["storage"]["cctv_camera_ids"]),
             {"gate_cam", "center_cam"},

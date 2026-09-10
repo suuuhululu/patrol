@@ -1,61 +1,6 @@
-"""Keepout 적용 상태와 E-stop 상태의 SQLite 접근 코드."""
+"""E-stop 상태의 SQLite 접근 코드."""
 
 from ..database import get_db
-
-
-def store_keepout(record):
-    """로봇별 최신 Keepout 상태 한 행만 유지한다."""
-    db = get_db()
-    try:
-        db.execute("BEGIN IMMEDIATE")
-        # [도착 순서 독립] KeepoutStatus가 첫 RobotStatus보다 먼저 와도 외래 키가
-        # 저장을 막지 않게, 계약에서 허용된 로봇의 기본 행을 함께 준비한다.
-        robot_name = "로봇 1" if record["robot_id"] == "AMR1" else "로봇 2"
-        db.execute(
-            "INSERT OR IGNORE INTO robots (robot_id, name) VALUES (?, ?)",
-            (record["robot_id"], robot_name),
-        )
-        existing = db.execute(
-            "SELECT observed_at FROM keepout_latest WHERE robot_id = ?",
-            (record["robot_id"],),
-        ).fetchone()
-        # [순서 보호] 늦게 도착한 과거 상태가 현재 표시를 되돌리지 않게 한다.
-        if existing is not None and record["observed_at"] < existing["observed_at"]:
-            db.commit()
-            return "stale", record
-        db.execute(
-            """
-            INSERT INTO keepout_latest
-                (robot_id, message_id, transaction_id, state, global_enabled,
-                 local_enabled, reason_code, detail, observed_at, received_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(robot_id) DO UPDATE SET
-                message_id = excluded.message_id,
-                transaction_id = excluded.transaction_id,
-                state = excluded.state,
-                global_enabled = excluded.global_enabled,
-                local_enabled = excluded.local_enabled,
-                reason_code = excluded.reason_code,
-                detail = excluded.detail,
-                observed_at = excluded.observed_at,
-                received_at = excluded.received_at
-            """,
-            tuple(record[column] for column in (
-                "robot_id", "message_id", "transaction_id", "state", "global_enabled",
-                "local_enabled", "reason_code", "detail", "observed_at", "received_at",
-            )),
-        )
-        db.commit()
-        return "accepted", record
-    except Exception:
-        db.rollback()
-        raise
-
-
-def latest_keepouts():
-    return get_db().execute(
-        "SELECT * FROM keepout_latest ORDER BY robot_id"
-    ).fetchall()
 
 
 def store_estop(record):

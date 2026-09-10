@@ -110,7 +110,11 @@ def _read_metadata(path):
 
 
 def _atomic_write(path, content, binary=False):
-    """브라우저가 쓰는 중간 파일을 읽지 않도록 같은 폴더에서 완성 후 교체한다."""
+    """브라우저가 쓰는 중간 파일을 읽지 않도록 같은 폴더에서 완성 후 교체한다.
+
+    최신 한 장만 계속 덮어쓰는 표시용 파일이라 전원 차단 뒤 보존은 필요 없다. 카메라 4대 × 5 Hz면
+    초당 수십 번이 되는 fsync는 하지 않는다. 교체(os.replace)는 그대로 원자적이다.
+    """
     temporary_path = None
     mode = "wb" if binary else "w"
     kwargs = {} if binary else {"encoding": "utf-8"}
@@ -118,8 +122,6 @@ def _atomic_write(path, content, binary=False):
         with tempfile.NamedTemporaryFile(mode=mode, dir=path.parent, suffix=".tmp", delete=False, **kwargs) as stream:
             temporary_path = Path(stream.name)
             stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
         os.replace(temporary_path, path)
     finally:
         if temporary_path is not None:

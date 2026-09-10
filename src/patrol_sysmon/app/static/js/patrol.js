@@ -5,7 +5,6 @@ const patrolSafety = document.getElementById("patrol-safety-status");
 if (patrolSafety) {
     const latestVisit = patrolSafety.querySelector("[data-patrol-latest]");
     const unreported = patrolSafety.querySelector("[data-patrol-unreported]");
-    const keepout = patrolSafety.querySelector("[data-keepout-state]");
     const estopState = patrolSafety.querySelector("[data-estop-state]");
     const estopReason = patrolSafety.querySelector("[data-estop-reason]");
     const estopReceived = patrolSafety.querySelector("[data-estop-received]");
@@ -27,8 +26,6 @@ if (patrolSafety) {
         });
         if (!response.ok) throw new Error(`safety status ${response.status}`);
         const data = await response.json();
-        keepout.className = `keepout-state${data.keepout_warning_count ? " keepout-warning" : ""}`;
-        keepout.textContent = data.keepout_state_label;
         // [상태 구분] 미수신·정상·활성 세 가지를 같은 색으로 표시하지 않는다.
         const tone = !data.estop.available ? "wait" : (data.estop.active ? "active" : "clear");
         estopState.className = `estop-state estop-${tone}`;

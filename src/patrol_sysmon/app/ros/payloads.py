@@ -6,15 +6,14 @@ ROS 실행 없이도 불러 쓸 수 있어 계약 변환만 따로 시험한다.
 from datetime import datetime, timezone
 from io import BytesIO
 import math
+import uuid
 
 from .errors import RosMessageMappingError
 from .registry import (
-    CAMERA_IDS_BY_TOPIC, CAMERA_STATE_SOURCES_BY_TOPIC, CAMERA_STATE_TYPES,
-    COSTMAP_SOURCES_BY_TOPIC, REPORT_EVENT_TYPES, KEEPOUT_SOURCES_BY_TOPIC,
-    ESTOP_REASONS, ESTOP_TARGETS,
-    KEEPOUT_STATES, MISSION_STATES, PATROL_REPORT_RESULTS,
-    PATROL_REPORT_SOURCES_BY_TOPIC, PATROL_VISIT_RESULTS,
-    PATROL_VISIT_SOURCES_BY_TOPIC, ROBOT_DISPLAY_IDS, SAFETY_STATES,
+    BATTERY_SOURCES_BY_TOPIC, CAMERA_IDS_BY_TOPIC, CAMERA_STATE_SOURCES_BY_TOPIC,
+    CAMERA_STATE_TYPES, ESTOP_REASONS, ESTOP_TARGETS, GOAL_STATUS_ACTIVE,
+    GOAL_STATUS_RESULTS, PATROL_FEEDBACK_SOURCES_BY_TOPIC, PATROL_STATUS_SOURCES_BY_TOPIC,
+    PATROL_TASK_STATES, REPORT_EVENT_TYPES, ROBOT_DISPLAY_IDS,
 )
 
 
@@ -45,57 +44,6 @@ def _frame_id(header):
     return value
 
 
-def _position_of(pose, label):
-    """PoseWithCovariance와 PoseWithCovarianceStamped를 함께 받는다.
-
-    공용 계약이 Stamped를 쓰면 pose가 한 단계 더 중첩된다. 정의가 확정될 때까지
-    두 형태를 모두 받아 좌표를 잃지 않는다.
-    """
-    node = pose
-    for _ in range(3):
-        position = getattr(node, "position", None)
-        if position is not None:
-            return position
-        node = getattr(node, "pose", None)
-        if node is None:
-            break
-    raise RosMessageMappingError(f"{label} pose에서 position을 찾을 수 없습니다.")
-
-
-def _message_identity(message, label, *id_fields):
-    """중복 제거 키를 만든다. message_id가 없으면 세션·순번으로 대신한다.
-
-    공용 계약 RobotStatus·PatrolReport에는 message_id가 없고 source_session_id와
-    순번이 그 역할을 한다. 어느 정의가 와도 같은 뜻의 키를 만든다.
-    """
-    message_id = getattr(message, "message_id", "")
-    if isinstance(message_id, str) and message_id:
-        return message_id
-    session = getattr(message, "source_session_id", "")
-    sequence = getattr(message, "status_sequence", None)
-    if sequence is None:
-        sequence = getattr(message, "source_sequence", None)
-    if sequence is None:
-        sequence = getattr(message, "sequence", None)
-    if isinstance(session, str) and session and sequence is not None:
-        # 생산자(로봇)별로 유일해야 하므로 robot_id를 함께 넣는다.
-        producer = (
-            getattr(message, "robot_id", "")
-            or getattr(message, "target_robot_id", "")
-            or getattr(message, "camera_id", "")
-        )
-        return f"{session}-{producer}-{int(sequence)}" if producer else f"{session}-{int(sequence)}"
-    # 순번이 없는 계약은 그 메시지의 고유 ID를 중복 제거 키로 그대로 쓴다.
-    # 서비스가 UUID 형식을 검사하므로 접두사를 붙이지 않는다.
-    for field in id_fields:
-        value = getattr(message, field, "")
-        if isinstance(value, str) and value:
-            return value
-    raise RosMessageMappingError(
-        f"{label} message_id 또는 source_session_id·순번이 필요합니다."
-    )
-
-
 def _enum_name(message, value, fallback_table, prefixes, label):
     """enum 이름을 메시지 클래스 상수에서 읽는다.
 
@@ -122,60 +70,6 @@ def _finite_number(value, field):
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise RosMessageMappingError(f"{field} 값은 유한한 숫자여야 합니다.")
     return float(value)
-
-
-def robot_status_payload(message):
-    """계약 RobotStatus를 기존 상태 서비스가 받는 내부 payload로 바꾼다."""
-    contract_robot_id = getattr(message, "robot_id", "")
-    try:
-        display_robot_id = ROBOT_DISPLAY_IDS[contract_robot_id]
-    except KeyError as exc:
-        raise RosMessageMappingError("robot_id는 robot1 또는 robot6이어야 합니다.") from exc
-    pose_valid = getattr(message, "pose_valid", None)
-    if not isinstance(pose_valid, bool):
-        raise RosMessageMappingError("RobotStatus pose_valid는 Bool이어야 합니다.")
-    mission_state = getattr(message, "mission_state", None)
-    if mission_state not in MISSION_STATES:
-        raise RosMessageMappingError("지원하지 않는 RobotStatus mission_state입니다.")
-    battery_soc = _finite_number(getattr(message, "battery_soc", None), "battery_soc")
-    if not 0.0 <= battery_soc <= 1.0:
-        raise RosMessageMappingError("battery_soc는 0.0에서 1.0 사이여야 합니다.")
-    # [안전 상태] 수치는 계약(2026-09-08)으로 고정됐다. 표 밖의 값은 임의 해석하지 않고 UNKNOWN으로 남긴다.
-    safety_state = SAFETY_STATES.get(getattr(message, "safety_state", 0), "UNKNOWN")
-    motion_stopped = getattr(message, "motion_stopped", False)
-    if not isinstance(motion_stopped, bool):
-        raise RosMessageMappingError("RobotStatus motion_stopped는 Bool이어야 합니다.")
-    try:
-        position = _position_of(message.pose, "RobotStatus")
-        header = message.header
-        # [무효 위치] 좌표가 NaN이어도 배터리·임무는 계속 받아야 하므로 좌표만 비운다.
-        x = _finite_number(position.x, "pose.position.x") if pose_valid else None
-        y = _finite_number(position.y, "pose.position.y") if pose_valid else None
-        last_valid_pose_at = _last_valid_pose_time(message)
-    except AttributeError as exc:
-        raise RosMessageMappingError("RobotStatus pose 또는 header가 없습니다.") from exc
-    message_id = _message_identity(message, "RobotStatus")
-    frame_id = _frame_id(header) or _frame_id(getattr(message.pose, "header", None))
-    if frame_id != "map":
-        raise RosMessageMappingError("RobotStatus header.frame_id는 map이어야 합니다.")
-    return {
-        "message_id": message_id,
-        "robot_id": display_robot_id,
-        "battery": battery_soc * 100.0,
-        "x": x,
-        "y": y,
-        "frame_id": frame_id,
-        "pose_valid": pose_valid,
-        "last_valid_pose_at": last_valid_pose_at,
-        "mission_status": MISSION_STATES[mission_state],
-        "safety_state": safety_state,
-        "motion_stopped": motion_stopped,
-        "safety_reason_code": int(getattr(message, "reason_code", 0) or 0),
-        "safety_reason": str(getattr(message, "reason", "") or ""),
-        # 토픽을 현재 수신한 사실만 ONLINE으로 변환하며, 이후 단절은 기존 수신 시각으로 판정한다.
-        "connection_status": "ONLINE",
-        "observed_at": _stamp_iso(header.stamp),
-    }
 
 
 def _quaternion_yaw(orientation):
@@ -268,122 +162,94 @@ def patrol_allowed_payload(message):
     return value
 
 
-def _contract_robot(topic, message, sources, label):
-    """토픽 namespace와 메시지의 robot_id가 어긋나면 저장하지 않는다."""
-    source = sources.get(topic)
-    if source is None:
+def _robot_of(topic, sources, label):
+    """토픽 namespace로 로봇을 정한다. Action 피드백·상태와 battery_state에는 robot_id 필드가 없다."""
+    contract_robot = sources.get(topic)
+    if contract_robot is None:
         raise RosMessageMappingError(f"등록되지 않은 {label} 토픽입니다.")
-    if getattr(message, "robot_id", "") != source:
-        raise RosMessageMappingError(f"{label} robot_id가 토픽 namespace와 다릅니다.")
-    return ROBOT_DISPLAY_IDS[source]
+    return ROBOT_DISPLAY_IDS[contract_robot]
 
 
-def _optional_stamp_iso(stamp):
-    # [미설정 시각] 계약에서 값이 없는 시각은 0으로 온다. 임의 시각으로 채우지 않는다.
-    seconds, nanoseconds = _stamp_parts(stamp)
-    if seconds == 0 and nanoseconds == 0:
-        return None
-    return _stamp_iso(stamp)
-
-
-def _last_valid_pose_time(message):
-    """마지막 유효 위치의 시각을 꺼낸다.
-
-    우리 정의는 시각만(last_valid_pose_stamp), 공용 계약은 pose 전체를 담는다.
-    """
-    stamp = getattr(message, "last_valid_pose_stamp", None)
-    if stamp is not None:
-        return _optional_stamp_iso(stamp)
-    pose = getattr(message, "last_valid_pose", None)
-    header = getattr(pose, "header", None)
-    if header is not None:
-        return _optional_stamp_iso(header.stamp)
-    return None
-
-
-def patrol_visit_payload(topic, message):
-    """PatrolVisit을 관측점 방문 저장 서비스 입력으로 바꾼다."""
-    robot_id = _contract_robot(topic, message, PATROL_VISIT_SOURCES_BY_TOPIC, "PatrolVisit")
+def _goal_uuid(goal_id):
+    """unique_identifier_msgs/UUID(16바이트)를 소문자 UUID 문자열로 바꾼다."""
     try:
-        result = PATROL_VISIT_RESULTS[message.result]
-        arrived_at = _stamp_iso(message.arrived_at)
-        completed_at = _optional_stamp_iso(message.completed_at)
-        frame_id = _frame_id(message.pose.header)
-        position = message.pose.pose.position
-    except (AttributeError, KeyError) as exc:
-        raise RosMessageMappingError("PatrolVisit 필수 필드 또는 enum이 올바르지 않습니다.") from exc
-    return {
-        "visit_id": getattr(message, "visit_id", ""),
-        "message_id": getattr(message, "message_id", ""),
-        "robot_id": robot_id,
-        "patrol_id": getattr(message, "patrol_id", ""),
-        "mission_id": getattr(message, "mission_id", ""),
-        "command_id": getattr(message, "command_id", ""),
-        "waypoint_id": getattr(message, "waypoint_id", ""),
-        "x": _finite_number(position.x, "pose.position.x"),
-        "y": _finite_number(position.y, "pose.position.y"),
-        "frame_id": frame_id,
-        "result": result,
-        "reason_code": int(getattr(message, "reason_code", 0)),
-        "reason": getattr(message, "reason", ""),
-        "arrived_at": arrived_at,
-        "completed_at": completed_at,
-    }
+        raw = bytes(bytearray(goal_id.uuid))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise RosMessageMappingError("Action goal_id가 올바르지 않습니다.") from exc
+    if len(raw) != 16:
+        raise RosMessageMappingError("Action goal_id는 16바이트여야 합니다.")
+    return str(uuid.UUID(bytes=raw))
 
 
-def patrol_report_payload(topic, message):
-    """PatrolReport를 순찰 결과 저장 서비스 입력으로 바꾼다."""
-    robot_id = _contract_robot(topic, message, PATROL_REPORT_SOURCES_BY_TOPIC, "PatrolReport")
+def patrol_feedback_payload(topic, message):
+    """Patrol Action 피드백(FeedbackMessage)을 추적기 입력으로 바꾼다."""
+    robot_id = _robot_of(topic, PATROL_FEEDBACK_SOURCES_BY_TOPIC, "Patrol 피드백")
     try:
-        result = _enum_name(
-            message, message.result, PATROL_REPORT_RESULTS, (), "PatrolReport result"
+        feedback = message.feedback
+        task_state = _enum_name(
+            feedback, feedback.task_state, PATROL_TASK_STATES, (), "Patrol task_state"
         )
-        started_at = _stamp_iso(message.started_at)
-        # 공용 계약은 finished_at, 기존 정의는 ended_at으로 같은 뜻이다.
-        ended_stamp = getattr(message, "ended_at", None)
-        if ended_stamp is None:
-            ended_stamp = getattr(message, "finished_at", None)
-        ended_at = _optional_stamp_iso(ended_stamp)
-    except (AttributeError, KeyError) as exc:
-        raise RosMessageMappingError("PatrolReport 필수 필드 또는 enum이 올바르지 않습니다.") from exc
-    # 공용 계약에는 patrol_id가 없다. 없으면 mission_id로 순찰 회차를 잇는다.
-    patrol_id = getattr(message, "patrol_id", "") or getattr(message, "mission_id", "")
+        pose = feedback.current_pose
+        frame_id = getattr(pose.header, "frame_id", "")
+        position = pose.pose.position
+    except AttributeError as exc:
+        raise RosMessageMappingError("Patrol 피드백 필수 필드가 없습니다.") from exc
+    # [위치 유효성] map 좌표계의 유한한 좌표만 위치로 쓴다. 비어 있으면 위치를 모르는 것으로 둔다.
+    x, y = getattr(position, "x", None), getattr(position, "y", None)
+    pose_valid = (
+        frame_id == "map"
+        and all(
+            isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+            for value in (x, y)
+        )
+    )
     return {
-        "report_id": getattr(message, "report_id", ""),
-        "message_id": _message_identity(message, "PatrolReport", "report_id"),
         "robot_id": robot_id,
-        "patrol_id": patrol_id,
-        "mission_id": getattr(message, "mission_id", ""),
-        "command_id": getattr(message, "command_id", ""),
-        "result": result,
-        "reason_code": int(getattr(message, "reason_code", 0)),
-        "reason": getattr(message, "reason", ""),
-        "started_at": started_at,
-        "ended_at": ended_at,
-        "planned_visit_count": int(getattr(message, "planned_visit_count", 0)),
-        "completed_visit_count": int(getattr(message, "completed_visit_count", 0)),
+        "goal_id": _goal_uuid(message.goal_id),
+        "task_state": task_state,
+        "waypoint_id": str(getattr(feedback, "current_waypoint_id", "") or "").strip(),
+        "token_valid": bool(getattr(feedback, "token_valid", False)),
+        "pose_valid": pose_valid,
+        "x": float(x) if pose_valid else None,
+        "y": float(y) if pose_valid else None,
     }
 
 
-def keepout_status_payload(topic, message):
-    """KeepoutStatus를 로봇별 최신 상태 저장 입력으로 바꾼다."""
-    robot_id = _contract_robot(topic, message, KEEPOUT_SOURCES_BY_TOPIC, "KeepoutStatus")
-    try:
-        state = KEEPOUT_STATES[message.state]
-        observed_at = _stamp_iso(message.header.stamp)
-    except (AttributeError, KeyError) as exc:
-        raise RosMessageMappingError("KeepoutStatus 필수 필드 또는 enum이 올바르지 않습니다.") from exc
-    return {
-        "robot_id": robot_id,
-        "message_id": getattr(message, "message_id", ""),
-        "transaction_id": getattr(message, "transaction_id", ""),
-        "state": state,
-        "global_enabled": bool(getattr(message, "global_enabled", False)),
-        "local_enabled": bool(getattr(message, "local_enabled", False)),
-        "reason_code": int(getattr(message, "reason_code", 0)),
-        "detail": getattr(message, "detail", ""),
-        "observed_at": observed_at,
-    }
+def patrol_goal_status_payload(topic, message):
+    """action_msgs/GoalStatusArray에서 목표별 상태와 수락 시각을 꺼낸다."""
+    robot_id = _robot_of(topic, PATROL_STATUS_SOURCES_BY_TOPIC, "Patrol 상태")
+    goals = []
+    for status in getattr(message, "status_list", []):
+        code = getattr(status, "status", None)
+        name = GOAL_STATUS_ACTIVE.get(code) or GOAL_STATUS_RESULTS.get(code)
+        if name is None:
+            # UNKNOWN(0)은 판단 근거가 없어 건너뛴다.
+            continue
+        try:
+            goal_info = status.goal_info
+            accepted_at = _stamp_iso(goal_info.stamp)
+        except AttributeError as exc:
+            raise RosMessageMappingError("GoalStatus goal_info가 없습니다.") from exc
+        goals.append({
+            "goal_id": _goal_uuid(goal_info.goal_id),
+            "status": name,
+            "finished": code in GOAL_STATUS_RESULTS,
+            "accepted_at": accepted_at,
+        })
+    return {"robot_id": robot_id, "goals": goals}
+
+
+def battery_state_payload(topic, message):
+    """sensor_msgs/BatteryState의 percentage(0~1)를 0~100 값으로 바꾼다. 모르면 None."""
+    robot_id = _robot_of(topic, BATTERY_SOURCES_BY_TOPIC, "battery_state")
+    percentage = getattr(message, "percentage", None)
+    if (
+        isinstance(percentage, bool) or not isinstance(percentage, (int, float))
+        or not math.isfinite(percentage) or not 0.0 <= percentage <= 1.0
+    ):
+        # BatteryState는 모르는 값을 NaN으로 보낸다. 임의 값으로 채우지 않는다.
+        return {"robot_id": robot_id, "battery": None}
+    return {"robot_id": robot_id, "battery": float(percentage) * 100.0}
 
 
 def report_detection_payload(request):

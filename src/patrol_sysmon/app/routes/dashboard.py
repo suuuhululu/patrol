@@ -29,7 +29,7 @@ def index():
     cameras = camera_service.dashboard_cameras()
     # [19단계: CCTV 판단 상태] permit 미수신·정상·단절 상태를 첫 화면부터 구분한다.
     cctv_state = cctv_service.dashboard_cctv()
-    # [20단계: 순찰·안전 초기 상태] 방문·보고와 Keepout·E-stop을 첫 화면부터 표시한다.
+    # [20단계: 순찰·안전 초기 상태] 방문·보고와 E-stop을 첫 화면부터 표시한다.
     patrol_state = patrol_service.dashboard_patrol()
     safety_state = safety_service.dashboard_safety()
     # [11단계: 입출차 초기 목록] 새로고침 직후에도 최근 차량 통과 기록을 바로 표시한다.
