@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>patrol_control</name>
-  <version>0.1.0</version>
-  <description>Control-side command coordination for the patrol system</description>
+  <version>0.2.0</version>
+  <description>Control Server for patrol_interfaces 2.0</description>
 
   <maintainer email="control@example.com">Control Team</maintainer>
   <license>Apache-2.0</license>
@@ -10,7 +10,6 @@
   <buildtool_depend>ament_python</buildtool_depend>
 
   <exec_depend>rclpy</exec_depend>
-  <exec_depend>rcl_interfaces</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>patrol_interfaces</exec_depend>
 

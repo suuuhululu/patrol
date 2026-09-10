@@ -8,7 +8,7 @@ package_name = 'patrol_control'
 
 setup(
     name=package_name,
-    version='0.1.0',
+    version='0.2.0',
     packages=find_packages(exclude=['test']),
     data_files=[
         (
@@ -22,12 +22,12 @@ setup(
     zip_safe=True,
     maintainer='Control Team',
     maintainer_email='control@example.com',
-    description='Control-side command coordination for the patrol system',
+    description='Control Server for patrol_interfaces 2.0',
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
             'patrol_control_node = '
-            'patrol_control.command_control_node:main',
+            'patrol_control.patrol_control_node:main',
         ],
     },
 )

@@ -1,21 +1,25 @@
-# 공용 메시지 소스 이관 기록
+# patrol_interfaces
 
-2026-09-07 사용자 요청에 따라 `/home/mook/final_turtlebot_ws/src/parking_interfaces/`의 메시지 5종과 `CMakeLists.txt`, `package.xml`을 최초 이관했다. 원본과 기존 `.gitkeep`은 보존했고 생성 결과인 build/install/log 및 AMR 동작 코드는 복사하지 않았다.
+기본 순찰 시나리오에서 AMR, 관제, CCTV 비전, 시스템 모니터가 공유하는 ROS 2 인터페이스 패키지다.
 
-2026-09-07 [설계 기준 결정](../../docs/decisions/2026-09-07-design-baseline.md) 3항에 따라 ROS 패키지명을 `patrol_interfaces`로 통일했다. 이관 시점에는 디렉터리명만 `patrol_interfaces`이고 `package.xml`과 CMake의 패키지명은 `parking_interfaces`였다. 빌드 선택과 인터페이스 조회에는 `patrol_interfaces`를 사용한다. 메시지 필드와 계약 내용은 바꾸지 않았다. 관제 검토 요청은 [CR-AMR_09-07_14-32_공용_메시지_패키지명_통일.md](../../docs/change_requests/CR-AMR_09-07_14-32_공용_메시지_패키지명_통일.md)에 있다.
+현재 인터페이스 버전은 `2.0.0`이다. 호환 기준과 필드 의미는 [공용 인터페이스 문서](../../docs/interfaces.md)를 따른다.
 
-## 계약 상태
+```text
+patrol_interfaces/
+├── action/
+│   ├── Patrol.action
+│   └── DetectEvent.action
+├── msg/
+│   ├── PatrolCommand.msg
+│   ├── DriveToken.msg
+│   ├── EStop.msg
+│   └── CameraState.msg
+└── srv/
+    └── ReportDetection.srv
+```
 
-> **현행 계약:** 이 파일의 이관 이력보다 [v1.1 기준선](../../docs/decisions/2026-09-09-detection-interface-v1.1.md)과 [interfaces.md](../../docs/interfaces.md)가 우선한다. 아래 과거 필드 설명을 실행 계약으로 사용하지 않는다.
+`EStop`은 타입과 토픽 이름만 예약하며 현재 기본 구현 범위에는 포함하지 않는다.
 
-최초 이관 자체는 당시 공용 계약 합의나 TBD 해결을 뜻하지 않았다. 현재 계약은 기존 [v1.0 기준선](../../docs/decisions/2026-09-08-control-interface-baseline.md)을 승계한 [v1.1 기준선](../../docs/decisions/2026-09-09-detection-interface-v1.1.md)과 [interfaces.md](../../docs/interfaces.md)가 정하며, 이 파일의 과거 이관 설명으로 되돌리지 않는다. 원본 주석의 `[계약]`, `CR-001`, `CR-002`, `CR-004`와 package.xml의 과거 문서 경로·소유 설명은 이전 워크스페이스 기록이다.
+각 PC는 같은 Git commit의 패키지를 빌드해야 한다. `2.0.0`은 이전 wire schema와 호환되지 않으므로 소비 노드를 함께 갱신하기 전에는 실제 통합 실행이나 주행시험을 하지 않는다.
 
-현재 패키지 버전은 `1.1.0`이다. CMake에 등록된 16개 메시지는 하나의 wire-schema 배포 단위이며 `INTERFACE_VERSION`과 [검증 스크립트](../../scripts/verify_interface_v1.py)로 소스·설치 결과를 확인한다. 각 PC는 같은 Git commit을 로컬 빌드하고 스크립트의 `message_manifest_sha256`을 비교한다. manifest는 주석·빈 줄을 제외한 ROS 선언을 정규화해 계산하고, `--installed`는 설치 Python 타입의 필드·상수까지 소스와 대조한다. 검증 스크립트 파일명은 기존 자동화 호환을 위해 유지한다.
-
-- v1.1은 AlignmentStatus, CameraState, CommandCheck, ControlHeartbeat, DetectionCandidate, DetectionEvent, DetectionResult, DriveToken, EStop, EvidenceChunk, IngestionAck, KeepoutStatus, MissionCommand, PatrolReport, PatrolVisit, RobotStatus 16종이다.
-- DetectionCandidate와 DetectionEvent의 event_type은 UNKNOWN=0, FIRE=1, LEAK=2, OBSTACLE=3으로 통일했다. DetectionEvent의 risk_level·RISK enum과 v1에서 사용하지 않는 LIGHTING·FACILITY_DAMAGE는 제거했다. DetectionResult는 CONFIRMED=0, VERIFY_FAILED=1, INTERNAL_ERROR=2이며 비전의 정렬 후 검증 종결 결과를 AMR에 전달한다.
-- DriveToken은 `control_session_id`·`token_id`·`message_sequence`, RobotStatus는 `*_state`와 구조화 ID 필드, EStop은 `target_robot_id`·`active`·`reason`·`sequence`를 사용한다. `latched`·물리 E-stop·manual reset은 v1.0에 없다. PatrolReport의 `reason_code`는 uint32다.
-- CommandCheck는 UNKNOWN=0, ACCEPTED=1, EXECUTING=2, REJECTED=3이며 RobotStatus safety enum과 EStop reason 0~6, 전체 대상 `all`은 v1.0에 확정됐다. 남은 상세 TBD는 차기 버전으로 이관한다.
-- STOP/CANCEL/RESUME 관련 과거 주석은 현재의 TBD-AMR-005를 해결하는 근거가 아니다. [amr.md](../../docs/amr.md)를 따른다.
-
-빌드·타입 조회 성공은 메시지 생성 가능성과 이름 동기화만 검증하며, 양측 동일 버전 배포와 로봇 통합시험은 별도다.
+소스와 설치 타입은 `python3 scripts/verify_interface_v1.py --installed`로 확인한다. 스크립트 파일명은 기존 실행 경로와의 호환을 위해 유지하며 검증 대상은 v2.0 계약이다.
