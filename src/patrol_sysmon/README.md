@@ -62,7 +62,7 @@ cd <patrol-workspace>/src/patrol_sysmon
 - `app/ros/registry.py`: 구독 토픽 등록표와 계약 enum 대응표
 - `app/ros/payloads.py`: ROS 메시지를 서비스 입력으로 바꾸는 변환 함수
 - `app/ros/qos.py`: interfaces.md 5절 QoS 계약
-- `app/ros/node.py`: 구독 노드 생성·callback·IngestionAck 회신·실행
+- `app/ros/node.py`: 구독 노드 생성·callback·ReportDetection 서비스 서버·실행
 - `testkit/ros_topic_test.py`: 격리 도메인의 가상 publisher와 실제 subscriber·임시 저장소 종단시험
 - `testkit/ros_process_test.py`: adapter·가상 publisher 별도 프로세스 DDS 종단시험
 - `testkit/load_test.py`: 임시 앱의 병렬 입력·조회, SQLite lock, 측정값 집계
@@ -80,14 +80,14 @@ cd <patrol-workspace>/src/patrol_sysmon
 - `app/routes/maps.py`: 점유 지도 임시 수신·현재 지도 JSON·보호된 PNG 조회 API
 - `app/services/map_service.py`: OccupancyGrid 검증·PNG 변환·좌표/경로 변환
 - `app/models/map.py`: 지도 이력·현재 지도·최근 로봇 위치 DB 조회
-- `app/routes/costmaps.py`: 네 costmap의 로그인 목록·보호된 최신 PNG 조회 API
+- `app/routes/costmaps.py`: 네 costmap의 로그인 목록·보호된 최신 PNG 조회 API, NAV 지도용 `/api/costmaps/nav?robot=AMR1|AMR2`
 - `app/services/costmap_service.py`: costmap source·격자 검증, PNG 변환과 최신 교체
 - `app/models/costmap.py`: 로봇·계층별 최신 costmap 원자 교체와 순서 검사
-- `app/routes/events.py`: 이상 이벤트 multipart 수신·로그인 사용자용 증거 이미지 조회
-- `app/services/event_service.py`: 화재·누수·장애물 필드·시각·이미지 검증과 원자적 저장
-- `app/models/event.py`: 이벤트·증거 경로 원자적 저장과 재전송·충돌 판정
-- `app/services/detection_service.py`: Detection 계약 검증, chunk 재조립·무결성 확인·완성 파일 저장
-- `app/models/detection.py`: 보완 이벤트 message_id, 미완료 증적·chunk 영수증·사건 연결 저장
+- `app/routes/events.py`: 이벤트 목록·상세·처리 상태 API, ReportDetection과 같은 형식의 시험용 HTTP 입력, 로그인 사용자용 증거 이미지 조회
+- `app/services/event_service.py`: 이벤트 화면 표시값과 처리 상태 전이 검증
+- `app/models/event.py`: 이벤트 목록·상세 조회와 처리 상태·변경 이력 원자적 저장
+- `app/services/detection_service.py`: ReportDetection 요청 검증, 사건 억제, 증거 사진 파일 저장
+- `app/models/detection.py`: ReportDetection 사건 1행·사진 1행 저장과 event_id 재시도·충돌 판정
 - `app/routes/vehicle_access.py`: 고정 웹캠 입차·출차 내역 수신·목록 API
 - `app/services/vehicle_access_service.py`: 입출차 토픽 메타데이터 검증과 표시값 변환
 - `app/models/vehicle_access.py`: 입출차 기록의 중복·충돌 판정과 SQLite 저장
@@ -103,8 +103,7 @@ cd <patrol-workspace>/src/patrol_sysmon
 - `app/static/css/dashboard.css`: 대시보드 전용 배치·반응형 스타일
 - `app/static/css/history.css`: 통합 이력 검색 폼·결과 표·반응형 스타일
 - `app/static/js/dashboard.js`: 한국 시간 표시와 2초 간격 로봇 상태 갱신
-- `app/static/js/map.js`: 2초 간격 지도·로봇 마커·최근 경로 갱신
-- `app/static/js/costmaps.js`: 2초 간격 네 costmap 상태 조회와 선택 미리보기
+- `app/static/js/map.js`: 2초 간격 NAV 지도(선택한 로봇의 global costmap 바탕)·로봇 마커·최근 경로 갱신, AMR1/AMR2 전환
 - `app/static/js/events.js`: 3초 간격 이벤트 목록·상세·처리 상태 갱신
 - `app/static/js/cameras.js`: 1초 간격 영상 상태 조회와 변경된 최신 프레임 교체
 - `tools/send_demo_map.py`: 실제 Nav2 연결 전 수동 지도 시연 도구
@@ -145,7 +144,7 @@ cd <patrol-workspace>/src/patrol_sysmon
 - [x] 15단계: 가상 publisher 7개 토픽의 로컬 DDS·임시 DB·화면 API 종단검증
 - [x] 16단계: adapter·가상 publisher 별도 프로세스 실행과 7개 토픽 종단검증
 - [x] 17단계: AMR1·AMR2 global/local costmap 4개 수신·최신 저장·API·분리 표시
-- [x] 18단계: DetectionEvent·EvidenceChunk 독립 수신·재조립·저장·IngestionAck 회신
+- [x] 18단계: DetectionEvent·EvidenceChunk 독립 수신·재조립·저장·IngestionAck 회신 (2026-09-10 ReportDetection 서비스로 대체·제거)
 - [x] 19단계: CCTV CameraState·순찰 허용 조건 수신·저장·표시와 통합 이력 연결
 - [x] 20단계: PatrolVisit·PatrolReport·KeepoutStatus·EStop 수신·저장·표시와 통합 이력 연결
 - [ ] 21단계 이후: PC 1·2·3·4 통합시험, 실부하·장시간 운용·최종 판정
@@ -163,7 +162,7 @@ python3 ros_adapter.py
 
 현재 가상환경에는 `PyYAML`·`numpy`를 설치했고 PC 3 ROS workspace에는 `patrol_interfaces` v1.0을 빌드했다. workspace source 후 `--check`는 `rclpy`, `patrol_interfaces`, `nav_msgs`, `sensor_msgs`를 모두 찾아 종료 코드 0을 반환한다. 실제 AMR·비전 publisher 수신은 아직 실행하지 않았다.
 
-현재 활성 입력은 RobotStatus 2개, `/map` 1개, 압축 영상 4개, costmap 4개, DetectionEvent 2개, EvidenceChunk 2개, CameraState 2개, patrol_allowed 1개, PatrolVisit 2개, PatrolReport 2개, KeepoutStatus 2개, EStop 1개로 총 25개다. 저장 결과는 로봇별 `ingestion_ack` 2개 토픽으로 회신한다. 실제 상대 PC publisher와 운영 도메인의 종단 통합시험은 아직 실행하지 않았다.
+현재 활성 입력은 RobotStatus 2개, `/map` 1개, 압축 영상 4개, global costmap 2개, CameraState 2개, patrol_allowed 1개, PatrolVisit 2개, PatrolReport 2개, KeepoutStatus 2개, EStop 1개로 총 19개 토픽이다. 확정 사건과 증거 사진은 토픽이 아니라 `/system_monitor/report_detection` 서비스(ReportDetection)로 받고, 응답(STORED·DUPLICATE·REJECTED)이 곧 저장 결과다. `ingestion_ack` 회신은 받는 노드가 없어 발행하지 않는다(AMR 순찰 결과 재전송은 ACK 없이 구독자 재연결 시 같은 ID로 다시 보낸다). 실제 상대 PC publisher와 운영 도메인의 종단 통합시험은 아직 실행하지 않았다.
 
 2026-09-08 v1.0 통일 검증에서는 전체 120개 시험과 86개 subtest가 통과했다. 별도 프로세스 DDS 시험 중 첫 `KeepoutStatus`가 첫 `RobotStatus`보다 먼저 도착하는 경우도 저장하도록 소비부를 보완했으며, 격리 DDS 시험 6개가 모두 통과했다. 실제 상대 PC publisher 시험은 여전히 **NOT_RUN**이다.
 
@@ -278,6 +277,8 @@ source <patrol-workspace>/install/setup.bash
 
 ## 18단계 DetectionEvent·EvidenceChunk
 
+> 2026-09-10: 이 경로는 제거했다. 확정 사건·증거 사진은 ReportDetection 서비스 한 번으로 받는다. DetectionEvent·EvidenceChunk 구독, 청크 재조립, `IngestionAck` 회신, `detection_event_messages`·`evidence_ingestions`·`evidence_chunks` 표와 `events`의 `message_id`·`confidence`·`location_valid`·`evidence_id`·`risk_level` 열은 더 이상 없다. 기존 DB는 시작할 때 사건·사진·처리 이력을 보존한 채 새 구조로 옮긴다. 아래는 당시 기록이다.
+
 두 로봇의 DetectionEvent와 EvidenceChunk는 RELIABLE·VOLATILE·KEEP_LAST(20) QoS로 구독한다. `location_valid=false`이면 pose의 숫자를 화면 좌표로 사용하지 않으며, 조명 이상과 시설물 파손 enum도 기존 이벤트 화면 흐름으로 연결한다. 증적은 최대 5 MiB, chunk당 최대 64 KiB로 제한하고 event와 evidence 중 어느 쪽이 먼저 와도 받는다. 모든 chunk가 모이면 전체 크기, SHA-256, 실제 PNG/JPEG 형식을 확인해 원자적으로 저장하고 완료 뒤 DB의 chunk BLOB은 비운다.
 
 ```bash
@@ -317,11 +318,8 @@ source <patrol-workspace>/install/setup.bash
 | robot_status_history | 로봇 상태 수신 이력 |
 | maps | 지도 이력·좌표 메타데이터·PNG 파일 경로 |
 | map_latest | 현재 표시할 지도 한 건 |
-| events | 이벤트·감지 로봇·좌표·위험도·처리 상태 |
+| events | ReportDetection 사건: 종류·감지 로봇·좌표·처리 상태·재시도 판정용 내용 해시 |
 | event_evidence | 이벤트당 한 장의 증거 이미지 경로 |
-| detection_event_messages | DetectionEvent message_id별 수신 영수증·payload hash |
-| evidence_ingestions | evidence_id별 조립·완료·거부 상태와 파일 메타데이터 |
-| evidence_chunks | chunk message_id·index·hash 영수증과 조립 중 임시 바이트 |
 | event_changes | 사용자·메모·처리 상태 변경 |
 | vehicle_access_logs | 고정 웹캠의 입차·출차 구분과 발생 시각 |
 | dashboard_clear_state | 사용자별 이벤트·입출차 최근 목록 표시 시작 시각 |
@@ -330,7 +328,7 @@ source <patrol-workspace>/install/setup.bash
 | patrol_visits | 관측점 방문 이력 |
 | handovers | 로봇 교대 이력 |
 
-이벤트 위험도 `HIGH/MEDIUM/LOW`는 화면의 상/중/하에 대응한다. 처리 상태 `NEW/REVIEWING/WORK_REQUESTED/RESOLVED`는 신규/확인중/작업요청/조치완료에 대응한다. 상태 전이는 권한·순서 검사를 거쳐 감사 이력에 저장하고, 증거 이미지는 검증 완료 후 파일로 보존한다.
+처리 상태 `NEW/REVIEWING/WORK_REQUESTED/RESOLVED`는 신규/확인중/작업요청/조치완료에 대응한다. 상태 전이는 권한·순서 검사를 거쳐 감사 이력에 저장하고, 증거 이미지는 검증 완료 후 파일로 보존한다.
 
 ## 2단계 검증
 
@@ -373,7 +371,7 @@ cd <patrol-workspace>/src/patrol_sysmon
 - 상단: 시스템 이름, 장비 연결 상태, 한국 시간, 사용자·권한, 로그아웃.
 - 상태 요약: 시스템 상태와 AMR1·AMR2의 배터리·임무·위치·최근 수신을 한 줄에 표시한다.
 - 본문: 좌측 Nav2 지도, 중앙 로봇 카메라 2개와 고정 웹캠 2개의 2×2 영상, 우측 최근 이벤트·차량 입출차 로그를 동시에 표시한다.
-- 최근 이벤트: 발생 시각·종류·위험도를 요약하고, 이벤트 종류를 누르면 로봇·좌표·처리 상태·증거 이미지를 상세 창에서 확인한다. 최근 이벤트와 차량 입출차 행이 많아지면 각 패널 내부에서 세로 스크롤하며 지도와 네 영상 높이는 유지한다.
+- 최근 이벤트: 발생 시각·종류·로봇·좌표를 요약하고, 이벤트 종류를 누르면 로봇·좌표·처리 상태·증거 이미지를 상세 창에서 확인한다. 최근 이벤트와 차량 입출차 행이 많아지면 각 패널 내부에서 세로 스크롤하며 지도와 네 영상 높이는 유지한다.
 - 통합 이력: 우측 바로가기나 왼쪽 메뉴에서 전체 DB 기록 검색 화면으로 이동한다.
 - 좁은 화면: 영상 2×2 구성을 우선 유지하고 공간이 부족하면 최근 로그를 영상 아래로 이동한다.
 
@@ -455,16 +453,15 @@ export SYSMON_ROBOT_API_KEY='<시연용 토큰>'
 
 ## 7단계 화재 이벤트·증거 이미지
 
-임시 입력은 `POST /api/events`이며 `X-Robot-Token` 헤더와 `multipart/form-data`를 사용한다. `metadata`에는 JSON 객체를, `image`에는 PNG 또는 JPEG 한 장을 넣는다.
+임시 입력은 `POST /api/events`이며 `X-Robot-Token` 헤더와 `multipart/form-data`를 사용한다. `metadata`에는 JSON 객체를, `image`에는 PNG 또는 JPEG 한 장을 넣는다. 2026-09-10부터 ReportDetection 서비스와 같은 필드·같은 검증·같은 저장 코드를 쓴다.
 
-- 필수 메타데이터: `event_id`, `message_id`, `robot_id`, `event_type`, `occurred_at`, `captured_at`, `x`, `y`, `frame_id`, `risk_level`.
-- `robot_id`: `AMR1` 또는 `AMR2`.
-- 7단계 `event_type`: `FIRE`.
-- `risk_level`: `HIGH`, `MEDIUM`, `LOW`이며 처리 상태와 별개다.
+- 필수 메타데이터: `robot_id`, `event_id`, `detected_at`, `x`, `y`, `event_type`.
+- `robot_id`: `AMR1` 또는 `AMR2`. `event_id`: 소문자 UUID v4.
+- `event_type`: `FIRE`, `LEAK`, `OBSTACLE`.
 - 신규 이벤트의 처리 상태는 `NEW`로 저장한다.
-- 증거 이미지는 이벤트당 한 장, PNG/JPEG, 최대 5MB다.
+- 증거 이미지는 이벤트당 한 장, PNG/JPEG, 최대 1 MiB다.
 - 파일은 `instance/evidence/`에 저장하고 DB에는 이미지 경로만 저장한다.
-- 같은 ID와 같은 내용의 재전송은 200 `duplicate`, ID가 같고 내용이 다르면 409다.
+- 같은 event_id와 같은 내용의 재전송은 200 `duplicate`, event_id가 같고 내용이 다르면 409다. 같은 로봇·같은 종류 사건이 60초 안에 이미 있으면 저장하지 않고 200 `duplicate`와 사유를 돌려준다.
 - 저장 성공 응답은 수신·기록 완료를 뜻하며 로봇의 다음 행동 명령이 아니다.
 
 실제 이벤트 토픽 없이 수동 시연하려면 서버와 시연 터미널에 같은 ASCII 토큰을 설정한다.
@@ -472,16 +469,16 @@ export SYSMON_ROBOT_API_KEY='<시연용 토큰>'
 ```bash
 cd <patrol-workspace>/src/patrol_sysmon
 export SYSMON_ROBOT_API_KEY='<시연용 토큰>'
-.venv/bin/python tools/send_demo_event.py --robot AMR1 --risk HIGH
+.venv/bin/python tools/send_demo_event.py --robot AMR1
 ```
 
-성공하면 HTTP 201과 `accepted`, 이벤트 ID, `NEW` 상태가 출력된다. 시연 도구가 생성하는 불꽃 모양 PNG는 실제 카메라 사진이 아니다. 7단계는 수신·저장까지이며 대시보드 이벤트 표와 이미지 상세 표시는 8단계에서 연결한다.
+성공하면 HTTP 201과 `accepted`, 이벤트 ID가 출력된다. 시연 도구가 생성하는 불꽃 모양 PNG는 실제 카메라 사진이 아니다. 7단계는 수신·저장까지이며 대시보드 이벤트 표와 이미지 상세 표시는 8단계에서 연결한다.
 
 7단계 검증: 실제 프로젝트 반영 후 임시 테스트 DB에서 전체 테스트 **40개 통과**. 추가된 이벤트 테스트 7개는 장치 인증, multipart 규약, 필드·시각·이미지 검증, 이벤트·파일 연결 저장, 정확한 재전송, ID 충돌, 로그인 이미지 보호와 경로 이탈 방지를 확인한다. 별도 임시 5006번 서버에 시연 도구를 실제로 요청해 AMR1 `FIRE/HIGH/NEW` 이벤트와 PNG 파일이 연결 저장되는 것을 확인했다. 실제 ROS 이벤트·카메라 토픽은 아직 연결하지 않았다.
 
 ## 8단계 이벤트 로그·상세·처리 기록
 
-로그인한 대시보드는 서버 렌더링 시 최근 이벤트 최대 50건을 표시하고 `GET /api/events`를 3초마다 조회한다. 각 행에는 발생 시각, 화재, 감지 로봇, `frame_id (x, y)`, 위험도 상·중·하, 처리 상태와 증거 이미지 썸네일이 나온다. 썸네일의 **상세 보기**를 누르면 원본 이미지, 이벤트 ID, 촬영·발생 시각, 로봇과 좌표, 위험도, 상태, 변경 이력을 확인할 수 있다.
+로그인한 대시보드는 서버 렌더링 시 최근 이벤트 최대 50건을 표시하고 `GET /api/events`를 3초마다 조회한다. 각 행에는 발생 시각, 이벤트 종류, 감지 로봇, `frame_id (x, y)`와 증거 이미지 썸네일이 나온다. 썸네일의 **상세 보기**를 누르면 원본 이미지, 이벤트 ID, 촬영·발생 시각, 로봇과 좌표, 처리 상태와 변경 이력을 확인할 수 있다.
 
 - `GET /api/events`: 로그인 사용자에게 최근 이벤트 목록 제공.
 - `GET /api/events/<event_id>`: 이벤트 상세와 처리 변경 이력 제공.
@@ -524,9 +521,9 @@ export SYSMON_ROBOT_API_KEY='<시연용 토큰>'
 
 - 기록 종류: 전체, 화재 이벤트, 이벤트 처리, 로봇 상태, 순찰, 로봇 교대.
 - 공통 조건: 한국 날짜 기준 시작일·종료일, AMR1·AMR2, 100자 이내 검색어.
-- 이벤트 조건: 위험도 상·중·하, 처리 상태 신규·확인중·작업요청·조치완료.
+- 이벤트 조건: 처리 상태 신규·확인중·작업요청·조치완료.
 - 검색어 대상: 메시지·이벤트·순찰·교대 ID, 임무·연결·처리 상태, 처리 메모·담당자, 관측점, 교대 사유.
-- 결과: 시각, 종류, 로봇·웹캠, 주요 내용, 위험도, 상태, 담당자와 증거 이미지 링크.
+- 결과: 시각, 종류, 로봇·웹캠, 주요 내용, 상태, 담당자와 증거 이미지 링크.
 - 한 페이지에 최대 50건을 표시하며 결과 수와 이전·다음 페이지를 제공한다.
 - `/api/history`는 같은 조건을 로그인 사용자에게 JSON으로 제공한다.
 
@@ -540,10 +537,10 @@ export SYSMON_ROBOT_API_KEY='<시연용 토큰>'
 
 ```bash
 # 누수 이벤트
-.venv/bin/python tools/send_demo_event.py --type LEAK --robot AMR1 --risk MEDIUM
+.venv/bin/python tools/send_demo_event.py --type LEAK --robot AMR1
 
 # 장애물 이벤트
-.venv/bin/python tools/send_demo_event.py --type OBSTACLE --robot AMR2 --risk LOW
+.venv/bin/python tools/send_demo_event.py --type OBSTACLE --robot AMR2
 
 # 고정 웹캠 입차
 .venv/bin/python tools/send_demo_vehicle_access.py --camera webcam1 --direction ENTRY

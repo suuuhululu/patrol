@@ -1,4 +1,4 @@
-"""ReportDetection 서비스 검증: 필드 5개 요청의 검증·저장·중복·거부와 events 마이그레이션."""
+"""ReportDetection 서비스 검증: 요청 필드의 검증·저장·중복·거부와 events 마이그레이션."""
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,7 +13,7 @@ from app.database import get_db, init_db
 from app.models.detection import DetectionMessageConflictError
 from app.ros.payloads import report_detection_payload
 from app.ros.errors import RosMessageMappingError
-from app.services import auth_service, detection_service, event_service
+from app.services import detection_service, event_service
 
 
 PNG = base64.b64decode(
@@ -55,25 +55,21 @@ class DetectionReportTests(unittest.TestCase):
             row = db.execute("SELECT * FROM events WHERE event_id=?", (EVENT_ID,)).fetchone()
             self.assertEqual((row["robot_id"], row["x"], row["y"], row["frame_id"]), ("AMR2", 2.0, 3.0, "map"))
             self.assertEqual(row["event_type"], "LEAK")
-            self.assertIsNone(row["risk_level"])
-            self.assertEqual(row["message_id"], EVENT_ID)
             self.assertTrue(row["content_hash"])
-            # 사진 조각·조립 표는 쓰지 않는다.
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM evidence_chunks").fetchone()[0], 0)
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM evidence_ingestions").fetchone()[0], 0)
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM detection_event_messages").fetchone()[0], 0)
+            evidence = db.execute("SELECT * FROM event_evidence WHERE event_id=?", (EVENT_ID,)).fetchone()
+            self.assertEqual(evidence["image_path"], stored["image_path"])
+            self.assertTrue(stored["image_path"].startswith(f"evidence-{EVENT_ID}-"))
+            # 사진 시각 필드가 따로 없으므로 감지 시각을 그대로 쓴다.
+            self.assertEqual(evidence["captured_at"], row["occurred_at"])
 
-    def test_dashboard_shows_report_without_type_and_risk(self):
+    def test_dashboard_shows_report_type_location_and_evidence(self):
         with self.app.app_context():
             detection_service.receive_report(self.payload(), self.now)
             events = event_service.recent_events(50)
             self.assertEqual(len(events), 1)
             view = events[0]
             self.assertEqual(view["event_label"], "누수")
-            self.assertEqual(view["risk_label"], "—")
-            self.assertIsNone(view["risk_level"])
             self.assertTrue(view["has_evidence"])
-            self.assertEqual(view["evidence_state"], "STORED")
             self.assertEqual(view["location_label"], "map (2.00, 3.00)")
             detail = event_service.event_detail(EVENT_ID)
             self.assertTrue(detail["has_evidence"])
@@ -169,13 +165,13 @@ class DetectionReportTests(unittest.TestCase):
         with self.assertRaises(RosMessageMappingError):
             report_detection_payload(SimpleNamespace(**{**vars(request), "robot_id": "robot9"}))
 
-    def test_existing_db_with_not_null_risk_is_rebuilt_keeping_rows(self):
-        """위험도가 NOT NULL이던 기존 DB를 재구성해도 사건·증거·변경 이력이 그대로 남는다."""
+    def test_existing_db_with_topic_columns_is_rebuilt_keeping_rows(self):
+        """DetectionEvent 토픽 시절 열·표가 남은 기존 DB를 재구성해도 사건·사진·처리 이력이 그대로 남는다."""
         database = Path(self.folder.name) / "legacy/sysmon.sqlite3"
         database.parent.mkdir(parents=True)
         legacy = sqlite3.connect(database)
         legacy.executescript(
-            """
+            f"""
             CREATE TABLE robots (robot_id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT '');
             CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE,
@@ -183,11 +179,13 @@ class DetectionReportTests(unittest.TestCase):
                 created_at TEXT NOT NULL DEFAULT '');
             CREATE TABLE events (
                 event_id TEXT PRIMARY KEY NOT NULL, message_id TEXT NOT NULL UNIQUE,
-                robot_id TEXT NOT NULL REFERENCES robots(robot_id), event_type TEXT NOT NULL,
-                occurred_at TEXT NOT NULL, x REAL, y REAL, frame_id TEXT, confidence REAL,
+                robot_id TEXT NOT NULL REFERENCES robots(robot_id),
+                event_type TEXT NOT NULL DEFAULT 'UNKNOWN', occurred_at TEXT NOT NULL,
+                x REAL, y REAL, frame_id TEXT, confidence REAL,
                 location_valid INTEGER NOT NULL DEFAULT 1, evidence_id TEXT,
-                risk_level TEXT NOT NULL CHECK (risk_level IN ('HIGH', 'MEDIUM', 'LOW')),
-                status TEXT NOT NULL DEFAULT 'NEW', received_at TEXT NOT NULL DEFAULT '');
+                risk_level TEXT CHECK (risk_level IS NULL OR risk_level IN ('HIGH', 'MEDIUM', 'LOW')),
+                status TEXT NOT NULL DEFAULT 'NEW', received_at TEXT NOT NULL DEFAULT '',
+                content_hash TEXT);
             CREATE TABLE event_evidence (id INTEGER PRIMARY KEY,
                 event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id), evidence_id TEXT,
                 image_path TEXT NOT NULL, captured_at TEXT, created_at TEXT NOT NULL DEFAULT '');
@@ -195,15 +193,45 @@ class DetectionReportTests(unittest.TestCase):
                 event_id TEXT NOT NULL REFERENCES events(event_id),
                 user_id INTEGER NOT NULL REFERENCES users(id), previous_status TEXT NOT NULL,
                 new_status TEXT NOT NULL, memo TEXT NOT NULL DEFAULT '', changed_at TEXT NOT NULL DEFAULT '');
-            INSERT INTO robots VALUES ('AMR1', '로봇 1', '');
+            CREATE TABLE detection_event_messages (message_id TEXT PRIMARY KEY NOT NULL,
+                event_id TEXT NOT NULL REFERENCES events(event_id), content_hash TEXT NOT NULL,
+                received_at TEXT NOT NULL);
+            CREATE TABLE evidence_ingestions (evidence_id TEXT PRIMARY KEY NOT NULL,
+                event_id TEXT NOT NULL, robot_id TEXT NOT NULL, captured_at TEXT NOT NULL,
+                media_type TEXT NOT NULL, sha256 TEXT NOT NULL, total_size INTEGER NOT NULL,
+                chunk_count INTEGER NOT NULL, status TEXT NOT NULL, image_path TEXT,
+                received_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE evidence_chunks (
+                evidence_id TEXT NOT NULL REFERENCES evidence_ingestions(evidence_id) ON DELETE CASCADE,
+                chunk_index INTEGER NOT NULL, message_id TEXT NOT NULL UNIQUE,
+                content_hash TEXT NOT NULL, data BLOB, received_at TEXT NOT NULL,
+                PRIMARY KEY (evidence_id, chunk_index));
+            CREATE UNIQUE INDEX idx_events_evidence_id ON events(evidence_id) WHERE evidence_id IS NOT NULL;
+            CREATE UNIQUE INDEX idx_event_evidence_evidence_id
+                ON event_evidence(evidence_id) WHERE evidence_id IS NOT NULL;
+            CREATE INDEX idx_detection_messages_event ON detection_event_messages(event_id);
+            CREATE INDEX idx_evidence_ingestions_event ON evidence_ingestions(event_id);
+            INSERT INTO robots VALUES ('AMR1', '로봇 1', ''), ('AMR2', '로봇 2', '');
             INSERT INTO users (id, username, password_hash, role) VALUES (1, 'op', 'x', 'OPERATOR');
             INSERT INTO events (event_id, message_id, robot_id, event_type, occurred_at, x, y, frame_id,
                 risk_level, status, received_at)
                 VALUES ('old-1', 'msg-1', 'AMR1', 'FIRE', '2026-09-01T00:00:00.000Z', 1, 1, 'map',
                         'HIGH', 'REVIEWING', '2026-09-01T00:00:01.000Z');
-            INSERT INTO event_evidence (event_id, image_path) VALUES ('old-1', 'evidence-old.png');
-            INSERT INTO event_changes (event_id, user_id, previous_status, new_status)
-                VALUES ('old-1', 1, 'NEW', 'REVIEWING');
+            INSERT INTO events (event_id, message_id, robot_id, event_type, occurred_at, x, y, frame_id,
+                confidence, location_valid, evidence_id, risk_level, status, received_at, content_hash)
+                VALUES ('{OTHER_ID}', '{OTHER_ID}', 'AMR2', 'LEAK', '2026-09-02T00:00:00.000Z',
+                        NULL, NULL, 'map', 0.9, 0, '{EVENT_ID}', 'LOW', 'NEW',
+                        '2026-09-02T00:00:01.000Z', 'hash-2');
+            INSERT INTO event_evidence (id, event_id, evidence_id, image_path, captured_at, created_at)
+                VALUES (7, 'old-1', NULL, 'event-old.png', '2026-09-01T00:00:00.100Z', 'created-1'),
+                       (8, '{OTHER_ID}', '{EVENT_ID}', 'evidence-old.png', '2026-09-02T00:00:00.000Z',
+                        'created-2');
+            INSERT INTO event_changes (event_id, user_id, previous_status, new_status, memo)
+                VALUES ('old-1', 1, 'NEW', 'REVIEWING', '확인');
+            INSERT INTO detection_event_messages VALUES ('{OTHER_ID}', '{OTHER_ID}', 'hash', 'at');
+            INSERT INTO evidence_ingestions VALUES ('{EVENT_ID}', '{OTHER_ID}', 'AMR2', 'at',
+                'image/png', 'sha', 1, 1, 'STORED', 'evidence-old.png', 'at', 'at');
+            INSERT INTO evidence_chunks VALUES ('{EVENT_ID}', 0, 'chunk-message', 'hash', NULL, 'at');
             """
         )
         legacy.commit()
@@ -212,21 +240,58 @@ class DetectionReportTests(unittest.TestCase):
                           "EVIDENCE_DIR": str(database.parent / "evidence")})
         with app.app_context():
             db = get_db()
-            info = {row[1]: row for row in db.execute("PRAGMA table_info(events)")}
-            self.assertEqual(info["risk_level"][3], 0)          # NOT NULL 해제
-            self.assertIn("content_hash", info)
-            old = db.execute("SELECT * FROM events WHERE event_id='old-1'").fetchone()
-            self.assertEqual((old["risk_level"], old["status"], old["event_type"]), ("HIGH", "REVIEWING", "FIRE"))
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM event_evidence").fetchone()[0], 1)
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM event_changes").fetchone()[0], 1)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(events)")}
+            self.assertEqual(columns, {
+                "event_id", "robot_id", "event_type", "occurred_at", "x", "y", "frame_id",
+                "status", "received_at", "content_hash",
+            })
+            columns = {row[1] for row in db.execute("PRAGMA table_info(event_evidence)")}
+            self.assertEqual(columns, {"id", "event_id", "image_path", "captured_at", "created_at"})
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            self.assertFalse(
+                {"detection_event_messages", "evidence_ingestions", "evidence_chunks"} & tables
+            )
+            # 사건·사진·처리 이력 행은 값 그대로 남는다.
+            events = [tuple(row) for row in db.execute(
+                "SELECT event_id, robot_id, event_type, occurred_at, x, y, frame_id, status, "
+                "received_at, content_hash FROM events ORDER BY occurred_at"
+            )]
+            self.assertEqual(events, [
+                ("old-1", "AMR1", "FIRE", "2026-09-01T00:00:00.000Z", 1.0, 1.0, "map",
+                 "REVIEWING", "2026-09-01T00:00:01.000Z", None),
+                (OTHER_ID, "AMR2", "LEAK", "2026-09-02T00:00:00.000Z", None, None, "map",
+                 "NEW", "2026-09-02T00:00:01.000Z", "hash-2"),
+            ])
+            evidence = [tuple(row) for row in db.execute(
+                "SELECT id, event_id, image_path, captured_at, created_at FROM event_evidence ORDER BY id"
+            )]
+            self.assertEqual(evidence, [
+                (7, "old-1", "event-old.png", "2026-09-01T00:00:00.100Z", "created-1"),
+                (8, OTHER_ID, "evidence-old.png", "2026-09-02T00:00:00.000Z", "created-2"),
+            ])
+            change = db.execute(
+                "SELECT event_id, user_id, previous_status, new_status, memo FROM event_changes"
+            ).fetchall()
+            self.assertEqual([tuple(row) for row in change], [("old-1", 1, "NEW", "REVIEWING", "확인")])
             self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+            self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            # 임시 표 이름이 참조로 남거나 옛 증적 식별자 인덱스가 남지 않는다.
+            leftovers = [
+                row[0] for row in db.execute("SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL")
+                if any(word in row[1] for word in ("events_new", "_legacy", "evidence_id"))
+            ]
+            self.assertEqual(leftovers, [])
+            self.assertIn(
+                "REFERENCES events(event_id)",
+                db.execute("SELECT sql FROM sqlite_master WHERE name='event_changes'").fetchone()[0],
+            )
             # 재구성한 표에 서비스 사건이 들어가고, 두 번째 시작에서는 다시 재구성하지 않는다.
             detection_service.receive_report(self.payload(robot_id="AMR1"), self.now)
             init_db()
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0], 2)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0], 3)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM event_evidence").fetchone()[0], 3)
             indexes = {row[1] for row in db.execute("PRAGMA index_list(events)")}
             self.assertTrue({"idx_events_occurred", "idx_events_robot_time"} <= indexes)
-
 
 if __name__ == "__main__":
     unittest.main()

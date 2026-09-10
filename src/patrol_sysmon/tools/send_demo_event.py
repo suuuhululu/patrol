@@ -66,7 +66,6 @@ def main():
     parser = argparse.ArgumentParser(description="Sysmon에 임시 이상 이벤트와 증거 이미지 한 장을 전송합니다.")
     parser.add_argument("--url", default="http://127.0.0.1:5000/api/events")
     parser.add_argument("--robot", choices=("AMR1", "AMR2"), default="AMR1")
-    parser.add_argument("--risk", choices=("HIGH", "MEDIUM", "LOW"), default="HIGH")
     parser.add_argument("--type", choices=("FIRE", "LEAK", "OBSTACLE"), default="FIRE")
     args = parser.parse_args()
     token = os.environ.get("SYSMON_ROBOT_API_KEY")
@@ -78,19 +77,15 @@ def main():
         raise SystemExit(
             "SYSMON_ROBOT_API_KEY는 영문·숫자·기호로 설정하세요. 서버와 같은 값을 사용합니다."
         ) from exc
-    now = datetime.now(timezone.utc)
-    unique = now.strftime("%Y%m%d%H%M%S%f")
+    # [ReportDetection 필드] 서비스 요청과 같은 값을 보낸다. event_id는 소문자 UUID v4, 좌표계는 서버가 map으로 채운다.
+    # 같은 로봇·같은 종류를 억제 시간(기본 60초) 안에 다시 보내면 저장하지 않고 duplicate로 응답한다.
     metadata = {
-        "event_id": f"demo-{args.type.lower()}-{unique}",
-        "message_id": f"demo-{args.type.lower()}-message-{unique}",
         "robot_id": args.robot,
-        "event_type": args.type,
-        "occurred_at": now.isoformat(),
-        "captured_at": now.isoformat(),
+        "event_id": str(uuid4()),
+        "detected_at": datetime.now(timezone.utc).isoformat(),
         "x": 12.5,
         "y": 8.0,
-        "frame_id": "map",
-        "risk_level": args.risk,
+        "event_type": args.type,
     }
     body, boundary = multipart_body(metadata, build_demo_evidence(args.type))
     request = urllib.request.Request(

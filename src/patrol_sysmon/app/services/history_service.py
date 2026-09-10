@@ -61,7 +61,6 @@ def validate_filters(args):
     if raw_type not in RECORD_TYPE_LABELS:
         raise HistoryValidationError("type 검색 조건이 올바르지 않습니다.")
     robot_id = _choice(args, "robot", {"ALL", "AMR1", "AMR2"})
-    risk_level = _choice(args, "risk", {"ALL", "HIGH", "MEDIUM", "LOW"})
     event_status = _choice(args, "status", {"ALL", *event_service.STATUS_LABELS})
     from_date, from_text = _date_value(args, "from")
     to_date, to_text = _date_value(args, "to")
@@ -84,7 +83,7 @@ def validate_filters(args):
     if to_date:
         end_utc = datetime.combine(to_date + timedelta(days=1), time.min, KST).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     return {
-        "record_type": raw_type, "robot_id": robot_id, "risk_level": risk_level,
+        "record_type": raw_type, "robot_id": robot_id,
         "event_status": event_status, "keyword": keyword,
         "from_date": from_text, "to_date": to_text,
         "start_utc": start_utc, "end_utc": end_utc,
@@ -132,8 +131,6 @@ def _record(row):
         "recorded_label": local.strftime("%Y-%m-%d %H:%M:%S"),
         "robot_id": row["robot_id"], "robot_name": row["robot_name"],
         "title": title, "summary": row["summary"],
-        "risk_level": row["risk_level"],
-        "risk_label": event_service.RISK_LABELS.get(row["risk_level"]),
         "status_code": row["status_code"],
         "status_label": _status_label(record_type, row["status_code"]),
         "event_id": row["event_id"], "actor": row["actor"],

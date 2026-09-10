@@ -19,7 +19,6 @@ class RosTopicTestConfigTests(unittest.TestCase):
             RosTopicTestConfig(image_hz=-1),
             RosTopicTestConfig(costmap_hz=-1),
             RosTopicTestConfig(costmap_hz=float("nan")),
-            RosTopicTestConfig(detection_hz=-1),
             RosTopicTestConfig(cctv_hz=-1),
             RosTopicTestConfig(cctv_hz=float("nan")),
         )

@@ -55,7 +55,6 @@ def _adapter_process(root_text, config, ready, stop, results):
             results.put({
                 "role": "adapter",
                 "processed": dict(sorted(node.processing_counts.items())),
-                "ack_publisher_matches": node.ack_publisher_matches(),
             })
     except Exception as exc:
         ready.set()
@@ -81,7 +80,7 @@ def _spin_until_publisher_stops(executor, stop, config):
     """publisher가 끝날 때까지 수신한다.
 
     고정 시간으로 spin하면 자식 프로세스 시작이 늦어진 만큼 수신 구간이 줄어
-    ack 왕복 같은 늦은 메시지를 놓친다. 부모가 publisher 종료 후 stop을 설정한다.
+    늦게 도착한 메시지를 놓친다. 부모가 publisher 종료 후 stop을 설정한다.
     """
     deadline = time.monotonic() + min(
         ADAPTER_MAX_SPIN_SECONDS,
@@ -203,13 +202,6 @@ def run_separate_process_ros_test(config=None):
             publisher_result.get("matched_subscriptions", {})
             if publisher_result else {}
         )
-        # publisher가 종료되면 adapter 쪽 매칭 수는 0이 되므로 살아 있을 때
-        # 가상 subscriber가 관측해 보고한 publisher 수를 사용한다.
-        ack_matches = (
-            publisher_result.get("ack_publisher_matches", {})
-            if publisher_result else {}
-        )
-        received_acks = publisher_result.get("received_acks", {}) if publisher_result else {}
         processing_failures = sum(
             count for name, count in processed.items()
             if name.endswith("_failed") or name.endswith("_rejected")
@@ -219,8 +211,7 @@ def run_separate_process_ros_test(config=None):
             and publisher_process.exitcode == 0
             and not child_errors
             and len(matched) == (
-                7 + (4 if config.costmap_hz > 0 else 0)
-                + (4 if config.detection_hz > 0 else 0)
+                7 + (2 if config.costmap_hz > 0 else 0)
                 + (3 if config.cctv_hz > 0 else 0)
                 + (4 if config.patrol_hz > 0 else 0)
                 + (3 if config.safety_hz > 0 else 0)
@@ -237,21 +228,8 @@ def run_separate_process_ros_test(config=None):
             and (
                 config.costmap_hz == 0
                 or set(storage["costmap_sources"]) == {
-                    "AMR1:global", "AMR1:local", "AMR2:global", "AMR2:local"
+                    "AMR1:global", "AMR2:global"
                 }
-            )
-            and (
-                config.detection_hz == 0
-                or (
-                    storage["detection_event_messages"] >= 2
-                    and storage["stored_evidence"] >= 2
-                    and storage["incomplete_evidence"] == 0
-                    and storage["evidence_links"] >= 2
-                    and storage["chunk_payloads_remaining"] == 0
-                    and len(ack_matches) == 2
-                    and all(count >= 1 for count in ack_matches.values())
-                    and sum(received_acks.values()) >= 6
-                )
             )
             and (
                 config.patrol_hz == 0
@@ -281,13 +259,12 @@ def run_separate_process_ros_test(config=None):
             "stage": (
                 20 if config.patrol_hz > 0 or config.safety_hz > 0
                 else 19 if config.cctv_hz > 0
-                else (18 if config.detection_hz > 0 else (17 if config.costmap_hz > 0 else 16))
+                else (17 if config.costmap_hz > 0 else 16)
             ),
             "test_kind": (
                 "SEPARATE_PROCESS_VIRTUAL_DDS_WITH_PATROL_SAFETY"
                 if config.patrol_hz > 0 or config.safety_hz > 0
                 else "SEPARATE_PROCESS_VIRTUAL_DDS_WITH_CCTV" if config.cctv_hz > 0
-                else "SEPARATE_PROCESS_VIRTUAL_DDS_WITH_DETECTION" if config.detection_hz > 0
                 else ("SEPARATE_PROCESS_VIRTUAL_DDS_WITH_COSTMAP" if config.costmap_hz > 0 else "SEPARATE_PROCESS_VIRTUAL_DDS")
             ),
             "external_publishers": "NOT_RUN",
@@ -298,7 +275,6 @@ def run_separate_process_ros_test(config=None):
                 "map_hz": config.map_hz,
                 "image_hz": config.image_hz,
                 "costmap_hz": config.costmap_hz,
-                "detection_hz": config.detection_hz,
                 "cctv_hz": config.cctv_hz,
                 "patrol_hz": config.patrol_hz,
                 "safety_hz": config.safety_hz,
@@ -310,8 +286,6 @@ def run_separate_process_ros_test(config=None):
             "child_errors": child_errors,
             "published": publisher_result.get("published", {}) if publisher_result else {},
             "matched_subscriptions": matched,
-            "ack_publisher_matches": ack_matches,
-            "received_acks": received_acks,
             "processed": processed,
             "storage": storage,
             "dashboard_http": dashboard,

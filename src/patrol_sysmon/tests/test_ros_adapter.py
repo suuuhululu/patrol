@@ -85,18 +85,17 @@ class RosAdapterTests(unittest.TestCase):
 
     def test_topic_registry_separates_active_and_pending_work(self):
         active = ros_adapter.active_subscriptions()
-        self.assertEqual(len(active), 25)
+        self.assertEqual(len(active), 19)
         self.assertEqual(
             {spec.handler for spec in active},
             {
-                "robot_status", "map", "camera_frame", "costmap",
-                "detection_event", "evidence_chunk", "camera_state",
+                "robot_status", "map", "camera_frame", "costmap", "camera_state",
                 "patrol_visit", "patrol_report", "keepout_status", "estop",
                 "patrol_allowed",
             },
         )
         self.assertEqual(
-            len([spec for spec in active if spec.handler == "costmap"]), 4
+            len([spec for spec in active if spec.handler == "costmap"]), 2
         )
         self.assertEqual(
             {spec.topic for spec in ros_adapter.SUBSCRIPTIONS if not spec.active}, set()
@@ -167,46 +166,6 @@ class RosAdapterTests(unittest.TestCase):
         self.assertEqual(frame_id, "ros-webcam1-1700000000-250000000")
         self.assertEqual(captured_at, "2023-11-14T22:13:20.250Z")
         self.assertEqual(stream.read(), b"test-image")
-
-    def test_detection_event_maps_contract_enum_location_and_ids(self):
-        message = ns(
-            header=header(), message_id=str(uuid.uuid4()), event_id=str(uuid.uuid4()),
-            robot_id="robot1", event_type=4, confidence=0.93, risk_level=2,
-            pose=ns(pose=ns(position=ns(x=1.2, y=3.4, z=0.0))),
-            location_valid=True, detected_at=stamp(), evidence_id=str(uuid.uuid4()),
-        )
-        payload = ros_adapter.detection_event_payload(
-            "/robot1/detection/event", message
-        )
-        self.assertEqual(payload["robot_id"], "AMR1")
-        self.assertEqual(payload["event_type"], "LIGHTING")
-        self.assertEqual(payload["risk_level"], "MEDIUM")
-        self.assertEqual((payload["x"], payload["y"]), (1.2, 3.4))
-
-        message.location_valid = False
-        message.pose.pose.position.x = float("nan")
-        payload = ros_adapter.detection_event_payload(
-            "/robot1/detection/event", message
-        )
-        self.assertEqual((payload["x"], payload["y"]), (None, None))
-
-    def test_evidence_chunk_maps_bytes_and_rejects_namespace_mismatch(self):
-        message = ns(
-            header=header("camera"), message_id=str(uuid.uuid4()),
-            evidence_id=str(uuid.uuid4()), event_id=str(uuid.uuid4()),
-            robot_id="robot6", captured_at=stamp(), media_type="image/png",
-            sha256="0" * 64, total_size=3, chunk_index=0, chunk_count=1,
-            data=[1, 2, 3],
-        )
-        payload = ros_adapter.evidence_chunk_payload(
-            "/robot6/detection/evidence", message
-        )
-        self.assertEqual(payload["robot_id"], "AMR2")
-        self.assertEqual(payload["data"], b"\x01\x02\x03")
-        with self.assertRaises(ros_adapter.RosMessageMappingError):
-            ros_adapter.evidence_chunk_payload(
-                "/robot1/detection/evidence", message
-            )
 
     def test_camera_state_maps_topic_enum_and_confidence(self):
         message = ns(

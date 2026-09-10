@@ -39,9 +39,9 @@ class HistoryTests(unittest.TestCase):
             )
             db.execute(
                 """INSERT INTO events
-                   (event_id,message_id,robot_id,event_type,occurred_at,x,y,frame_id,risk_level,status,received_at)
-                   VALUES ('fire-001','fire-message-001','AMR1','FIRE','2026-09-05T02:00:00.000Z',
-                           13.0,9.0,'map','HIGH','REVIEWING','2026-09-05T02:00:01.000Z')"""
+                   (event_id,robot_id,event_type,occurred_at,x,y,frame_id,status,received_at)
+                   VALUES ('fire-001','AMR1','FIRE','2026-09-05T02:00:00.000Z',
+                           13.0,9.0,'map','REVIEWING','2026-09-05T02:00:01.000Z')"""
             )
             evidence = root / "evidence" / "fire-001.png"
             evidence.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 20)
@@ -114,7 +114,9 @@ class HistoryTests(unittest.TestCase):
         )
         self.assertNotIn("command-excluded", {row["record_id"] for row in payload["records"]})
         event = next(row for row in payload["records"] if row["record_type"] == "EVENT")
-        self.assertEqual((event["risk_label"], event["status_label"]), ("상", "확인중"))
+        self.assertEqual(event["status_label"], "확인중")
+        self.assertNotIn("risk_level", event)
+        self.assertNotIn("risk", payload["filters"])
         self.assertEqual(event["evidence_url"], "/api/events/fire-001/evidence")
 
     def test_type_robot_event_and_keyword_filters(self):
@@ -123,7 +125,6 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/history?type=VEHICLE_ACCESS").get_json()["total"], 1)
         self.assertEqual(self.client.get("/api/history?keyword=webcam1").get_json()["total"], 1)
         self.assertEqual(self.client.get("/api/history?type=HANDOVER&robot=AMR2").get_json()["total"], 1)
-        self.assertEqual(self.client.get("/api/history?risk=HIGH").get_json()["total"], 2)
         self.assertEqual(self.client.get("/api/history?status=REVIEWING").get_json()["total"], 2)
         memo = self.client.get("/api/history?keyword=%ED%98%84%EC%9E%A5").get_json()
         self.assertEqual((memo["total"], memo["records"][0]["record_type"]), (1, "EVENT_CHANGE"))
@@ -169,7 +170,7 @@ class HistoryTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(response.get_json()["error"], "invalid_filter")
         self.assertEqual(
-            self.client.get("/api/history?type=ROBOT_STATUS&risk=HIGH").get_json()["total"], 0
+            self.client.get("/api/history?type=ROBOT_STATUS&status=REVIEWING").get_json()["total"], 0
         )
 
     def test_pagination_and_html_navigation(self):
@@ -194,7 +195,7 @@ class HistoryTests(unittest.TestCase):
         second = self.client.get("/api/history?page=2").get_json()
         self.assertEqual((first["total"], len(first["records"]), first["pages"]), (59, 50, 2))
         self.assertEqual((second["page"], len(second["records"])), (2, 9))
-        page = self.client.get("/history?type=EVENT&risk=HIGH").get_data(as_text=True)
+        page = self.client.get("/history?type=EVENT&status=REVIEWING").get_data(as_text=True)
         self.assertIn("통합 이력 검색", page)
         self.assertIn("fire-001", page)
         self.assertIn("증거 이미지", page)
