@@ -1261,6 +1261,21 @@ flowchart TD
 - 검증: `tests/test_patrol_safety.py` 11개 통과. 별도 프로세스 DDS 시험 6개 통과. ROS 환경 전체 `tests/`는 **120개 시험과 86개 subtest 통과**했으며 callback 처리 실패와 DB 외래 키 오류는 0이었다.
 - 남은 일: 실제 상대 PC publisher·운영 domain 6·PC 간 네트워크 시험은 **NOT_RUN**이다.
 
+## 37. CCTV 영상 토픽명 정정과 영상 표시 개선 (2026-09-09)
+
+- 목적: 운영 domain 6 통합 시험에서 비전 PC가 실제로 발행하는 CCTV 영상 토픽은 `/vision/cctv/gate_image/compressed`·`/vision/cctv/center_image/compressed`였고, 등록표의 `gate/image/compressed`·`center/image/compressed`는 구독만 걸린 채 한 장도 받지 못했다. 같은 시험에서 웹캠 영상이 1 fps로 끊기고 위아래가 잘려 보이는 표시 문제를 함께 바로잡는다.
+- 변경 파일·함수: `app/ros/registry.py`의 `SUBSCRIPTIONS`와 `CAMERA_IDS_BY_TOPIC`이 밑줄 토픽명을 쓴다. `tests/test_ros_adapter.py`·`testkit/ros_topic_test.py`의 토픽명을 같이 바꿨다. `app/static/js/cameras.js`의 조회 주기를 1000 → 200 ms로 줄여 어댑터 수신 상한 `CAMERA_MAX_HZ=5.0`과 맞췄다. `app/static/css/dashboard.css`의 영상 `object-fit`을 `cover` → `contain`으로 바꿔 4:3 웹캠 프레임이 16:9 틀에서 잘리지 않게 했다.
+- 설계 이유: 화면 fps는 발행·수신 상한·브라우저 조회 중 가장 낮은 값에 묶인다. 조회 1 Hz가 병목이었고 수신 상한 5 Hz는 interfaces.md 2.5절 계약 그대로 둔다. `contain`은 여백이 생기지만 어떤 비율의 프레임도 잘라내지 않으므로 비전 캡처 해상도가 확정되기 전까지 안전한 기본값이다.
+- 남은 일: CCTV 영상 토픽은 `interfaces.md`에 행이 없고 발행 노드도 `src/patrol_vision`에 없다. 비전 팀에 토픽명·타입·QoS·캡처 해상도를 계약에 적고 발행 코드를 저장소에 올려 달라고 요청한다. 웹캠이 16:9로 맞춰지면 `contain` 여백은 사라진다.
+
+## 38. 로봇 상태 이력 샘플링·보존 정리 (2026-09-09)
+
+- 목적: `robot_status_history`가 유일하게 무한 증가하는 표였다. 계약 2 Hz × AMR 2대를 전부 남기면 하루 약 345,000행이 쌓이고, 가상 토픽 60초 시험에서도 464행이 들어왔다. 화면의 지나온 길(최근 120행)·통합 이력 검색·재전송 판정이 쓰는 범위는 며칠이면 충분하므로 표 크기를 보존 기간 안에 묶는다.
+- 변경 파일·함수: `app/__init__.py`에 `ROBOT_STATUS_HISTORY_MIN_INTERVAL_SECONDS=1.0`·`ROBOT_STATUS_HISTORY_RETENTION_DAYS=7`을 추가했다. `app/models/robot.py::store_status`는 최신 행은 항상 갱신하되 로봇별 직전 이력과 1초 미만 간격이면 이력 INSERT를 건너뛰고, 삭제 기준 시각을 받으면 같은 transaction에서 오래된 행을 지운다. 반환 dict에 `history_recorded`·`history_pruned`를 넣는다. `app/services/robot_service.py::_history_cutoff`가 앱 객체(`current_app.extensions`)에 마지막 정리 시각을 기억해 1분에 한 번만 DELETE를 돌린다. `tests/test_robot_status.py`에 샘플링·보존 시험 2개를 추가했고, 행 수를 정확히 세는 `tests/test_map.py`·`testkit/load_test.py`는 샘플링을 0으로 끈다.
+- 설계 이유: 샘플링은 저장 경로 안에서 판단하므로 별도 스케줄러·프로세스가 없고, 정리는 `idx_status_robot_time` 인덱스로 observed_at 범위 삭제가 빨라 수신 콜백을 막지 않는다. 이력에 남지 않은 관측이 재전송되면 최신 시각보다 오래된 메시지로 판정돼 거부되는데, RobotStatus는 ack 없는 상태 토픽이라 재전송이 없어 영향이 없다. 두 값을 0으로 두면 이전과 같이 전부 보존한다.
+- 효과: 2 Hz 수신이 1 Hz 기록으로 줄고 7일 보존이면 표는 약 120만 행 근처에서 고정된다. 기본값 유지 시 하루 증가량은 345,000행 → 172,800행이며 8일째부터는 증가하지 않는다.
+- 검증: `tests/` 122개 통과(skip 7). ROS 환경 `testkit/ros_topic_test.py`·실제 publisher 시험은 **NOT_RUN**이다.
+- 남은 일: `maps`도 `/map` 재발행마다 행·PNG가 남는다. 최신 1행 UPSERT와 이전 PNG 삭제로 바꾸는 정리는 별도 작업이다. `commands`·`handovers` 미사용 표 제거도 별도 결정이다.
 ## 39. ReportDetection 서비스 서버 (2026-09-09)
 
 - 목적: 확정 사건과 증거 사진을 토픽 2종 + 회신 토픽 대신 ROS 2 서비스 호출 한 번으로 받는다. 요청 필드는 로봇 ID·사건 ID·이미지·시각·위치 5개로 확정했고, 응답은 `status`(0 저장·1 중복·2 거부)와 `detail`(거부 사유)이다. 발행 측이 System monitor 규격에 맞추기로 한 협의에 따라 서버를 먼저 구현하고 규격을 요청서로 보낸다.

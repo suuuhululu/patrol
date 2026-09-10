@@ -17,6 +17,11 @@ def create_app(test_config=None):
         SECRET_KEY=os.environ.get("SYSMON_SECRET_KEY"),
         ROBOT_API_KEY=os.environ.get("SYSMON_ROBOT_API_KEY"),
         ROBOT_OFFLINE_AFTER_SECONDS=15,
+        # [상태 이력 상한] 계약 2 Hz × 로봇 2대를 전부 남기면 하루 약 35만 행이 쌓인다.
+        # 최신 표는 매번 갱신하되 이력 표는 로봇별 직전 이력과 1초 이상 떨어진 관측만 남기고,
+        # 보존 기간이 지난 행은 저장 경로에서 1분에 한 번 지운다. 0 또는 None이면 끈다.
+        ROBOT_STATUS_HISTORY_MIN_INTERVAL_SECONDS=1.0,
+        ROBOT_STATUS_HISTORY_RETENTION_DAYS=7,
         MAP_FRAME_ID="map",
         # [지도 크기] 실제 Nav2 지도는 100m×100m·5cm면 400만 셀이다. 받아서 표시하되
         # 화면용 PNG는 아래 최대 변 길이로 솎아 저장한다.
