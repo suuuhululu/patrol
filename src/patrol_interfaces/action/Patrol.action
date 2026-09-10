@@ -1,0 +1,58 @@
+# Control Server -> AMR mission_supervisor.
+# Goal 수락 뒤에도 유효한 DriveToken을 받기 전에는 주행하지 않는다.
+
+# Goal
+string command_id
+string robot_id
+---
+# Result
+uint8 SUCCEEDED=0
+uint8 FAILED=1
+uint8 CANCELED=2
+
+uint16 REASON_CONTROL_CANCELED=1
+uint16 REASON_SAFETY_STOP=2
+uint16 REASON_TOKEN_EXPIRED=3
+uint16 REASON_INVALID_COMMAND=4
+uint16 REASON_NAVIGATION_FAILED=5
+uint16 REASON_OBSTACLE_BLOCKED=6
+uint16 REASON_LOCALIZATION_LOST=7
+uint16 REASON_DOCKING_FAILED=8
+uint16 REASON_TIMEOUT=9
+uint16 REASON_INTERNAL_ERROR=10
+
+uint8 outcome
+uint16 reason_code
+string reason
+---
+# Feedback
+uint8 WAITING_FOR_TOKEN=1
+uint8 UNDOCKING=2
+uint8 INITIAL_POSE_READY=3
+uint8 PATROLLING=4
+uint8 MOVING_TO_SAFE_ZONE=5
+uint8 DETECTION_PROCESSING=6
+uint8 DETECTION_CONFIRMED=7
+uint8 RESUMING=8
+uint8 DOCKING=9
+uint8 BLOCKED=10
+uint8 WAYPOINT_REACHED=11
+
+uint8 COMMAND_NONE=0
+uint8 COMMAND_ACCEPTED=1
+uint8 COMMAND_EXECUTING=2
+uint8 COMMAND_REJECTED=3
+
+uint8 EVENT_FIRE=1
+uint8 EVENT_LEAK=2
+uint8 EVENT_OBSTACLE=3
+
+uint8 task_state
+string current_waypoint_id
+string last_command_id
+uint8 command_status
+bool token_valid
+uint32 accepted_token_sequence
+geometry_msgs/PoseStamped current_pose
+string event_id
+uint8 event_type
