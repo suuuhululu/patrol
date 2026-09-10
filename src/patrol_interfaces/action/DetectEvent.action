@@ -1,0 +1,28 @@
+# AMR 내부 detection/alignment Action.
+# detection_id는 확정 뒤 ReportDetection.event_id와 Patrol Feedback.event_id로 사용한다.
+
+# Goal
+uint8 FIRE=1
+uint8 LEAK=2
+uint8 OBSTACLE=3
+
+string detection_id
+uint8 event_type
+float32 min_confidence
+---
+# Result
+bool confirmed
+string robot_id
+geometry_msgs/PoseStamped current_pose
+uint8 event_type
+float32 average_confidence
+builtin_interfaces/Time event_time
+---
+# Feedback
+uint8 ALIGNING=1
+uint8 VERIFYING=2
+
+uint8 state
+float32 confirm_elapsed
+float32 current_confidence
+float32 average_confidence

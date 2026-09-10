@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the current patrol_interfaces v1.x source and print its fingerprint."""
+"""Verify the patrol_interfaces 2.0.0 source and optional installed types."""
 
 from __future__ import annotations
 
@@ -13,17 +13,19 @@ import sys
 import xml.etree.ElementTree as ET
 
 
-EXPECTED_VERSION = "1.1.0"
-EXPECTED_MESSAGES = (
+EXPECTED_VERSION = "2.0.0"
+EXPECTED_INTERFACES = {
+    "action": ("DetectEvent", "Patrol"),
+    "msg": ("CameraState", "DriveToken", "EStop", "PatrolCommand"),
+    "srv": ("ReportDetection",),
+}
+REMOVED_MESSAGES = (
     "AlignmentStatus",
-    "CameraState",
     "CommandCheck",
     "ControlHeartbeat",
     "DetectionCandidate",
     "DetectionEvent",
     "DetectionResult",
-    "DriveToken",
-    "EStop",
     "EvidenceChunk",
     "IngestionAck",
     "KeepoutStatus",
@@ -32,7 +34,6 @@ EXPECTED_MESSAGES = (
     "PatrolVisit",
     "RobotStatus",
 )
-REMOVED_MESSAGES = ("EStopState", "MissionCommandAck")
 
 
 def _require(condition: bool, message: str) -> None:
@@ -41,7 +42,7 @@ def _require(condition: bool, message: str) -> None:
 
 
 def _schema_lines(data: bytes) -> list[str]:
-    """Return normalized ROS declarations, excluding comments and blank lines."""
+    """Return normalized ROS declarations and section delimiters."""
     lines = []
     for raw_line in data.decode("utf-8").splitlines():
         declaration = raw_line.partition("#")[0].strip()
@@ -55,10 +56,20 @@ def _schema_digest(data: bytes) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def _source_declarations(data: bytes) -> tuple[dict[str, str], dict[str, object]]:
+def _schema_sections(data: bytes) -> list[list[str]]:
+    sections: list[list[str]] = [[]]
+    for declaration in _schema_lines(data):
+        if declaration == "---":
+            sections.append([])
+        else:
+            sections[-1].append(declaration)
+    return sections
+
+
+def _declarations(lines: list[str]) -> tuple[dict[str, str], dict[str, object]]:
     fields: dict[str, str] = {}
     constants: dict[str, object] = {}
-    for declaration in _schema_lines(data):
+    for declaration in lines:
         type_name, name_and_value = declaration.split(maxsplit=1)
         if "=" in name_and_value:
             name, value = name_and_value.split("=", maxsplit=1)
@@ -81,93 +92,122 @@ def _source_declarations(data: bytes) -> tuple[dict[str, str], dict[str, object]
 
 def _source_report(root: Path) -> dict[str, object]:
     package = root / "src" / "patrol_interfaces"
-    msg_dir = package / "msg"
     package_version = ET.parse(package / "package.xml").getroot().findtext("version")
     marker_version = (package / "INTERFACE_VERSION").read_text(encoding="utf-8").strip()
     _require(package_version == EXPECTED_VERSION, f"package.xml version={package_version!r}")
     _require(marker_version == EXPECTED_VERSION, f"INTERFACE_VERSION={marker_version!r}")
 
-    actual = tuple(sorted(path.stem for path in msg_dir.glob("*.msg")))
-    _require(actual == EXPECTED_MESSAGES, f"message set mismatch: {actual!r}")
-    for removed in REMOVED_MESSAGES:
-        _require(not (msg_dir / f"{removed}.msg").exists(), f"removed message exists: {removed}")
-
     cmake = (package / "CMakeLists.txt").read_text(encoding="utf-8")
-    for name in EXPECTED_MESSAGES:
-        _require(cmake.count(f'"msg/{name}.msg"') == 1, f"CMake registration mismatch: {name}")
-
-    required_fragments = {
-        "CommandCheck": ("uint8 CHECK_UNKNOWN=0", "uint8 CHECK_REJECTED=3"),
-        "ControlHeartbeat": ("string control_session_id", "uint64 sequence"),
-        "EStop": ("string TARGET_ALL=\"all\"", "uint8 ESTOP_REASON_SYSTEM_FAULT=6"),
-        "MissionCommand": ("geometry_msgs/PoseStamped target_pose",),
-        "RobotStatus": ("uint8 SAFETY_UNKNOWN=0", "uint8 SAFETY_ERROR=5"),
-        "CameraState": ("uint8 STATE_UNKNOWN=0", "uint8 STATE_EXITING=4"),
-        "DetectionCandidate": (
-            "uint8 UNKNOWN=0",
-            "uint8 FIRE=1",
-            "uint8 LEAK=2",
-            "uint8 OBSTACLE=3",
-        ),
-        "DetectionEvent": (
-            "uint8 EVENT_UNKNOWN=0",
-            "uint8 FIRE=1",
-            "uint8 LEAK=2",
-            "uint8 OBSTACLE=3",
-        ),
-        "DetectionResult": (
-            "uint8 CONFIRMED=0",
-            "uint8 VERIFY_FAILED=1",
-            "uint8 INTERNAL_ERROR=2",
-        ),
-    }
-    forbidden_fragments = {
-        "EStop": ("bool latched", "manual_reset_required"),
-        "MissionCommand": ("string parameters_json",),
-        "DetectionEvent": ("uint8 risk_level", "RISK_UNKNOWN", "LIGHTING", "FACILITY_DAMAGE"),
-    }
     hashes: dict[str, str] = {}
     combined = hashlib.sha256()
-    for name in EXPECTED_MESSAGES:
-        data = (msg_dir / f"{name}.msg").read_bytes()
-        text = data.decode("utf-8")
-        for fragment in required_fragments.get(name, ()):
-            _require(fragment in text, f"{name} missing {fragment!r}")
-        for fragment in forbidden_fragments.get(name, ()):
-            _require(fragment not in text, f"{name} contains removed {fragment!r}")
-        digest = _schema_digest(data)
-        hashes[name] = digest
-        combined.update(f"{name}:{digest}\n".encode())
+    extensions = {"action": "action", "msg": "msg", "srv": "srv"}
+    expected_section_counts = {"action": 3, "msg": 1, "srv": 2}
+
+    for kind, names in EXPECTED_INTERFACES.items():
+        source_dir = package / kind
+        extension = extensions[kind]
+        actual = tuple(sorted(path.stem for path in source_dir.glob(f"*.{extension}")))
+        _require(actual == names, f"{kind} set mismatch: {actual!r}")
+        for name in names:
+            relative = f"{kind}/{name}.{extension}"
+            _require(cmake.count(f'"{relative}"') == 1, f"CMake registration mismatch: {relative}")
+            data = (package / relative).read_bytes()
+            sections = _schema_sections(data)
+            _require(
+                len(sections) == expected_section_counts[kind],
+                f"section count mismatch: {relative}",
+            )
+            digest = _schema_digest(data)
+            hashes[relative] = digest
+            combined.update(f"{relative}:{digest}\n".encode())
+
+    msg_dir = package / "msg"
+    for name in REMOVED_MESSAGES:
+        _require(not (msg_dir / f"{name}.msg").exists(), f"removed message exists: {name}")
+
+    required_fragments = {
+        "action/Patrol.action": (
+            "uint8 WAYPOINT_REACHED=11",
+            "uint8 outcome",
+            "string current_waypoint_id",
+        ),
+        "action/DetectEvent.action": (
+            "string detection_id",
+            "bool confirmed",
+            "float32 confirm_elapsed",
+        ),
+        "msg/PatrolCommand.msg": (
+            "uint8 MOVE_TO_SAFE_ZONE=1",
+            "uint8 RESUME_PATROL=2",
+        ),
+        "msg/DriveToken.msg": (
+            "string token",
+            "uint32 sequence",
+        ),
+        "msg/CameraState.msg": (
+            "uint8 STATE_UNKNOWN=0",
+            "uint8 STATE_EXITING=4",
+        ),
+        "srv/ReportDetection.srv": (
+            "uint8[] image",
+            "uint8 STORED=0",
+            "uint8 REJECTED=2",
+        ),
+    }
+    for relative, fragments in required_fragments.items():
+        text = (package / relative).read_text(encoding="utf-8")
+        for fragment in fragments:
+            _require(fragment in text, f"{relative} missing {fragment!r}")
 
     return {
-        "contract_version": "v1.1",
+        "contract_version": "v2.0",
         "package_version": EXPECTED_VERSION,
-        "message_count": len(EXPECTED_MESSAGES),
+        "interface_count": sum(len(names) for names in EXPECTED_INTERFACES.values()),
         "hash_scope": "normalized ROS declarations; comments and blank lines excluded",
-        "message_manifest_sha256": combined.hexdigest(),
-        "messages": hashes,
+        "interface_manifest_sha256": combined.hexdigest(),
+        "interfaces": hashes,
     }
 
 
-def _verify_installed(report: dict[str, object], root: Path) -> None:
-    module = importlib.import_module("patrol_interfaces.msg")
-    missing = [name for name in EXPECTED_MESSAGES if not hasattr(module, name)]
-    removed = [name for name in REMOVED_MESSAGES if hasattr(module, name)]
-    _require(not missing, f"installed messages missing: {missing}")
-    _require(not removed, f"removed messages still installed: {removed}")
-    source_dir = root / "src" / "patrol_interfaces" / "msg"
-    for name in EXPECTED_MESSAGES:
-        source_data = (source_dir / f"{name}.msg").read_bytes()
-        expected_fields, expected_constants = _source_declarations(source_data)
-        installed_type = getattr(module, name)
-        actual_fields = installed_type.get_fields_and_field_types()
-        _require(actual_fields == expected_fields, f"installed field mismatch: {name}")
+def _verify_type(source: Path, generated_types: tuple[type, ...]) -> None:
+    sections = _schema_sections(source.read_bytes())
+    _require(len(sections) == len(generated_types), f"section mismatch: {source.name}")
+    for lines, generated_type in zip(sections, generated_types, strict=True):
+        expected_fields, expected_constants = _declarations(lines)
+        _require(
+            generated_type.get_fields_and_field_types() == expected_fields,
+            f"installed field mismatch: {generated_type.__name__}",
+        )
         for constant, expected in expected_constants.items():
             _require(
-                getattr(installed_type, constant, object()) == expected,
-                f"installed constant mismatch: {name}.{constant}",
+                getattr(generated_type, constant, object()) == expected,
+                f"installed constant mismatch: {generated_type.__name__}.{constant}",
             )
-    _require(isinstance(report.get("messages"), dict), "source hash report missing")
+
+
+def _verify_installed(root: Path) -> None:
+    package = root / "src" / "patrol_interfaces"
+    action_module = importlib.import_module("patrol_interfaces.action")
+    msg_module = importlib.import_module("patrol_interfaces.msg")
+    srv_module = importlib.import_module("patrol_interfaces.srv")
+
+    for name in EXPECTED_INTERFACES["action"]:
+        action_type = getattr(action_module, name)
+        _verify_type(
+            package / "action" / f"{name}.action",
+            (action_type.Goal, action_type.Result, action_type.Feedback),
+        )
+    for name in EXPECTED_INTERFACES["msg"]:
+        _verify_type(package / "msg" / f"{name}.msg", (getattr(msg_module, name),))
+    for name in EXPECTED_INTERFACES["srv"]:
+        srv_type = getattr(srv_module, name)
+        _verify_type(
+            package / "srv" / f"{name}.srv",
+            (srv_type.Request, srv_type.Response),
+        )
+
+    old_installed = [name for name in REMOVED_MESSAGES if hasattr(msg_module, name)]
+    _require(not old_installed, f"removed messages still installed: {old_installed}")
 
 
 def main() -> int:
@@ -179,9 +219,9 @@ def main() -> int:
         root = args.root.resolve()
         report = _source_report(root)
         if args.installed:
-            _verify_installed(report, root)
+            _verify_installed(root)
             report["installed_import"] = "PASS"
-    except (OSError, ValueError, ET.ParseError, ImportError) as exc:
+    except (AttributeError, ImportError, OSError, ValueError, ET.ParseError) as exc:
         print(json.dumps({"result": "FAIL", "error": str(exc)}, ensure_ascii=False, indent=2))
         return 1
     report["result"] = "PASS"
