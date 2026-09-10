@@ -41,7 +41,6 @@ def index():
     return render_template(
         "history.html", result=result, error=error,
         type_labels=history_service.RECORD_TYPE_LABELS,
-        risk_labels=event_service.RISK_LABELS,
         status_labels=event_service.STATUS_LABELS,
     ), 400 if error else 200
 
@@ -58,7 +57,7 @@ def search_api():
     filters = result["filters"]
     result["filters"] = {
         "type": filters["record_type"], "robot": filters["robot_id"] or "ALL",
-        "risk": filters["risk_level"] or "ALL", "status": filters["event_status"] or "ALL",
+        "status": filters["event_status"] or "ALL",
         "from": filters["from_date"], "to": filters["to_date"], "keyword": filters["keyword"],
     }
     return jsonify(result)

@@ -2,17 +2,10 @@
 
 
 def _qos_profiles():
-    """interfaces.md v1.0에서 현재 활성화한 토픽 QoS를 rclpy 객체로 만든다."""
+    """현재 활성화한 토픽 QoS를 rclpy 객체로 만든다."""
     from rclpy.duration import Duration
     from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
-    robot_status = QoSProfile(
-        history=HistoryPolicy.KEEP_LAST,
-        depth=5,
-        reliability=ReliabilityPolicy.RELIABLE,
-        durability=DurabilityPolicy.VOLATILE,
-    )
-    robot_status.deadline = Duration(seconds=0.5)
     map_qos = QoSProfile(
         history=HistoryPolicy.KEEP_LAST,
         depth=1,
@@ -61,18 +54,36 @@ def _qos_profiles():
         reliability=ReliabilityPolicy.RELIABLE,
         durability=DurabilityPolicy.TRANSIENT_LOCAL,
     )
+    # [Action 숨은 토픽] rcl_action 기본값에 맞춘다. 피드백은 RELIABLE·VOLATILE·KEEP_LAST(10),
+    # 상태는 RELIABLE·TRANSIENT_LOCAL이라 늦게 켜도 보존 중인 목표 상태를 바로 받는다.
+    action_feedback = QoSProfile(
+        history=HistoryPolicy.KEEP_LAST,
+        depth=10,
+        reliability=ReliabilityPolicy.RELIABLE,
+        durability=DurabilityPolicy.VOLATILE,
+    )
+    action_status = QoSProfile(
+        history=HistoryPolicy.KEEP_LAST,
+        depth=1,
+        reliability=ReliabilityPolicy.RELIABLE,
+        durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    )
+    # [배터리] Create 3는 센서용 BEST_EFFORT로 발행한다. BEST_EFFORT 구독은 RELIABLE 발행과도 맞는다.
+    battery = QoSProfile(
+        history=HistoryPolicy.KEEP_LAST,
+        depth=1,
+        reliability=ReliabilityPolicy.BEST_EFFORT,
+        durability=DurabilityPolicy.VOLATILE,
+    )
     return {
-        "patrol_visit": reliable_events,
-        "patrol_report": reliable_events,
-        # [상태 유지] 늦게 접속한 관제도 마지막 Keepout·E-stop 상태를 즉시 받는다.
-        "keepout_status": state_snapshot,
+        "patrol_feedback": action_feedback,
+        "patrol_goal_status": action_status,
+        "battery_state": battery,
+        # [상태 유지] 늦게 접속한 관제도 마지막 E-stop 상태를 즉시 받는다.
         "estop": state_snapshot,
         "patrol_allowed_writer": permit_writer,
-        "robot_status": robot_status, "map": map_qos,
+        "map": map_qos,
         "camera_frame": image, "costmap": costmap,
-        "detection_event": reliable_events,
-        "evidence_chunk": reliable_events,
-        "ingestion_ack": reliable_events,
         "camera_state": reliable_events,
         "patrol_allowed": permit,
     }

@@ -19,5 +19,5 @@ def patrol_status():
 @patrol_bp.get("/safety/status")
 @login_required
 def safety_status():
-    # [20단계: 안전 관측] Keepout·E-stop도 표시 전용이며 관제는 명령을 만들지 않는다.
+    # [20단계: 안전 관측] E-stop도 표시 전용이며 관제는 명령을 만들지 않는다.
     return jsonify(safety_service.dashboard_safety())

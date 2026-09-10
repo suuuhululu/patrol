@@ -1,8 +1,6 @@
-"""KeepoutStatus·EStop 계약 검증과 안전 상태 화면 표시 처리."""
+"""EStop 계약 검증과 안전 상태 화면 표시 처리."""
 
 from datetime import datetime, timedelta, timezone
-import re
-import uuid
 
 from flask import current_app
 
@@ -10,16 +8,6 @@ from ..models import safety as safety_model
 from ..ros.registry import ESTOP_REASONS, ESTOP_TARGETS
 
 
-UUID_V4_PATTERN = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-)
-ROBOT_NAMES = {"AMR1": "로봇 1", "AMR2": "로봇 2"}
-KEEPOUT_STATES = {
-    "UNKNOWN": "확인 안 됨", "DISABLED": "해제", "APPLIED": "적용",
-    "ROLLED_BACK": "되돌림", "ROLLBACK_FAILED": "되돌리기 실패",
-}
-# 되돌리기 실패는 로봇이 금지 구역 설정을 원래대로 되돌리지 못한 상태다. 화면에서 경고로 구분한다.
-KEEPOUT_WARNING_STATES = {"ROLLBACK_FAILED"}
 # [계약] interfaces.md 3.1절 EStop 대상과 대표 원인(2026-09-08). 관제가 정한 값만 표시한다.
 ESTOP_TARGET_NAMES = {"robot1": "로봇 1", "robot6": "로봇 2", "all": "전체"}
 ESTOP_REASON_LABELS = {
@@ -31,15 +19,7 @@ ESTOP_REASON_LABELS = {
 
 
 class SafetyValidationError(ValueError):
-    """Keepout·E-stop 계약 필드가 확정 형식과 다를 때 사용한다."""
-
-
-def _uuid_v4(value, field):
-    if not isinstance(value, str) or not UUID_V4_PATTERN.fullmatch(value):
-        raise SafetyValidationError(f"{field}는 소문자 UUID v4여야 합니다.")
-    if str(uuid.UUID(value, version=4)) != value:
-        raise SafetyValidationError(f"{field}는 소문자 UUID v4여야 합니다.")
-    return value
+    """E-stop 계약 필드가 확정 형식과 다를 때 사용한다."""
 
 
 def _timestamp(value, now, field):
@@ -60,43 +40,6 @@ def _flag(payload, field):
     if not isinstance(value, bool):
         raise SafetyValidationError(f"{field}는 Bool이어야 합니다.")
     return int(value)
-
-
-def _reason_code(payload):
-    value = payload.get("reason_code", 0)
-    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 65535:
-        raise SafetyValidationError("reason_code는 0에서 65535 사이의 정수여야 합니다.")
-    return value
-
-
-def validate_keepout(payload, now=None):
-    """KeepoutStatus를 저장 가능한 계약 값으로 정규화한다."""
-    if not isinstance(payload, dict):
-        raise SafetyValidationError("KeepoutStatus 객체가 필요합니다.")
-    current = now or datetime.now(timezone.utc)
-    robot_id = payload.get("robot_id")
-    if robot_id not in ROBOT_NAMES:
-        raise SafetyValidationError("robot_id는 AMR1 또는 AMR2여야 합니다.")
-    state = payload.get("state")
-    if state not in KEEPOUT_STATES:
-        raise SafetyValidationError("state는 Keepout 계약 enum 중 하나여야 합니다.")
-    transaction_id = payload.get("transaction_id", "")
-    if not isinstance(transaction_id, str):
-        raise SafetyValidationError("transaction_id는 문자열이어야 합니다.")
-    return {
-        "robot_id": robot_id,
-        "message_id": _uuid_v4(payload.get("message_id"), "message_id"),
-        "transaction_id": transaction_id.strip(),
-        "state": state,
-        "global_enabled": _flag(payload, "global_enabled"),
-        "local_enabled": _flag(payload, "local_enabled"),
-        "reason_code": _reason_code(payload),
-        "detail": str(payload.get("detail", "")),
-        "observed_at": _timestamp(payload.get("observed_at"), current, "observed_at"),
-        "received_at": current.astimezone(timezone.utc).isoformat(
-            timespec="milliseconds"
-        ).replace("+00:00", "Z"),
-    }
 
 
 def validate_estop(payload, now=None):
@@ -125,10 +68,6 @@ def validate_estop(payload, now=None):
     }
 
 
-def receive_keepout(payload, now=None):
-    return safety_model.store_keepout(validate_keepout(payload, now))
-
-
 def receive_estop(payload, now=None):
     return safety_model.store_estop(validate_estop(payload, now))
 
@@ -146,21 +85,9 @@ def _seconds_since(value, now):
 
 
 def dashboard_safety(now=None):
-    """Keepout·E-stop 최신 상태와 최근 변경 이력을 화면용 JSON으로 만든다."""
+    """E-stop 최신 상태와 최근 변경 이력을 화면용 JSON으로 만든다."""
     current = now or datetime.now(timezone.utc)
     timeout = current_app.config["ESTOP_STALE_AFTER_SECONDS"]
-    keepouts = []
-    for row in safety_model.latest_keepouts():
-        keepouts.append({
-            "robot_id": row["robot_id"],
-            "robot_name": ROBOT_NAMES.get(row["robot_id"], row["robot_id"]),
-            "state": row["state"], "state_label": KEEPOUT_STATES[row["state"]],
-            "warning": row["state"] in KEEPOUT_WARNING_STATES,
-            "global_enabled": bool(row["global_enabled"]),
-            "local_enabled": bool(row["local_enabled"]),
-            "reason_code": row["reason_code"], "detail": row["detail"],
-            "observed_label": _display_time(row["observed_at"]),
-        })
     estop = _estop_view(safety_model.latest_estops(), current, timeout)
     history = [{
         "target_robot_id": row["target_robot_id"],
@@ -170,15 +97,7 @@ def dashboard_safety(now=None):
         "reason_code": row["reason"], "reason": _reason_label(row["reason"]),
         "observed_label": _display_time(row["observed_at"]),
     } for row in safety_model.recent_estop_history()]
-    warning_count = sum(1 for item in keepouts if item["warning"])
-    return {
-        "keepouts": keepouts, "estop": estop, "estop_history": history,
-        "keepout_warning_count": warning_count,
-        "keepout_state_label": (
-            "되돌리기 실패" if warning_count
-            else (keepouts[0]["state_label"] if keepouts else "Keepout 수신 대기")
-        ),
-    }
+    return {"estop": estop, "estop_history": history}
 
 
 def _reason_label(value):
@@ -190,7 +109,7 @@ def _estop_view(rows, current, timeout):
     """대상별 마지막 EStop을 화면 요약으로 만든다.
 
     `all` 대상이 활성이면 두 로봇 모두 정지 대상이다. 정지 명령이 있었다는 사실만 보여 주고,
-    실제 정지 여부는 RobotStatus의 safety_state·motion_stopped로 따로 표시한다.
+    실제 정지 여부는 로봇 쪽 상태로 따로 확인해야 한다(v2에는 안전 상태 토픽이 없다).
     """
     by_target = {row["target_robot_id"]: row for row in rows}
     if not by_target:

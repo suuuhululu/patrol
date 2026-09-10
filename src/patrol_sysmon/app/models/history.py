@@ -37,11 +37,8 @@ def _where(clauses):
 def _event_query(filters):
     clauses, parameters = _common_conditions(
         filters, "e.occurred_at", "e.robot_id = ?",
-        ("e.event_id", "e.message_id", "e.event_type", "e.frame_id", "r.name"),
+        ("e.event_id", "e.event_type", "e.frame_id", "r.name"),
     )
-    if filters["risk_level"]:
-        clauses.append("e.risk_level = ?")
-        parameters.append(filters["risk_level"])
     if filters["event_status"]:
         clauses.append("e.status = ?")
         parameters.append(filters["event_status"])
@@ -51,7 +48,7 @@ def _event_query(filters):
                e.event_type AS title_code,
                CASE WHEN e.x IS NULL OR e.y IS NULL THEN '좌표 없음'
                     ELSE COALESCE(e.frame_id, '좌표계 없음') || printf(' (%.2f, %.2f)', e.x, e.y) END AS summary,
-               e.risk_level, e.status AS status_code, e.event_id,
+               e.status AS status_code, e.event_id,
                NULL AS actor,
                EXISTS(SELECT 1 FROM event_evidence evidence WHERE evidence.event_id=e.event_id) AS has_evidence
           FROM events e JOIN robots r ON r.robot_id=e.robot_id
@@ -64,9 +61,6 @@ def _event_change_query(filters):
         filters, "c.changed_at", "e.robot_id = ?",
         ("e.event_id", "c.memo", "c.previous_status", "c.new_status", "u.username", "r.name"),
     )
-    if filters["risk_level"]:
-        clauses.append("e.risk_level = ?")
-        parameters.append(filters["risk_level"])
     if filters["event_status"]:
         clauses.append("c.new_status = ?")
         parameters.append(filters["event_status"])
@@ -76,7 +70,7 @@ def _event_change_query(filters):
                'EVENT_CHANGE' AS title_code,
                e.event_id || ' · ' || c.previous_status || ' → ' || c.new_status ||
                     CASE WHEN c.memo='' THEN '' ELSE ' · ' || c.memo END AS summary,
-               e.risk_level, c.new_status AS status_code, e.event_id,
+               c.new_status AS status_code, e.event_id,
                u.username AS actor,
                EXISTS(SELECT 1 FROM event_evidence evidence WHERE evidence.event_id=e.event_id) AS has_evidence
           FROM event_changes c
@@ -101,7 +95,7 @@ def _robot_status_query(filters):
                h.mission_status || ' · ' || h.connection_status ||
                CASE WHEN h.x IS NULL OR h.y IS NULL THEN ''
                     ELSE ' · ' || COALESCE(h.frame_id, '좌표계 없음') || printf(' (%.2f, %.2f)', h.x, h.y) END AS summary,
-               NULL AS risk_level, h.mission_status AS status_code, NULL AS event_id,
+               h.mission_status AS status_code, NULL AS event_id,
                NULL AS actor, 0 AS has_evidence
           FROM robot_status_history h JOIN robots r ON r.robot_id=h.robot_id
     """ + _where(clauses)
@@ -129,7 +123,7 @@ def _patrol_query(filters):
                p.planned_visit_count || ' · 관측점 ' ||
                COALESCE((SELECT GROUP_CONCAT(pv.waypoint_id, ', ')
                            FROM patrol_visits pv WHERE pv.patrol_id=p.patrol_id), '없음') AS summary,
-               NULL AS risk_level, p.result AS status_code, NULL AS event_id,
+               p.result AS status_code, NULL AS event_id,
                NULL AS actor, 0 AS has_evidence
           FROM patrol_runs p JOIN robots r ON r.robot_id=p.robot_id
     """ + _where(clauses)
@@ -147,7 +141,7 @@ def _patrol_visit_query(filters):
                'PATROL_VISIT' AS title_code,
                v.waypoint_id || CASE WHEN v.patrol_id = '' THEN ''
                                      ELSE ' · 순찰 ' || v.patrol_id END AS summary,
-               NULL AS risk_level, v.result AS status_code, NULL AS event_id,
+               v.result AS status_code, NULL AS event_id,
                NULL AS actor, 0 AS has_evidence
           FROM patrol_visits v JOIN robots r ON r.robot_id=v.robot_id
     """ + _where(clauses)
@@ -182,7 +176,6 @@ def _estop_query(filters):
                '안전 제어 · ' || {ESTOP_TARGET_SQL} AS robot_name, 'ESTOP' AS title_code,
                CASE WHEN s.active = 1 THEN '비상정지 활성' ELSE '비상정지 해제' END ||
                CASE WHEN s.active = 1 THEN ' · ' || {ESTOP_REASON_SQL} ELSE '' END AS summary,
-               NULL AS risk_level,
                CASE WHEN s.active = 1 THEN 'ACTIVE' ELSE 'CLEARED' END AS status_code,
                NULL AS event_id, 'safety_arbiter' AS actor, 0 AS has_evidence
           FROM estop_history s
@@ -202,7 +195,7 @@ def _handover_query(filters):
                source.name || ' → ' || target.name AS robot_name,
                'HANDOVER' AS title_code,
                h.handover_id || CASE WHEN COALESCE(h.reason, '')='' THEN '' ELSE ' · ' || h.reason END AS summary,
-               NULL AS risk_level, h.status AS status_code, NULL AS event_id,
+               h.status AS status_code, NULL AS event_id,
                NULL AS actor, 0 AS has_evidence
           FROM handovers h
           JOIN robots source ON source.robot_id=h.from_robot_id
@@ -222,7 +215,7 @@ def _vehicle_access_query(filters):
                CASE v.camera_id WHEN 'webcam1' THEN '고정 웹캠 1' ELSE '고정 웹캠 2' END AS robot_name,
                'VEHICLE_ACCESS' AS title_code,
                CASE v.direction WHEN 'ENTRY' THEN '입차' ELSE '출차' END || ' · ' || v.camera_id AS summary,
-               NULL AS risk_level, v.direction AS status_code, NULL AS event_id,
+               v.direction AS status_code, NULL AS event_id,
                NULL AS actor, 0 AS has_evidence
           FROM vehicle_access_logs v
     """ + _where(clauses)
@@ -240,7 +233,7 @@ def _cctv_state_query(filters):
                CASE c.camera_id WHEN 'gate_cam' THEN '게이트 CCTV' ELSE '센터 CCTV' END AS robot_name,
                'CCTV_STATE' AS title_code,
                c.state || printf(' · confidence %.2f', c.confidence) AS summary,
-               NULL AS risk_level, c.state AS status_code, NULL AS event_id,
+               c.state AS status_code, NULL AS event_id,
                NULL AS actor, 0 AS has_evidence
           FROM cctv_state_events c
     """ + _where(clauses)
@@ -258,7 +251,6 @@ def _patrol_permit_query(filters):
                'CCTV cam_master' AS robot_name,
                'PATROL_PERMIT' AS title_code,
                CASE p.allowed WHEN 1 THEN '순찰 허용' ELSE '순찰 제한' END AS summary,
-               NULL AS risk_level,
                CASE p.allowed WHEN 1 THEN 'ALLOWED' ELSE 'BLOCKED' END AS status_code,
                NULL AS event_id, NULL AS actor, 0 AS has_evidence
           FROM patrol_permit_history p
@@ -283,7 +275,7 @@ QUERY_BUILDERS = {
 def search(filters):
     """선택한 기록 종류를 UNION한 뒤 전체 시간순으로 페이지 조회한다."""
     selected = list(QUERY_BUILDERS) if filters["record_type"] == "ALL" else [filters["record_type"]]
-    if filters["risk_level"] or filters["event_status"]:
+    if filters["event_status"]:
         selected = [name for name in selected if name in {"EVENT", "EVENT_CHANGE"}]
     if not selected:
         return [], 0

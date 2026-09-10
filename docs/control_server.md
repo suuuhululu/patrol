@@ -124,7 +124,25 @@ ros2 run patrol_control patrol_control_node --ros-args \
 
 자동 시작은 `patrol_allowed=true`를 받은 뒤에만 시도한다. 새 순찰을 반복 실행하거나 로봇을 운영 중 선택하는 기능은 향후 관제 소유 UI/API가 `start_patrol(robot_id)`를 호출하도록 연결한다.
 
+<<<<<<< HEAD
+#### `tests/integration/publish_control_inputs.py`
+
+~~~mermaid
+flowchart TD
+    A[scenario 선택] --> B[patrol_allowed 5 Hz 발행]
+    B -->|permit-steady| C[선택한 true 또는 false 유지]
+    B -->|permit-cycle| D[true 2초 → false 2초 → true]
+    B -->|detection| E[permit true 유지]
+    E --> F[지연 후 v1.1 DetectionEvent 1회 발행]
+    F --> G[설정 duration 또는 Ctrl+C까지 permit 유지]
+~~~
+
+이 테스트 노드는 정상 시나리오에서 비전 생산자만 대체하며 AMR 소유 토픽을 발행하지 않는다. 설치 executable과 launch에는 포함하지 않고 관제 PC에서 직접 실행한다. 관제 처리는 노드 로그, 시스템 모니터 수신은 기존 화면·API로 각각 확인한다.
+
+## 8. 결정 기록과 공동 반영 대기
+=======
 ## 5. 검증 상태
+>>>>>>> b46ec32f379a0011fd1900ad93724e026921a8e9
 
 - 순수 상태 머신 단위시험: permit 게이트, Token 발급 순서, 차량 회피 명령 중복 방지, 화재 hold, 취소 회수, 잘못된 Feedback 무시
 - ROS 패키지 빌드: `patrol_interfaces`, `patrol_control` 함께 성공

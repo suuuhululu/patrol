@@ -92,6 +92,12 @@ def store_report(record):
         raise
 
 
+def visit_count(patrol_id):
+    return get_db().execute(
+        "SELECT COUNT(*) FROM patrol_visits WHERE patrol_id = ?", (patrol_id,)
+    ).fetchone()[0]
+
+
 def recent_visits(limit=20):
     return get_db().execute(
         """

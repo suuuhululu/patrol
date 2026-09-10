@@ -20,20 +20,18 @@ def header(frame_id="map"):
     return ns(stamp=stamp(), frame_id=frame_id)
 
 
+GOAL = uuid.UUID("123e4567-e89b-42d3-a456-426614174000")
+
+
 class RosAdapterTests(unittest.TestCase):
-    def robot_status(self, **changes):
-        message = {
-            "header": header(),
-            "message_id": "123e4567-e89b-42d3-a456-426614174000",
-            "robot_id": "robot1",
-            "mission_state": 2,
-            "battery_soc": 0.825,
-            "pose_valid": True,
-            "last_valid_pose_stamp": stamp(),
-            "pose": ns(pose=ns(position=ns(x=12.4, y=8.7, z=0.0))),
-        }
-        message.update(changes)
-        return ns(**message)
+    def patrol_feedback(self, task_state=4, waypoint="wp1", frame_id="map", x=12.4, y=8.7):
+        return ns(
+            goal_id=ns(uuid=list(GOAL.bytes)),
+            feedback=ns(
+                task_state=task_state, current_waypoint_id=waypoint, token_valid=True,
+                current_pose=ns(header=header(frame_id), pose=ns(position=ns(x=x, y=y, z=0.0))),
+            ),
+        )
 
     def occupancy_grid(self):
         angle = 0.5
@@ -51,19 +49,6 @@ class RosAdapterTests(unittest.TestCase):
                 ),
             ),
             data=[0, 0, 100, -1, 50, 0],
-        )
-
-    def test_robot_status_keeps_safety_state_and_motion_stopped(self):
-        payload = ros_adapter.robot_status_payload(
-            self.robot_status(safety_state=4, motion_stopped=False, reason_code=702, reason="fire")
-        )
-        self.assertEqual(payload["safety_state"], "ESTOPPED")
-        self.assertFalse(payload["motion_stopped"])
-        self.assertEqual(payload["safety_reason_code"], 702)
-        # 계약 표 밖의 수치는 UNKNOWN으로 남기고 나머지 상태는 계속 받는다.
-        self.assertEqual(
-            ros_adapter.robot_status_payload(self.robot_status(safety_state=9))["safety_state"],
-            "UNKNOWN",
         )
 
     def test_estop_payload_uses_contract_fields_only(self):
@@ -85,18 +70,16 @@ class RosAdapterTests(unittest.TestCase):
 
     def test_topic_registry_separates_active_and_pending_work(self):
         active = ros_adapter.active_subscriptions()
-        self.assertEqual(len(active), 25)
+        self.assertEqual(len(active), 17)
         self.assertEqual(
             {spec.handler for spec in active},
             {
-                "robot_status", "map", "camera_frame", "costmap",
-                "detection_event", "evidence_chunk", "camera_state",
-                "patrol_visit", "patrol_report", "keepout_status", "estop",
-                "patrol_allowed",
+                "patrol_feedback", "patrol_goal_status", "battery_state",
+                "map", "camera_frame", "costmap", "camera_state", "estop", "patrol_allowed",
             },
         )
         self.assertEqual(
-            len([spec for spec in active if spec.handler == "costmap"]), 4
+            len([spec for spec in active if spec.handler == "costmap"]), 2
         )
         self.assertEqual(
             {spec.topic for spec in ros_adapter.SUBSCRIPTIONS if not spec.active}, set()
@@ -106,7 +89,10 @@ class RosAdapterTests(unittest.TestCase):
         report = ros_adapter.dependency_report()
         self.assertEqual(
             set(report["dependencies"]),
-            {"rclpy", "patrol_interfaces", "nav_msgs", "sensor_msgs", "std_msgs"},
+            {
+                "rclpy", "patrol_interfaces", "patrol_interfaces.action", "action_msgs",
+                "nav_msgs", "sensor_msgs", "std_msgs",
+            },
         )
         self.assertEqual(report["ready"], all(report["dependencies"].values()))
         self.assertEqual(
@@ -114,41 +100,72 @@ class RosAdapterTests(unittest.TestCase):
             {name for name, available in report["dependencies"].items() if not available},
         )
 
-    def test_robot_status_maps_contract_id_soc_pose_and_mission(self):
-        payload = ros_adapter.robot_status_payload(self.robot_status())
-        self.assertEqual(payload["robot_id"], "AMR1")
-        self.assertEqual(payload["battery"], 82.5)
-        self.assertEqual(payload["mission_status"], "PATROLLING")
+    def test_patrol_feedback_maps_namespace_goal_state_and_map_pose(self):
+        payload = ros_adapter.patrol_feedback_payload(
+            "/robot6/patrol_action/_action/feedback", self.patrol_feedback(task_state=11)
+        )
+        self.assertEqual(payload["robot_id"], "AMR2")
+        self.assertEqual(payload["goal_id"], str(GOAL))
+        self.assertEqual(payload["task_state"], "WAYPOINT_REACHED")
+        self.assertEqual(payload["waypoint_id"], "wp1")
+        self.assertTrue(payload["pose_valid"])
         self.assertEqual((payload["x"], payload["y"]), (12.4, 8.7))
-        self.assertEqual(payload["connection_status"], "ONLINE")
-        self.assertEqual(payload["observed_at"], "2023-11-14T22:13:20.250Z")
 
-    def test_invalid_pose_keeps_battery_and_mission_without_coordinates(self):
-        """위치를 잃어도 상태 자체는 받는다. 좌표만 비우고 마지막 유효 시각을 남긴다."""
-        payload = ros_adapter.robot_status_payload(self.robot_status(
-            pose_valid=False,
-            pose=ns(pose=ns(position=ns(x=float("nan"), y=float("nan"), z=0.0))),
-        ))
-        self.assertFalse(payload["pose_valid"])
-        self.assertIsNone(payload["x"])
-        self.assertIsNone(payload["y"])
-        self.assertEqual(payload["battery"], 82.5)
-        self.assertEqual(payload["mission_status"], "PATROLLING")
-        self.assertEqual(payload["last_valid_pose_at"], "2023-11-14T22:13:20.250Z")
+    def test_patrol_feedback_without_map_pose_keeps_state_without_coordinates(self):
+        """위치를 모르면 좌표만 비우고 임무 상태는 받는다."""
+        for message in (
+            self.patrol_feedback(frame_id=""),
+            self.patrol_feedback(frame_id="odom"),
+            self.patrol_feedback(x=float("nan")),
+        ):
+            with self.subTest(message=message):
+                payload = ros_adapter.patrol_feedback_payload(
+                    "/robot1/patrol_action/_action/feedback", message
+                )
+                self.assertFalse(payload["pose_valid"])
+                self.assertIsNone(payload["x"])
+                self.assertEqual(payload["task_state"], "PATROLLING")
 
-    def test_robot_status_rejects_unknown_id_invalid_pose_and_soc(self):
-        invalid_messages = [
-            self.robot_status(robot_id="AMR1"),
-            self.robot_status(pose_valid="yes"),
-            self.robot_status(battery_soc=float("nan")),
-            self.robot_status(mission_state=99),
-            self.robot_status(header=header("odom")),
+    def test_patrol_feedback_rejects_unknown_topic_state_and_goal_id(self):
+        invalid = [
+            ("/robot2/patrol_action/_action/feedback", self.patrol_feedback()),
+            ("/robot1/patrol_action/_action/feedback", self.patrol_feedback(task_state=99)),
+            ("/robot1/patrol_action/_action/feedback", ns(
+                goal_id=ns(uuid=[1, 2, 3]), feedback=self.patrol_feedback().feedback,
+            )),
         ]
-        for message in invalid_messages:
-            with self.subTest(message=message), self.assertRaises(
-                ros_adapter.RosMessageMappingError
-            ):
-                ros_adapter.robot_status_payload(message)
+        for topic, message in invalid:
+            with self.subTest(topic=topic), self.assertRaises(ros_adapter.RosMessageMappingError):
+                ros_adapter.patrol_feedback_payload(topic, message)
+
+    def test_goal_status_keeps_known_states_and_marks_finished(self):
+        message = ns(status_list=[
+            ns(goal_info=ns(goal_id=ns(uuid=list(GOAL.bytes)), stamp=stamp()), status=2),
+            ns(goal_info=ns(goal_id=ns(uuid=list(uuid.uuid4().bytes)), stamp=stamp()), status=6),
+            ns(goal_info=ns(goal_id=ns(uuid=list(uuid.uuid4().bytes)), stamp=stamp()), status=0),
+        ])
+        payload = ros_adapter.patrol_goal_status_payload(
+            "/robot1/patrol_action/_action/status", message
+        )
+        self.assertEqual(payload["robot_id"], "AMR1")
+        # UNKNOWN(0)은 판단 근거가 없어 뺀다. ABORTED(6)는 순찰 결과 FAILED로 옮긴다.
+        self.assertEqual(
+            [(goal["status"], goal["finished"]) for goal in payload["goals"]],
+            [("EXECUTING", False), ("FAILED", True)],
+        )
+        self.assertEqual(payload["goals"][0]["goal_id"], str(GOAL))
+        self.assertEqual(payload["goals"][0]["accepted_at"], "2023-11-14T22:13:20.250Z")
+
+    def test_battery_state_maps_percentage_and_leaves_unknown_empty(self):
+        payload = ros_adapter.battery_state_payload("/robot1/battery_state", ns(percentage=0.825))
+        self.assertEqual((payload["robot_id"], payload["battery"]), ("AMR1", 82.5))
+        for value in (float("nan"), 1.5, -0.1, None):
+            with self.subTest(value=value):
+                self.assertIsNone(ros_adapter.battery_state_payload(
+                    "/robot6/battery_state", ns(percentage=value)
+                )["battery"])
+        with self.assertRaises(ros_adapter.RosMessageMappingError):
+            ros_adapter.battery_state_payload("/robot2/battery_state", ns(percentage=0.5))
 
     def test_occupancy_grid_maps_origin_data_and_stable_message_id(self):
         payload = ros_adapter.occupancy_grid_payload(self.occupancy_grid())
@@ -168,46 +185,6 @@ class RosAdapterTests(unittest.TestCase):
         self.assertEqual(captured_at, "2023-11-14T22:13:20.250Z")
         self.assertEqual(stream.read(), b"test-image")
 
-    def test_detection_event_maps_contract_enum_location_and_ids(self):
-        message = ns(
-            header=header(), message_id=str(uuid.uuid4()), event_id=str(uuid.uuid4()),
-            robot_id="robot1", event_type=4, confidence=0.93, risk_level=2,
-            pose=ns(pose=ns(position=ns(x=1.2, y=3.4, z=0.0))),
-            location_valid=True, detected_at=stamp(), evidence_id=str(uuid.uuid4()),
-        )
-        payload = ros_adapter.detection_event_payload(
-            "/robot1/detection/event", message
-        )
-        self.assertEqual(payload["robot_id"], "AMR1")
-        self.assertEqual(payload["event_type"], "LIGHTING")
-        self.assertEqual(payload["risk_level"], "MEDIUM")
-        self.assertEqual((payload["x"], payload["y"]), (1.2, 3.4))
-
-        message.location_valid = False
-        message.pose.pose.position.x = float("nan")
-        payload = ros_adapter.detection_event_payload(
-            "/robot1/detection/event", message
-        )
-        self.assertEqual((payload["x"], payload["y"]), (None, None))
-
-    def test_evidence_chunk_maps_bytes_and_rejects_namespace_mismatch(self):
-        message = ns(
-            header=header("camera"), message_id=str(uuid.uuid4()),
-            evidence_id=str(uuid.uuid4()), event_id=str(uuid.uuid4()),
-            robot_id="robot6", captured_at=stamp(), media_type="image/png",
-            sha256="0" * 64, total_size=3, chunk_index=0, chunk_count=1,
-            data=[1, 2, 3],
-        )
-        payload = ros_adapter.evidence_chunk_payload(
-            "/robot6/detection/evidence", message
-        )
-        self.assertEqual(payload["robot_id"], "AMR2")
-        self.assertEqual(payload["data"], b"\x01\x02\x03")
-        with self.assertRaises(ros_adapter.RosMessageMappingError):
-            ros_adapter.evidence_chunk_payload(
-                "/robot1/detection/evidence", message
-            )
-
     def test_camera_state_maps_topic_enum_and_confidence(self):
         message = ns(
             header=header("gate_cam"), event_id=str(uuid.uuid4()),
@@ -219,6 +196,12 @@ class RosAdapterTests(unittest.TestCase):
         self.assertEqual(
             (payload["camera_id"], payload["state"], payload["confidence"]),
             ("gate_cam", "ENTERING", 0.91),
+        )
+        # [v2 enum] EXITED는 2다. 메시지 상수가 없을 때 쓰는 대비 표도 v2 숫자를 따른다.
+        message.state = 2
+        self.assertEqual(
+            ros_adapter.camera_state_payload("/vision/cctv/gate_event", message)["state"],
+            "EXITED",
         )
         message.camera_id = "center_cam"
         with self.assertRaises(ros_adapter.RosMessageMappingError):

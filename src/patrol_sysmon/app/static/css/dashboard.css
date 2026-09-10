@@ -45,21 +45,19 @@
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 17px; border-bottom: 1px solid var(--line); }
 .dashboard-page h2 { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 600; }
 .panel-heading h2 svg { color: #93adc8; }
-.small-tag { background: #1c2a3c; color: #afbdd0; border: 1px solid #344457; font-size: 10px; padding: 3px 7px; border-radius: 4px; }
 .map-panel { display: flex; flex-direction: column; }
 .map-viewport { position: relative; flex: 1; min-height: 390px; margin: 14px 14px 0; border: 1px solid #26394e; border-radius: 5px; overflow: hidden; background-color: #0b1724; background-image: linear-gradient(#21334644 1px, transparent 1px), linear-gradient(90deg, #21334644 1px, transparent 1px); background-size: 22px 22px; }
-.map-corner-label { position: absolute; z-index: 2; top: 12px; left: 12px; color: #92a8be; font-size: 9px; letter-spacing: 1px; }
-.map-corner-label span { color: #536880; margin: 0 4px; }
-.costmap-preview { position: absolute; z-index: 3; right: 10px; bottom: 10px; width: 148px; box-sizing: border-box; padding: 8px; border: 1px solid #34516d; border-radius: 6px; background: #091522e8; box-shadow: 0 5px 18px #0007; }
-.costmap-preview > div { display: flex; justify-content: space-between; gap: 5px; color: #8fc6ff; font-size: 7px; letter-spacing: .6px; }
-.costmap-preview > div span { color: #8ea3b9; letter-spacing: 0; }
-.costmap-preview select { width: 100%; margin: 6px 0; padding: 3px 5px; border: 1px solid #314b65; border-radius: 3px; background: #112338; color: #c4d7e9; font-size: 9px; }
-.costmap-preview img { display: block; width: 100%; height: 78px; object-fit: contain; image-rendering: pixelated; border: 1px solid #293e54; background: #0a131e; }
-.costmap-preview img[hidden] { display: none; }
-.costmap-preview p { display: grid; min-height: 78px; place-items: center; box-sizing: border-box; border: 1px dashed #2d4359; color: #71879e; font-size: 9px; }
-.costmap-preview p[hidden] { display: none; }
-.costmap-preview small { display: block; margin-top: 5px; overflow: hidden; color: #8298af; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
-.map-canvas { position: absolute; inset: 36px 12px 28px; width: calc(100% - 24px); height: calc(100% - 64px); background: #172331; border: 1px solid #30455a; }
+.map-panel .panel-heading { flex-wrap: wrap; row-gap: 8px; }
+.map-panel .panel-heading h2 { white-space: nowrap; }
+.map-source-toggle { display: flex; flex-shrink: 0; margin-left: auto; border: 1px solid #344457; border-radius: 5px; overflow: hidden; }
+.map-source-toggle button { margin: 0; min-width: 46px; height: 24px; padding: 0 10px; border: 0; border-radius: 0; background: #132234; color: #8ea3b9; font-size: 10px; font-weight: 600; line-height: 24px; cursor: pointer; }
+.map-source-toggle button + button { border-left: 1px solid #344457; }
+.map-source-toggle button[aria-pressed="true"] { background: #1f3d5c; color: #e4ecf5; }
+.map-source-toggle button[data-map-source="AMR1"][aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--blue); }
+.map-source-toggle button[data-map-source="AMR2"][aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--teal); }
+.map-source-toggle button:disabled { color: #4a5b6e; cursor: not-allowed; }
+.map-source-toggle button:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.map-canvas { position: absolute; inset: 6px; width: calc(100% - 12px); height: calc(100% - 12px); }
 .map-canvas image { image-rendering: pixelated; }
 .map-path { fill: none; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; opacity: .8; vector-effect: non-scaling-stroke; }
 .map-path.amr1 { stroke: var(--blue); }.map-path.amr2 { stroke: var(--teal); }
@@ -72,7 +70,8 @@
 .empty-icon { display: grid; place-items: center; width: 62px; height: 62px; border: 1px solid #3a526c; background: #15273b; border-radius: 15px; color: #8caccc; margin-bottom: 18px; }
 .dashboard-page h3 { font-size: 13px; font-weight: 500; }
 .map-empty p { font-size: 11px; color: #a2b2c5; line-height: 1.9; margin-top: 9px; }
-.map-alert { position: absolute; z-index: 2; bottom: 7px; left: 12px; right: 12px; min-height: 13px; text-align: center; font-size: 9px; color: #f2b46f; }
+.map-alert { position: absolute; z-index: 2; bottom: 6px; left: 6px; right: 6px; margin: 0; padding: 3px 6px; border-radius: 3px; background: #08111cd9; text-align: center; font-size: 9px; color: #f2b46f; }
+.map-alert:empty { display: none; }
 .map-legend { display: flex; flex-wrap: wrap; gap: 17px; padding: 17px 18px 11px; font-size: 10px; color: #acbdd1; }
 .map-legend > span { display: flex; align-items: center; gap: 6px; }
 .legend-mark { display: inline-block; width: 7px; height: 7px; border-radius: 2px; border: 1px solid currentColor; }
@@ -120,8 +119,6 @@
 .event-table td { padding: 10px 20px; border-bottom: 1px solid #1b2a3d; color: #b5c3d4; font-size: 11px; vertical-align: middle; }
 .event-table tbody tr { transition: background .15s ease; }.event-table tbody tr:hover { background: #142338; }
 .event-table td strong { color: #f0b18a; font-weight: 600; }.event-table td small { color: #788da5; margin-left: 4px; }
-.risk-badge, .event-status { display: inline-flex; align-items: center; justify-content: center; min-width: 42px; padding: 4px 8px; border: 1px solid; border-radius: 999px; font-size: 10px; white-space: nowrap; }
-.risk-high { color: #ff8d82; border-color: #8a3e3a; background: #47211f; }.risk-medium { color: #f0c56c; border-color: #74602f; background: #372f1e; }.risk-low { color: #75d7b0; border-color: #326c57; background: #18382e; }
 .status-new { color: #f4a38f; border-color: #794538; background: #3c251f; }.status-reviewing { color: #8fc6ff; border-color: #3c6288; background: #1b334b; }.status-work_requested { color: #e3c57d; border-color: #6e603a; background: #36301f; }.status-resolved { color: #74d4ad; border-color: #326b56; background: #19382d; }
 .dashboard-page .evidence-button { display: flex; align-items: center; gap: 8px; min-width: 104px; padding: 4px 7px; border-color: #38506a; background: #172638; color: #bad0e5; font-size: 9px; }
 .evidence-button img { width: 50px; height: 32px; object-fit: cover; border: 1px solid #41566e; border-radius: 3px; background: #0b131d; }
@@ -194,14 +191,15 @@
 .operations-grid { display: grid; height: 590px; grid-template-columns: minmax(265px, .76fr) minmax(620px, 2fr) minmax(285px, .82fr); gap: 12px; align-items: stretch; }
 .operations-grid > * { min-height: 0; }
 .operations-grid .map-panel { height: 100%; min-height: 0; }
-.operations-grid .map-viewport { min-height: 0; height: auto; margin: 11px 11px 0; }
+.operations-grid .map-viewport { min-height: 0; height: auto; margin: 11px 3px 0; }
 .operations-grid .map-legend { gap: 10px; padding: 12px 13px 8px; }
 .operations-grid .panel-footnote { padding: 0 13px 12px; font-size: 9px; line-height: 1.45; }
 .camera-workspace { min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
 .camera-workspace .camera-grid { height: 100%; min-height: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .camera-workspace .camera-card { display: flex; min-height: 0; flex-direction: column; }
 .camera-workspace .camera-card .panel-heading { min-height: 39px; box-sizing: border-box; padding: 9px 11px; }
-.camera-workspace .camera-viewport { flex: 1; width: 100%; min-height: 0; height: auto; aspect-ratio: 16 / 9; }
+/* [4:3 영상] 카메라는 640×480이다. 칸 높이에 맞춰 4:3 틀을 가운데에 두고, 칸이 좁으면 너비에 맞춘다. */
+.camera-workspace .camera-viewport { flex: 1; align-self: center; width: auto; max-width: 100%; min-height: 0; height: auto; aspect-ratio: 4 / 3; }
 .camera-workspace .camera-image { width: 100%; height: 100%; min-height: 0; object-fit: cover; }
 .camera-workspace .camera-placeholder { min-height: 0; padding: 12px; }
 .camera-workspace .camera-footer { min-height: 30px; box-sizing: border-box; padding: 7px 11px; }
@@ -270,12 +268,11 @@
     .recent-log-column .history-shortcut { grid-column: auto; }
 }
 
-/* [20단계: 순찰과 안전] 미수신·정상·비상정지·Keepout 경고를 색으로 구분한다. */
+/* [20단계: 순찰과 안전] 미수신·정상·비상정지를 색으로 구분한다. */
 .estop-state.estop-clear { color: #74d4ad; }
 .estop-state.estop-active { color: #ff8f8f; }
 .estop-state.estop-wait { color: #9db0c4; }
 .safety-state.safety-warning { color: #ff8f8f; font-weight: 600; }
-.keepout-state.keepout-warning { color: #ffb020; font-weight: 600; }
 
 /* [한 화면 밀도] 상태 줄과 제목을 줄여 지도·영상·로그가 스크롤 없이 들어가게 한다. */
 .page-heading { margin-bottom: 10px; }
@@ -324,5 +321,3 @@
 .map-robot-marker.pose-stale text { fill: #ffb020; }
 
 /* [증적 상태] 조립이 끝나지 않은 증적은 주황으로 구분한다. */
-.evidence-warning { color: #ffb020; font-size: 9px; }
-.evidence-warning.evidence-missing { font-weight: 600; }

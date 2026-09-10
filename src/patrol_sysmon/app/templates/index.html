@@ -61,12 +61,12 @@
                 <div class="system-summary-heading"><span>{{ icon('shield', 19) }}</span><div><small>시스템 상태</small><strong data-fleet-connection>{{ fleet_status }}</strong></div></div>
                 <dl><div><dt>서버</dt><dd>정상</dd></div><div><dt>모니터링</dt><dd data-dashboard-mode>{{ '로봇 상태 수신 중' if robots|selectattr('has_status')|list else '로봇 상태 수신 대기' }}</dd></div><div><dt>순찰 허용 조건</dt><dd class="permit-state permit-{{ cctv_state.permit.state|lower }}" data-patrol-permit>{{ cctv_state.permit.status_label }}</dd></div><div><dt>Permit 최근 수신</dt><dd data-patrol-permit-received>{{ cctv_state.permit.received_label }}</dd></div><div class="cctv-latest-row"><dt>최근 CCTV 상태</dt><dd data-cctv-latest>{{ cctv_state.latest_event.camera_name ~ ' · ' ~ cctv_state.latest_event.state_label if cctv_state.latest_event else 'CameraState 수신 대기' }}</dd></div></dl>
             </article>
-            <!-- [20단계: 순찰·안전] 방문·보고와 Keepout·E-stop 관측 결과를 같은 줄에서 확인한다. -->
+            <!-- [20단계: 순찰·안전] 방문·보고와 E-stop 관측 결과를 같은 줄에서 확인한다. -->
             <article class="panel system-summary-card" id="patrol-safety-status"
                      data-patrol-status-url="{{ url_for('patrol.patrol_status') }}"
                      data-safety-status-url="{{ url_for('patrol.safety_status') }}">
                 <div class="system-summary-heading"><span>{{ icon('shield', 19) }}</span><div><small>순찰과 안전</small><strong class="estop-state estop-{{ 'active' if safety_state.estop.active else ('wait' if not safety_state.estop.available else 'clear') }}" data-estop-state>{{ safety_state.estop.state_label }}</strong></div></div>
-                <dl><div><dt>최근 방문</dt><dd data-patrol-latest>{{ patrol_state.state_label }}</dd></div><div><dt>보고 없는 순찰</dt><dd data-patrol-unreported>{{ patrol_state.unreported|length }}건</dd></div><div><dt>Keepout</dt><dd class="keepout-state {{ 'keepout-warning' if safety_state.keepout_warning_count else '' }}" data-keepout-state>{{ safety_state.keepout_state_label }}</dd></div><div><dt>E-stop 원인</dt><dd data-estop-reason>{{ safety_state.estop.reason or '—' }}</dd></div><div class="cctv-latest-row"><dt>E-stop 최근 수신</dt><dd data-estop-received>{{ safety_state.estop.received_label }}</dd></div></dl>
+                <dl><div><dt>최근 방문</dt><dd data-patrol-latest>{{ patrol_state.state_label }}</dd></div><div><dt>보고 없는 순찰</dt><dd data-patrol-unreported>{{ patrol_state.unreported|length }}건</dd></div><div><dt>E-stop 원인</dt><dd data-estop-reason>{{ safety_state.estop.reason or '—' }}</dd></div><div class="cctv-latest-row"><dt>E-stop 최근 수신</dt><dd data-estop-received>{{ safety_state.estop.received_label }}</dd></div></dl>
             </article>
             <!-- [5단계: 로봇 상태] 서버 렌더링 후 로그인 전용 API를 2초마다 조회해 같은 카드를 갱신한다. -->
             <section class="robot-grid" id="robot-status" aria-label="AMR1·AMR2 상태" data-status-url="{{ url_for('robots.list_status') }}">
@@ -81,35 +81,29 @@
         </section>
 
         <div class="operations-grid">
-            <!-- [6단계: NAV 지도] 점유 지도 PNG와 로봇 위치·최근 경로를 하나의 SVG 좌표계에 겹친다. -->
-            <section class="panel map-panel" id="parking-map" aria-labelledby="map-title" data-map-url="{{ url_for('maps.current_map') }}" data-costmaps-url="{{ url_for('costmaps.list_costmaps') }}">
-                <div class="panel-heading"><h2 id="map-title">{{ icon('map', 18) }} 지하주차장 NAV 지도</h2><span class="small-tag" data-map-state>{{ map_state.state_label }}</span></div>
-                <div class="map-viewport">
-                    <div class="map-corner-label">NAV MAP <span> / </span> <span data-map-meta>{{ map_state.frame_id ~ ' · ' ~ map_state.resolution ~ ' m/px' if map_state.available else '수신 전' }}</span></div>
-                    <svg class="map-canvas" data-map-canvas preserveAspectRatio="xMidYMin meet" aria-label="점유 지도와 로봇 위치" {% if not map_state.available %}hidden{% endif %}>
-                        <image data-map-image x="0" y="0" width="100%" height="100%" preserveAspectRatio="none"
-                               {% if map_state.available %}href="{{ url_for('maps.current_image', version=map_state.content_hash[:16]) }}"{% endif %}></image>
-                        <g data-map-paths aria-hidden="true"></g>
-                        <g data-map-robots></g>
+            <!-- [NAV 지도] 선택한 로봇의 global costmap PNG와 로봇 위치·최근 경로를 하나의 SVG 좌표계에 겹친다.
+                 해상도·좌표계 문구는 운영자에게 필요 없어 표시하지 않는다(API 응답에는 남아 있다). -->
+            <section class="panel map-panel" id="parking-map" aria-labelledby="map-title" data-map-url="{{ url_for('costmaps.nav_map') }}">
+                <div class="panel-heading"><h2 id="map-title">{{ icon('map', 18) }} 지하주차장 NAV 지도</h2>
+                    <div class="map-source-toggle" role="group" aria-label="바탕 코스트맵 로봇 선택">
+                        {% for source in map_state.sources %}<button type="button" data-map-source="{{ source.robot_id }}" aria-pressed="{{ 'true' if source.robot_id == map_state.source_robot else 'false' }}" {% if not source.available %}disabled title="{{ source.robot_id }} 코스트맵 수신 대기"{% endif %}>{{ source.robot_id }}</button>{% endfor %}
+                    </div>
+                </div>
+                <div class="map-viewport" data-map-viewport>
+                    <!-- [자동 회전] 패널과 지도의 가로·세로 방향이 다르면 지도를 90° 돌려 빈 공간 없이 채운다. -->
+                    <svg class="map-canvas" data-map-canvas preserveAspectRatio="xMidYMid meet" aria-label="코스트맵과 로봇 위치" {% if not map_state.available %}hidden{% endif %}>
+                        <g data-map-layer>
+                            <image data-map-image x="0" y="0" preserveAspectRatio="none"
+                                   {% if map_state.available %}width="{{ map_state.width }}" height="{{ map_state.height }}" href="{{ map_state.image_url }}"{% endif %}></image>
+                            <g data-map-paths aria-hidden="true"></g>
+                            <g data-map-robots></g>
+                        </g>
                     </svg>
-                    <div class="map-empty" data-map-empty {% if map_state.available %}hidden{% endif %}><span class="empty-icon">{{ icon('map', 30) }}</span><h3>Nav2 지도 수신 대기</h3><p>점유 지도를 받으면<br>로봇 위치와 최근 경로가 표시됩니다.</p></div>
+                    <div class="map-empty" data-map-empty {% if map_state.available %}hidden{% endif %}><span class="empty-icon">{{ icon('map', 30) }}</span><h3>Nav2 코스트맵 수신 대기</h3><p>로봇의 global costmap을 받으면<br>장애물·로봇 위치·최근 경로가 표시됩니다.</p></div>
                     <p class="map-alert" data-map-alert aria-live="polite"></p>
-                    <!-- [17단계: costmap] 정적 지도와 좌표가 섞여 보이지 않도록 선택한 동적 격자를 별도 미리보기로 표시한다. -->
-                    <aside class="costmap-preview" aria-label="로봇별 동적 costmap">
-                        <div><strong>DYNAMIC COSTMAP</strong><span data-costmap-state>수신 대기</span></div>
-                        <select data-costmap-select aria-label="표시할 costmap 선택">
-                            <option value="AMR1:global">AMR1 global</option>
-                            <option value="AMR1:local">AMR1 local</option>
-                            <option value="AMR2:global">AMR2 global</option>
-                            <option value="AMR2:local">AMR2 local</option>
-                        </select>
-                        <img data-costmap-image hidden alt="선택한 동적 costmap 최신 격자">
-                        <p data-costmap-empty>동적 격자 수신 전</p>
-                        <small data-costmap-meta>frame · resolution</small>
-                    </aside>
                 </div>
                 <div class="map-legend"><span><i class="legend-mark robot-one"></i>AMR1</span><span><i class="legend-mark robot-two"></i>AMR2</span><span><i class="legend-mark path-mark"></i>최근 이동 경로</span></div>
-                <p class="panel-footnote">Nav2 정적 지도와 로봇별 costmap은 좌표 오해 방지를 위해 분리 표시 · 관측점·도크 좌표 미등록</p>
+                <p class="panel-footnote">선택한 로봇의 Nav2 global costmap(정적 지도 + 감지 장애물 + Keepout)을 바탕으로 표시 · 관측점·도크 좌표 미등록</p>
             </section>
 
             <div class="camera-workspace">
@@ -159,8 +153,8 @@
                             </tbody>
                         </table>
                     </div>
-                    <div class="events-empty" data-events-empty {% if events %}hidden{% endif %}>{{ icon('log', 24) }}<div><strong>아직 표시할 이벤트가 없습니다.</strong><p>화재·누수·장애물 이벤트를 받으면 위치, 위험도와 증거 이미지 한 장이 표시됩니다.</p></div></div>
-                    <div class="events-note"><span>위험도 <b>상 · 중 · 하</b></span><span>처리 흐름 <b>신규 → 확인중 → 작업요청 → 조치완료</b></span><span>표시 초기화 후에도 <b>통합 이력에 보존</b></span></div>
+                    <div class="events-empty" data-events-empty {% if events %}hidden{% endif %}>{{ icon('log', 24) }}<div><strong>아직 표시할 이벤트가 없습니다.</strong><p>화재·누수·장애물 이벤트를 받으면 위치와 증거 이미지 한 장이 표시됩니다.</p></div></div>
+                    <div class="events-note"><span>처리 흐름 <b>신규 → 확인중 → 작업요청 → 조치완료</b></span><span>표시 초기화 후에도 <b>통합 이력에 보존</b></span></div>
                 </section>
 
                 <!-- [11단계: 차량 입출차] 이상 이벤트와 분리해 고정 웹캠의 차량 통과 기록을 표시한다. -->
@@ -217,4 +211,4 @@
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/dashboard.js') }}" defer></script><script src="{{ url_for('static', filename='js/map.js') }}" defer></script><script src="{{ url_for('static', filename='js/costmaps.js') }}" defer></script><script src="{{ url_for('static', filename='js/cameras.js') }}" defer></script><script src="{{ url_for('static', filename='js/cctv.js') }}" defer></script><script src="{{ url_for('static', filename='js/patrol.js') }}" defer></script><script src="{{ url_for('static', filename='js/events.js') }}" defer></script><script src="{{ url_for('static', filename='js/vehicle_access.js') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/dashboard.js') }}" defer></script><script src="{{ url_for('static', filename='js/map.js') }}" defer></script><script src="{{ url_for('static', filename='js/cameras.js') }}" defer></script><script src="{{ url_for('static', filename='js/cctv.js') }}" defer></script><script src="{{ url_for('static', filename='js/patrol.js') }}" defer></script><script src="{{ url_for('static', filename='js/events.js') }}" defer></script><script src="{{ url_for('static', filename='js/vehicle_access.js') }}" defer></script>{% endblock %}

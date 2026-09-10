@@ -19,7 +19,6 @@ def _summary(report):
         "zero_matched": [name for name, count in matched.items() if count < 1],
         "processed": report["processed"],
         "storage": report["storage"],
-        "acks": sum(report["received_acks"].values()),
         "dashboard": sorted(set(report["dashboard_http"].values())),
         "processing_failures": report["processing_failures"],
     }, ensure_ascii=False)[:1500]
@@ -44,7 +43,7 @@ class RosSeparateProcessTests(unittest.TestCase):
         self.assertTrue(report["temporary_storage_removed"])
         self.assertEqual(report["external_publishers"], "NOT_RUN")
         self.assertEqual(report["process_exit_codes"], {"adapter": 0, "publisher": 0})
-        self.assertEqual(len(report["matched_subscriptions"]), 7)
+        self.assertEqual(len(report["matched_subscriptions"]), 9)
         self.assertTrue(all(
             count >= 1 for count in report["matched_subscriptions"].values()
         ))
@@ -83,34 +82,9 @@ class RosSeparateProcessTests(unittest.TestCase):
         self.assertEqual(report["stage"], 17)
         self.assertEqual(len(report["matched_subscriptions"]), 11)
         self.assertEqual(set(report["storage"]["costmap_sources"]), {
-            "AMR1:global", "AMR1:local", "AMR2:global", "AMR2:local",
+            "AMR1:global", "AMR2:global",
         })
         self.assertGreater(report["processed"].get("costmap_accepted", 0), 0)
-        self.assertEqual(report["processing_failures"], 0)
-
-    def test_stage18_detection_evidence_and_ack_cross_process_boundary(self):
-        report = run_separate_process_ros_test(RosTopicTestConfig(
-            duration_seconds=3.0,
-            domain_id=84,
-            status_hz=8,
-            map_hz=3,
-            image_hz=8,
-            costmap_hz=5,
-            detection_hz=2,
-        ))
-        self.assertTrue(report["process_pass"], _summary(report))
-        self.assertTrue(report["temporary_storage_removed"])
-        self.assertEqual(report["stage"], 18)
-        self.assertEqual(len(report["matched_subscriptions"]), 15)
-        self.assertEqual(len(report["ack_publisher_matches"]), 2)
-        self.assertTrue(all(
-            count >= 1 for count in report["ack_publisher_matches"].values()
-        ))
-        self.assertGreaterEqual(report["storage"]["detection_event_messages"], 2)
-        self.assertGreaterEqual(report["storage"]["stored_evidence"], 2)
-        self.assertEqual(report["storage"]["incomplete_evidence"], 0)
-        self.assertEqual(report["storage"]["chunk_payloads_remaining"], 0)
-        self.assertGreaterEqual(sum(report["received_acks"].values()), 6)
         self.assertEqual(report["processing_failures"], 0)
 
     def test_stage20_patrol_and_safety_cross_process_boundary(self):
@@ -121,9 +95,6 @@ class RosSeparateProcessTests(unittest.TestCase):
             map_hz=3,
             image_hz=8,
             costmap_hz=5,
-            # [범위 분리] 증적 재조립은 18단계 시험이 담당한다. 여기서는 순찰·안전에 집중해
-            # publisher 종료 순간 조립 중인 chunk가 남지 않게 detection을 끈다.
-            detection_hz=0,
             cctv_hz=4,
             patrol_hz=4,
             safety_hz=4,
@@ -131,10 +102,9 @@ class RosSeparateProcessTests(unittest.TestCase):
         self.assertTrue(report["process_pass"], _summary(report))
         self.assertTrue(report["temporary_storage_removed"])
         self.assertEqual(report["stage"], 20)
-        self.assertEqual(len(report["matched_subscriptions"]), 21)
+        self.assertEqual(len(report["matched_subscriptions"]), 17)
         self.assertGreaterEqual(report["storage"]["patrol_visits"], 2)
         self.assertGreaterEqual(report["storage"]["patrol_reports"], 1)
-        self.assertTrue(report["storage"]["keepout_states"])
         self.assertIsNotNone(report["storage"]["estop_latest"])
         self.assertGreaterEqual(report["storage"]["estop_changes"], 2)
         self.assertEqual(report["processing_failures"], 0)
@@ -148,9 +118,6 @@ class RosSeparateProcessTests(unittest.TestCase):
             map_hz=3,
             image_hz=8,
             costmap_hz=5,
-            # [범위 분리] 증적 재조립은 18단계 시험이 담당한다. 발행 종료 시점에
-            # 조립 중인 chunk가 남지 않도록 여기서는 detection을 끈다.
-            detection_hz=0,
             cctv_hz=4,
         ))
         self.assertTrue(report["process_pass"], _summary(report))

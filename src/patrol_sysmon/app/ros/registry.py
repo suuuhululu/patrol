@@ -19,31 +19,50 @@ class SubscriptionSpec:
 
 
 SUBSCRIPTIONS = (
+    # [v2 로봇 상태] patrol_interfaces 2.0에는 RobotStatus·PatrolVisit·PatrolReport가 없다.
+    # 관제가 호출하는 Patrol Action의 피드백·상태 토픽을 옆에서 구독해 임무 상태·위치·방문·결과를 얻고,
+    # 배터리는 TurtleBot4 기본 battery_state로 받는다. Action 흐름에는 끼어들지 않는다.
     SubscriptionSpec(
-        "robot1_status", "/robot1/robot_status",
-        "patrol_interfaces/msg/RobotStatus", "robot_status", True,
+        "robot1_patrol_feedback", "/robot1/patrol_action/_action/feedback",
+        "patrol_interfaces/action/Patrol_FeedbackMessage", "patrol_feedback", True,
     ),
     SubscriptionSpec(
-        "robot6_status", "/robot6/robot_status",
-        "patrol_interfaces/msg/RobotStatus", "robot_status", True,
+        "robot6_patrol_feedback", "/robot6/patrol_action/_action/feedback",
+        "patrol_interfaces/action/Patrol_FeedbackMessage", "patrol_feedback", True,
+    ),
+    SubscriptionSpec(
+        "robot1_patrol_status", "/robot1/patrol_action/_action/status",
+        "action_msgs/msg/GoalStatusArray", "patrol_goal_status", True,
+    ),
+    SubscriptionSpec(
+        "robot6_patrol_status", "/robot6/patrol_action/_action/status",
+        "action_msgs/msg/GoalStatusArray", "patrol_goal_status", True,
+    ),
+    SubscriptionSpec(
+        "robot1_battery", "/robot1/battery_state",
+        "sensor_msgs/msg/BatteryState", "battery_state", True,
+    ),
+    SubscriptionSpec(
+        "robot6_battery", "/robot6/battery_state",
+        "sensor_msgs/msg/BatteryState", "battery_state", True,
     ),
     SubscriptionSpec(
         "map", "/map", "nav_msgs/msg/OccupancyGrid", "map", True,
     ),
     SubscriptionSpec(
-        "robot1_image", "/robot1/oakd/image/compressed",
+        "robot1_image", "/robot1/oakd/rgb/image_raw/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
-        "robot6_image", "/robot6/oakd/image/compressed",
+        "robot6_image", "/robot6/oakd/rgb/image_raw/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
-        "gate_image", "/vision/cctv/gate/image/compressed",
+        "gate_image", "/vision/cctv/gate_image/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
-        "center_image", "/vision/cctv/center/image/compressed",
+        "center_image", "/vision/cctv/center_image/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
@@ -51,33 +70,13 @@ SUBSCRIPTIONS = (
         "nav_msgs/msg/OccupancyGrid", "costmap", True,
     ),
     SubscriptionSpec(
-        "robot1_local_costmap", "/robot1/local_costmap/costmap",
-        "nav_msgs/msg/OccupancyGrid", "costmap", True,
-    ),
-    SubscriptionSpec(
         "robot6_global_costmap", "/robot6/global_costmap/costmap",
         "nav_msgs/msg/OccupancyGrid", "costmap", True,
     ),
-    SubscriptionSpec(
-        "robot6_local_costmap", "/robot6/local_costmap/costmap",
-        "nav_msgs/msg/OccupancyGrid", "costmap", True,
-    ),
-    SubscriptionSpec(
-        "robot1_detection", "/robot1/detection/event",
-        "patrol_interfaces/msg/DetectionEvent", "detection_event", True,
-    ),
-    SubscriptionSpec(
-        "robot6_detection", "/robot6/detection/event",
-        "patrol_interfaces/msg/DetectionEvent", "detection_event", True,
-    ),
-    SubscriptionSpec(
-        "robot1_evidence", "/robot1/detection/evidence",
-        "patrol_interfaces/msg/EvidenceChunk", "evidence_chunk", True,
-    ),
-    SubscriptionSpec(
-        "robot6_evidence", "/robot6/detection/evidence",
-        "patrol_interfaces/msg/EvidenceChunk", "evidence_chunk", True,
-    ),
+    # [local costmap 미구독] Nav2 local costmap은 odom 좌표계라 map 검증에서 매번 거부되고,
+    # NAV 지도는 global costmap만 바탕으로 쓰므로 구독하지 않는다.
+    # [사건 보고] DetectionEvent·EvidenceChunk 토픽은 구독하지 않는다. 확정 사건과 사진은
+    # ReportDetection 서비스(REPORT_DETECTION_SERVICE) 한 번으로 받는다.
     SubscriptionSpec(
         "gate_event", "/vision/cctv/gate_event",
         "patrol_interfaces/msg/CameraState", "camera_state", True,
@@ -90,30 +89,7 @@ SUBSCRIPTIONS = (
         "patrol_allowed", "/vision/cctv/patrol_allowed",
         "std_msgs/msg/Bool", "patrol_allowed", True,
     ),
-    SubscriptionSpec(
-        "robot1_patrol_visit", "/robot1/patrol_visit",
-        "patrol_interfaces/msg/PatrolVisit", "patrol_visit", True,
-    ),
-    SubscriptionSpec(
-        "robot6_patrol_visit", "/robot6/patrol_visit",
-        "patrol_interfaces/msg/PatrolVisit", "patrol_visit", True,
-    ),
-    SubscriptionSpec(
-        "robot1_patrol_report", "/robot1/patrol_report",
-        "patrol_interfaces/msg/PatrolReport", "patrol_report", True,
-    ),
-    SubscriptionSpec(
-        "robot6_patrol_report", "/robot6/patrol_report",
-        "patrol_interfaces/msg/PatrolReport", "patrol_report", True,
-    ),
-    SubscriptionSpec(
-        "robot1_keepout", "/robot1/keepout/status",
-        "patrol_interfaces/msg/KeepoutStatus", "keepout_status", True,
-    ),
-    SubscriptionSpec(
-        "robot6_keepout", "/robot6/keepout/status",
-        "patrol_interfaces/msg/KeepoutStatus", "keepout_status", True,
-    ),
+    # [E-stop 예약] v2에서 /control/estop은 타입만 예약돼 발행자가 없다. 발행되면 바로 표시한다.
     SubscriptionSpec(
         "estop", "/control/estop",
         "patrol_interfaces/msg/EStop", "estop", True,
@@ -125,28 +101,23 @@ ROBOT_DISPLAY_IDS = {"robot1": "AMR1", "robot6": "AMR2"}
 REPORT_DETECTION_SERVICE = "/system_monitor/report_detection"
 # v1.1 기준선의 FIRE=1·LEAK=2·OBSTACLE=3 과 같은 값. 0(UNKNOWN)은 "안 채운 값"으로 보고 거부한다.
 REPORT_EVENT_TYPES = {1: "FIRE", 2: "LEAK", 3: "OBSTACLE"}
-MISSION_STATES = {
-    0: "IDLE",
-    1: "UNDOCKING",
-    2: "PATROLLING",
-    3: "MOVING_TO_SAFE_ZONE",
-    4: "WAITING_SAFE_ZONE",
-    5: "RETURNING_TO_DOCK",
-    6: "DOCKING",
-    7: "PAUSED",
-    8: "COMPLETED",
-    9: "FAILED",
-    10: "CANCELED",
+# [v2 Patrol Feedback] task_state 값. 이름은 Patrol.action 상수를 그대로 쓴다.
+PATROL_TASK_STATES = {
+    1: "WAITING_FOR_TOKEN",
+    2: "UNDOCKING",
+    3: "INITIAL_POSE_READY",
+    4: "PATROLLING",
+    5: "MOVING_TO_SAFE_ZONE",
+    6: "DETECTION_PROCESSING",
+    7: "DETECTION_CONFIRMED",
+    8: "RESUMING",
+    9: "DOCKING",
+    10: "BLOCKED",
+    11: "WAYPOINT_REACHED",
 }
-# [계약] interfaces.md 4절 safety_state (2026-09-08 결정). 이름은 계약 표를 그대로 옮긴다.
-SAFETY_STATES = {
-    0: "UNKNOWN",
-    1: "NORMAL",
-    2: "STOPPING",
-    3: "STOPPED",
-    4: "ESTOPPED",
-    5: "ERROR",
-}
+# action_msgs/GoalStatus. 끝난 목표만 순찰 결과로 기록한다. Patrol Result의 outcome과 같은 뜻으로 옮긴다.
+GOAL_STATUS_ACTIVE = {1: "ACCEPTED", 2: "EXECUTING", 3: "CANCELING"}
+GOAL_STATUS_RESULTS = {4: "SUCCEEDED", 5: "CANCELED", 6: "FAILED"}
 # [계약] interfaces.md 3.1절 EStop reason과 대상 값. UI가 원인 집합을 직접 계산하지 않는다.
 ESTOP_REASONS = {
     0: "UNKNOWN",
@@ -159,54 +130,34 @@ ESTOP_REASONS = {
 }
 ESTOP_TARGETS = ("robot1", "robot6", "all")
 CAMERA_IDS_BY_TOPIC = {
-    "/robot1/oakd/image/compressed": "amr1",
-    "/robot6/oakd/image/compressed": "amr2",
-    "/vision/cctv/gate/image/compressed": "webcam1",
-    "/vision/cctv/center/image/compressed": "webcam2",
+    "/robot1/oakd/rgb/image_raw/compressed": "amr1",
+    "/robot6/oakd/rgb/image_raw/compressed": "amr2",
+    "/vision/cctv/gate_image/compressed": "webcam1",
+    "/vision/cctv/center_image/compressed": "webcam2",
 }
 COSTMAP_SOURCES_BY_TOPIC = {
     "/robot1/global_costmap/costmap": ("AMR1", "global"),
-    "/robot1/local_costmap/costmap": ("AMR1", "local"),
     "/robot6/global_costmap/costmap": ("AMR2", "global"),
-    "/robot6/local_costmap/costmap": ("AMR2", "local"),
 }
-DETECTION_SOURCES_BY_TOPIC = {
-    "/robot1/detection/event": "robot1",
-    "/robot6/detection/event": "robot6",
+PATROL_FEEDBACK_SOURCES_BY_TOPIC = {
+    "/robot1/patrol_action/_action/feedback": "robot1",
+    "/robot6/patrol_action/_action/feedback": "robot6",
 }
-EVIDENCE_SOURCES_BY_TOPIC = {
-    "/robot1/detection/evidence": "robot1",
-    "/robot6/detection/evidence": "robot6",
+PATROL_STATUS_SOURCES_BY_TOPIC = {
+    "/robot1/patrol_action/_action/status": "robot1",
+    "/robot6/patrol_action/_action/status": "robot6",
 }
-DETECTION_EVENT_TYPES = {
-    1: "FIRE", 2: "LEAK", 3: "OBSTACLE",
-    4: "LIGHTING", 5: "FACILITY_DAMAGE",
-}
-DETECTION_RISK_LEVELS = {1: "LOW", 2: "MEDIUM", 3: "HIGH"}
-PATROL_VISIT_SOURCES_BY_TOPIC = {
-    "/robot1/patrol_visit": "robot1",
-    "/robot6/patrol_visit": "robot6",
-}
-PATROL_REPORT_SOURCES_BY_TOPIC = {
-    "/robot1/patrol_report": "robot1",
-    "/robot6/patrol_report": "robot6",
-}
-KEEPOUT_SOURCES_BY_TOPIC = {
-    "/robot1/keepout/status": "robot1",
-    "/robot6/keepout/status": "robot6",
-}
-PATROL_VISIT_RESULTS = {0: "SUCCEEDED", 1: "SKIPPED", 2: "FAILED"}
-PATROL_REPORT_RESULTS = {0: "SUCCEEDED", 1: "FAILED", 2: "CANCELED"}
-KEEPOUT_STATES = {
-    0: "UNKNOWN", 1: "DISABLED", 2: "APPLIED",
-    3: "ROLLED_BACK", 4: "ROLLBACK_FAILED",
+BATTERY_SOURCES_BY_TOPIC = {
+    "/robot1/battery_state": "robot1",
+    "/robot6/battery_state": "robot6",
 }
 CAMERA_STATE_SOURCES_BY_TOPIC = {
     "/vision/cctv/gate_event": "gate_cam",
     "/vision/cctv/center_event": "center_cam",
 }
+# [v2 CameraState] 숫자는 메시지 상수(STATE_*)를 먼저 읽고, 상수가 없을 때만 이 표를 쓴다.
 CAMERA_STATE_TYPES = {
-    1: "ENTERING", 2: "PARKED", 3: "EXITING", 4: "EXITED",
+    1: "ENTERING", 2: "EXITED", 3: "PARKED", 4: "EXITING",
 }
 
 
@@ -228,6 +179,8 @@ def dependency_report():
     modules = {
         "rclpy": "rclpy",
         "patrol_interfaces": "patrol_interfaces.msg",
+        "patrol_interfaces.action": "patrol_interfaces.action",
+        "action_msgs": "action_msgs.msg",
         "nav_msgs": "nav_msgs.msg",
         "sensor_msgs": "sensor_msgs.msg",
         "std_msgs": "std_msgs.msg",

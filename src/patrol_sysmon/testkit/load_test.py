@@ -14,6 +14,7 @@ import sqlite3
 import tempfile
 import threading
 import time
+import uuid
 
 from app import create_app
 from app.database import get_db
@@ -152,7 +153,9 @@ def _test_app(root):
         "ROBOT_STATUS_HISTORY_MIN_INTERVAL_SECONDS": 0,
         "ROBOT_OFFLINE_AFTER_SECONDS": 15,
         "MAP_MAX_CELLS": 1_000_000,
-        "EVENT_IMAGE_MAX_BYTES": 5 * 1024 * 1024,
+        "REPORT_IMAGE_MAX_BYTES": 1 * 1024 * 1024,
+        # [부하 측정] 같은 로봇·같은 종류 사건 억제를 끄고 요청마다 사건·사진이 저장되게 한다.
+        "REPORT_SUPPRESS_SECONDS": 0,
         "VIDEO_FRAME_MAX_BYTES": 2 * 1024 * 1024,
         "CAMERA_OFFLINE_AFTER_SECONDS": 5,
     })
@@ -323,19 +326,15 @@ def _event_worker(app, stop_at, rate_hz, metrics, png):
     event_types = ("FIRE", "LEAK", "OBSTACLE")
 
     def send(sequence):
-        unique = f"{sequence}-{time.time_ns()}"
-        now = _utc_now()
+        # [ReportDetection 필드] event_id는 소문자 UUID v4, 좌표계는 서버가 map으로 채운다.
+        event_id = str(uuid.uuid4())
         metadata = {
-            "event_id": f"load-event-{unique}",
-            "message_id": f"load-event-message-{unique}",
             "robot_id": "AMR1" if sequence % 2 == 0 else "AMR2",
-            "event_type": event_types[sequence % len(event_types)],
-            "occurred_at": _utc_text(now),
-            "captured_at": _utc_text(now),
+            "event_id": event_id,
+            "detected_at": _utc_text(_utc_now()),
             "x": float(sequence % 30),
             "y": float(sequence % 15),
-            "frame_id": "map",
-            "risk_level": "MEDIUM",
+            "event_type": event_types[sequence % len(event_types)],
         }
         _measure(
             metrics, "write_event",
@@ -343,7 +342,7 @@ def _event_worker(app, stop_at, rate_hz, metrics, png):
                 "/api/events",
                 data={
                     "metadata": json.dumps(metadata),
-                    "image": (BytesIO(png), f"load-{unique}.png"),
+                    "image": (BytesIO(png), f"load-{event_id}.png"),
                 },
                 headers=headers,
                 content_type="multipart/form-data",

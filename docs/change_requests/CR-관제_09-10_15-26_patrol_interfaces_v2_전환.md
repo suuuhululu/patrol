@@ -45,7 +45,7 @@
 | AMR / robot1 | 미반영 | - | v2 Action·메시지 소비 코드 전환 |
 | AMR / robot6 | 미반영 | - | v2 Action·메시지 소비 코드 전환 |
 | 관제 | 반영 | `patrol_interfaces 2.0.0`, `patrol_control 0.2.0`; 빌드·단위시험·노드 생성 smoke test PASS | 실제 AMR·CCTV 종단시험 |
-| System monitor | 일부 반영 | ReportDetection 서버 기존 구현 | 제거 타입 의존성 정리·재빌드 |
+| System monitor | 반영 | `patrol_interfaces 2.0.0` 재빌드. 제거 타입(RobotStatus·PatrolVisit·PatrolReport·KeepoutStatus·DetectionEvent·EvidenceChunk·IngestionAck) 구독·저장 경로 정리, ReportDetection 서버 유지. 로봇 상태·방문·결과는 `patrol_action` 피드백·상태 토픽과 `battery_state`를 수동 구독해 표시. 격리 DDS e2e 확인 | 실제 AMR·관제 종단시험, Action 숨은 토픽 수동 구독을 관제 팀과 공유 |
 | 비전 | 검토 필요 | CameraState 유지 | v2 패키지 재빌드·CCTV 호환 확인 |
 
 ## 완료 조건과 검증

@@ -1,4 +1,7 @@
-"""PatrolVisit·PatrolReport 계약 검증과 순찰 화면 표시 처리."""
+"""순찰 방문·결과 검증과 순찰 화면 표시 처리.
+
+v2에서는 Patrol Action 피드백(WAYPOINT_REACHED)과 목표 상태에서 만든 값이 들어온다.
+"""
 
 from datetime import datetime, timedelta, timezone
 import math
@@ -79,9 +82,9 @@ def _coordinate(payload, field, location_required):
 
 
 def validate_visit(payload, now=None):
-    """PatrolVisit을 저장 가능한 계약 값으로 정규화한다."""
+    """관측점 방문을 저장 가능한 값으로 정규화한다."""
     if not isinstance(payload, dict):
-        raise PatrolValidationError("PatrolVisit 객체가 필요합니다.")
+        raise PatrolValidationError("방문 객체가 필요합니다.")
     current = now or datetime.now(timezone.utc)
     robot_id = payload.get("robot_id")
     if robot_id not in ROBOT_NAMES:
@@ -94,7 +97,7 @@ def validate_visit(payload, now=None):
         raise PatrolValidationError("result는 SUCCEEDED, SKIPPED, FAILED 중 하나여야 합니다.")
     frame_id = payload.get("frame_id")
     if frame_id not in (None, "", "map"):
-        raise PatrolValidationError("PatrolVisit pose의 frame_id는 map이어야 합니다.")
+        raise PatrolValidationError("방문 위치의 frame_id는 map이어야 합니다.")
     return {
         "visit_id": _uuid_v4(payload.get("visit_id"), "visit_id"),
         "message_id": _uuid_v4(payload.get("message_id"), "message_id"),
@@ -120,9 +123,9 @@ def validate_visit(payload, now=None):
 
 
 def validate_report(payload, now=None):
-    """PatrolReport를 저장 가능한 계약 값으로 정규화한다."""
+    """순찰 결과를 저장 가능한 값으로 정규화한다."""
     if not isinstance(payload, dict):
-        raise PatrolValidationError("PatrolReport 객체가 필요합니다.")
+        raise PatrolValidationError("순찰 결과 객체가 필요합니다.")
     current = now or datetime.now(timezone.utc)
     robot_id = payload.get("robot_id")
     if robot_id not in ROBOT_NAMES:
@@ -131,10 +134,8 @@ def validate_report(payload, now=None):
     if result not in REPORT_RESULTS:
         raise PatrolValidationError("result는 SUCCEEDED, FAILED, CANCELED 중 하나여야 합니다.")
     reason_code = _reason_code(payload)
+    # [v2 사유 없음] Action 상태 토픽에는 Result 본문(reason)이 없어 실패·취소도 사유 없이 받는다.
     reason = str(payload.get("reason", "")).strip()
-    # [계약 3.8] 실패·취소 보고에는 원인 코드와 설명이 반드시 있어야 한다.
-    if result in {"FAILED", "CANCELED"} and (reason_code == 0 or not reason):
-        raise PatrolValidationError("FAILED·CANCELED 보고에는 reason_code와 reason이 필요합니다.")
     patrol_id = _optional_id(payload, "patrol_id")
     if not patrol_id:
         raise PatrolValidationError("patrol_id 값이 필요합니다.")
@@ -170,6 +171,18 @@ def receive_visit(payload, now=None):
 
 def receive_report(payload, now=None):
     return patrol_model.store_report(validate_report(payload, now))
+
+
+def receive_action_result(payload, now=None):
+    """Action 목표 상태에서 만든 결과를 저장한다. 방문 수는 이미 저장된 방문에서 센다.
+
+    계획 방문 수는 v2 인터페이스에 없어 완료 방문 수와 같게 둔다. 재시작 뒤 같은 목표가
+    다시 들어와도 같은 값이 되므로 중복으로 처리된다.
+    """
+    visits = patrol_model.visit_count(payload["patrol_id"])
+    return receive_report(
+        {**payload, "planned_visit_count": visits, "completed_visit_count": visits}, now
+    )
 
 
 def _display_time(value):

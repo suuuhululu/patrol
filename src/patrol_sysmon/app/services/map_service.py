@@ -91,20 +91,21 @@ def _png_chunk(kind, data):
 
 
 def occupancy_to_png(occupancy, width, height):
-    """OccupancyGrid의 아래쪽 원점을 PNG 위쪽 원점으로 뒤집어 RGB 이미지로 만든다."""
+    """OccupancyGrid의 아래쪽 원점을 PNG 위쪽 원점으로 뒤집어 RGBA 이미지로 만든다."""
     rows = bytearray()
     for output_y in range(height):
         source_start = (height - 1 - output_y) * width
         rows.append(0)
         for value in occupancy[source_start:source_start + width]:
             if value < 0:
-                color = (42, 57, 73)
+                # [미탐색 칸] 색을 칠하면 지도 가장자리가 여백처럼 보이므로 투명하게 둔다.
+                color = (0, 0, 0, 0)
             else:
                 shade = round(235 - (value / 100) * 205)
-                color = (shade, shade, shade)
+                color = (shade, shade, shade, 255)
             rows.extend(color)
     signature = b"\x89PNG\r\n\x1a\n"
-    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
     return signature + _png_chunk(b"IHDR", header) + _png_chunk(b"IDAT", zlib.compress(bytes(rows), 9)) + _png_chunk(b"IEND", b"")
 
 
@@ -181,13 +182,8 @@ def _inside_map(point, map_row):
     return 0 <= point[0] <= map_row["width"] and 0 <= point[1] <= map_row["height"]
 
 
-def dashboard_map(now=None):
-    """현재 지도와 로봇 위치·최근 경로를 SVG가 그릴 JSON 형태로 만든다."""
-    map_row = map_model.current_map()
-    if map_row is None:
-        return {"available": False, "state_label": "지도 수신 대기", "robots": [], "paths": [],
-                "coordinate_warnings": []}
-    map_data = dict(map_row)
+def robot_overlay(map_data, now=None):
+    """격자 메타데이터 기준으로 로봇 마커·최근 경로·좌표 경고를 이미지 격자 좌표로 만든다."""
     robots = robot_service.dashboard_robots(now)
     markers = []
     paths = []
@@ -228,6 +224,17 @@ def dashboard_map(now=None):
             if _inside_map(history_point, map_data):
                 points.append({"x": round(history_point[0], 3), "y": round(history_point[1], 3)})
         paths.append({"robot_id": robot["id"], "points": points})
+    return markers, paths, coordinate_warnings
+
+
+def dashboard_map(now=None):
+    """현재 지도와 로봇 위치·최근 경로를 SVG가 그릴 JSON 형태로 만든다."""
+    map_row = map_model.current_map()
+    if map_row is None:
+        return {"available": False, "state_label": "지도 수신 대기", "robots": [], "paths": [],
+                "coordinate_warnings": []}
+    map_data = dict(map_row)
+    markers, paths, coordinate_warnings = robot_overlay(map_data, now)
     return {
         "available": True, "state_label": "NAV 지도 수신",
         "message_id": map_data["message_id"], "frame_id": map_data["frame_id"],

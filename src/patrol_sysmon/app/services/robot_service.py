@@ -14,7 +14,7 @@ MISSION_LABELS = {
     "IDLE": "대기", "PATROLLING": "순찰 중", "PAUSED": "일시정지",
     "RETURNING": "복귀 중", "DOCKING": "도킹 중", "CHARGING": "충전 중",
     "EVACUATING": "대피 중", "ERROR": "오류",
-    # [12단계: 계약 매핑] RobotStatus mission_state를 의미 손실 없이 화면에 표시한다.
+    # [12단계: 계약 매핑] v1 RobotStatus mission_state 이름. v1 이력 표시에 쓴다.
     "UNDOCKING": "도크 이탈 중",
     "MOVING_TO_SAFE_ZONE": "안전구역 이동 중",
     "WAITING_SAFE_ZONE": "안전구역 대기",
@@ -22,9 +22,17 @@ MISSION_LABELS = {
     "COMPLETED": "완료",
     "FAILED": "실패",
     "CANCELED": "취소",
+    # [v2 Patrol Feedback] task_state를 그대로 임무 상태로 쓴다.
+    "WAITING_FOR_TOKEN": "주행 권한 대기",
+    "INITIAL_POSE_READY": "초기 위치 확인",
+    "DETECTION_PROCESSING": "감지 확인 중",
+    "DETECTION_CONFIRMED": "감지 확정",
+    "RESUMING": "순찰 재개 중",
+    "BLOCKED": "주행 막힘",
+    "WAYPOINT_REACHED": "관측점 도착",
 }
 CONNECTION_LABELS = {"ONLINE": "온라인", "OFFLINE": "오프라인", "UNKNOWN": "확인 불가"}
-# [계약 매핑] RobotStatus.safety_state(interfaces.md 4절, 2026-09-08). NORMAL은 이동 권한이 아니고
+# [계약 매핑] v1 RobotStatus.safety_state. v2에는 안전 상태 토픽이 없어 새 행은 UNKNOWN이다. NORMAL은 이동 권한이 아니고
 # ESTOPPED는 속도 0을 보장하지 않으므로 실제 정지 여부는 motion_stopped로 따로 붙인다.
 SAFETY_LABELS = {
     "UNKNOWN": "확인 안 됨", "NORMAL": "정상", "STOPPING": "정지 중",
@@ -74,10 +82,13 @@ def validate_status(payload, now=None):
     robot_id = _required_text(payload, "robot_id").upper()
     if robot_id not in ROBOT_NAMES:
         raise StatusValidationError("robot_id는 AMR1 또는 AMR2여야 합니다.")
-    battery = _finite_number(payload, "battery")
-    if not 0 <= battery <= 100:
-        raise StatusValidationError("battery는 0에서 100 사이여야 합니다.")
-    # [위치 유효성] 계약 RobotStatus의 pose_valid를 그대로 받는다.
+    # [배터리 선택] v2에서는 배터리가 battery_state로 따로 온다. 아직 못 받았으면 비워 둔다.
+    battery = None
+    if payload.get("battery") is not None:
+        battery = _finite_number(payload, "battery")
+        if not 0 <= battery <= 100:
+            raise StatusValidationError("battery는 0에서 100 사이여야 합니다.")
+    # [위치 유효성] pose_valid를 그대로 받는다(v2는 Patrol 피드백 위치가 map 좌표계일 때만 유효).
     # 무효면 좌표를 저장하지 않고 배터리·임무·연결 상태만 남긴다.
     pose_valid = payload.get("pose_valid", True)
     if not isinstance(pose_valid, bool):

@@ -1,10 +1,13 @@
 """고정 웹캠 인식 모듈에서 받은 차량 입출차 내역 검증과 표시 처리."""
 
 from datetime import datetime, timedelta, timezone
+import re
 
 from ..models import cctv as cctv_model
 from ..models import vehicle_access as vehicle_access_model
-from .event_service import EVENT_ID_PATTERN
+
+
+ACCESS_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 
 CAMERA_NAMES = {"webcam1": "고정 웹캠 1", "webcam2": "고정 웹캠 2"}
@@ -44,7 +47,7 @@ def validate_access(payload, now=None):
         raise VehicleAccessValidationError("JSON 객체가 필요합니다.")
     access_id = _required_text(payload, "access_id")
     message_id = _required_text(payload, "message_id")
-    if not EVENT_ID_PATTERN.fullmatch(access_id) or not EVENT_ID_PATTERN.fullmatch(message_id):
+    if not ACCESS_ID_PATTERN.fullmatch(access_id) or not ACCESS_ID_PATTERN.fullmatch(message_id):
         raise VehicleAccessValidationError("access_id 또는 message_id 형식이 올바르지 않습니다.")
     camera_id = _required_text(payload, "camera_id").lower()
     if camera_id not in CAMERA_NAMES:
