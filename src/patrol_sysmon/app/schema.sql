@@ -113,7 +113,8 @@ CREATE TABLE IF NOT EXISTS events (
     event_id TEXT PRIMARY KEY NOT NULL,
     message_id TEXT NOT NULL UNIQUE,
     robot_id TEXT NOT NULL REFERENCES robots(robot_id),
-    event_type TEXT NOT NULL,
+    -- [ReportDetection] 서비스로 받은 사건은 종류·위험도가 없다. 종류는 UNKNOWN, 위험도는 NULL.
+    event_type TEXT NOT NULL DEFAULT 'UNKNOWN',
     occurred_at TEXT NOT NULL,
     x REAL,
     y REAL,
@@ -121,10 +122,12 @@ CREATE TABLE IF NOT EXISTS events (
     confidence REAL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 1)),
     location_valid INTEGER NOT NULL DEFAULT 1 CHECK (location_valid IN (0, 1)),
     evidence_id TEXT,
-    risk_level TEXT NOT NULL CHECK (risk_level IN ('HIGH', 'MEDIUM', 'LOW')),
+    risk_level TEXT CHECK (risk_level IS NULL OR risk_level IN ('HIGH', 'MEDIUM', 'LOW')),
     status TEXT NOT NULL DEFAULT 'NEW'
         CHECK (status IN ('NEW', 'REVIEWING', 'WORK_REQUESTED', 'RESOLVED')),
-    received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    -- [ReportDetection] event_id + 내용 해시로 재시도(같음)와 잘못된 재사용(다름)을 가른다.
+    content_hash TEXT
 );
 
 -- [증거 이미지] 이벤트마다 한 장의 파일 경로만 저장한다. 영상·이미지 바이너리는 넣지 않는다.

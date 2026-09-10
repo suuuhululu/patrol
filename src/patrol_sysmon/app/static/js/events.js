@@ -65,16 +65,7 @@ if (eventsPanel) {
             warning.textContent = ` 증적 ${event.evidence_state_label}`;
             timeCell.appendChild(warning);
         }
-        const riskCell = addTextCell(row, "");
-        const risk = document.createElement("span");
-        risk.className = `risk-badge risk-${event.risk_level.toLowerCase()}`;
-        risk.textContent = event.risk_label;
-        riskCell.appendChild(risk);
-        const statusCell = addTextCell(row, "");
-        const status = document.createElement("span");
-        status.className = `event-status status-${event.status.toLowerCase()}`;
-        status.textContent = event.status_label;
-        statusCell.appendChild(status);
+        // [화면 정리] 위험도·처리 상태 칸은 목록에서 뺐다. 처리 상태는 상세 창의 이력에서 본다.
         const evidenceCell = addTextCell(row, "");
         if (event.evidence_url) {
             const button = document.createElement("button");
@@ -135,8 +126,6 @@ if (eventsPanel) {
         dialog.querySelector("[data-detail-occurred]").textContent = event.occurred_label;
         dialog.querySelector("[data-detail-robot]").textContent = `${event.robot_name} (${event.robot_id})`;
         dialog.querySelector("[data-detail-location]").textContent = event.location_label;
-        dialog.querySelector("[data-detail-risk]").textContent = `위험도 ${event.risk_label}`;
-        dialog.querySelector("[data-detail-status]").textContent = event.status_label;
         dialog.querySelector("[data-detail-captured]").textContent = `촬영 시각 ${event.captured_label}`;
         const image = dialog.querySelector("[data-detail-image]");
         image.src = event.evidence_url || "";

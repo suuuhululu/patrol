@@ -143,7 +143,30 @@ def receive_status(payload, now=None):
     current = now or datetime.now(timezone.utc)
     status = validate_status(payload, current)
     received_at = current.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    return robot_model.store_status(status, received_at)
+    min_interval = current_app.config.get("ROBOT_STATUS_HISTORY_MIN_INTERVAL_SECONDS") or 0.0
+    return robot_model.store_status(
+        status, received_at, float(min_interval), _history_cutoff(current)
+    )
+
+
+PRUNE_INTERVAL_SECONDS = 60
+
+
+def _history_cutoff(current):
+    """보존 기간이 켜져 있고 마지막 정리 뒤 1분이 지났으면 삭제 기준 시각을 돌려준다.
+
+    2 Hz × 2대 수신마다 DELETE를 돌리지 않도록 앱 객체에 마지막 정리 시각을 기억한다.
+    """
+    retention_days = current_app.config.get("ROBOT_STATUS_HISTORY_RETENTION_DAYS")
+    if not retention_days or retention_days <= 0:
+        return None
+    state = current_app.extensions.setdefault("sysmon_status_history_prune", {})
+    last = state.get("last_pruned_at")
+    if last is not None and (current - last).total_seconds() < PRUNE_INTERVAL_SECONDS:
+        return None
+    state["last_pruned_at"] = current
+    cutoff = current.astimezone(timezone.utc) - timedelta(days=retention_days)
+    return cutoff.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _parse_stored_time(value):

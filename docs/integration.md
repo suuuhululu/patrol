@@ -1,12 +1,12 @@
 # 시스템 통합과 시험
 
-상태: 실행 전 통합 명세 · 관제 계약 v1.0 (`CTRL-IF-2026-09-08`) · 담당: AMR·관제·시스템 모니터·비전 공동
+상태: 실행 전 통합 명세 · 공용 계약 v1.1 · 팀별 소비 코드 반영 대기 · 담당: AMR·관제·시스템 모니터·비전 공동
 
 아래 절차는 시험 계획이며 실제 실행 결과가 아니다. 미정 계약에 의존하는 시험은 해당 TBD 해결 전 BLOCKED로 기록한다. 각 시험 결과는 NOT_RUN / PASS / FAIL / BLOCKED로 구분한다.
 
 ## 1. 통합 기준
 
-통신 이름·필드·시간·거리 수치의 원본은 [interfaces.md](interfaces.md)다. 관제 구현과 관련 IT-02·03·04·08·09·10·11·12의 확정 입력은 [v1.0 기준선](decisions/2026-09-08-control-interface-baseline.md)을 사용한다. 아래 Q-ID는 interfaces.md 9절을 참조한다. 각 단위의 구현 책임은 [AMR](amr.md), [관제](control_server.md), [비전](vision.md), [시스템 모니터](monitoring_and_data.md)를 따른다.
+통신 이름·필드·시간·거리 수치의 원본은 [interfaces.md](interfaces.md)다. IT-02·03·04·08·09·10·11·12의 입력은 [v1.0 기준선](decisions/2026-09-08-control-interface-baseline.md)을 승계하고, Detection·증적은 [v1.1 기준선](decisions/2026-09-09-detection-interface-v1.1.md)을 사용한다. 아래 Q-ID는 interfaces.md 9절을 참조한다. 각 단위의 구현 책임은 [AMR](amr.md), [관제](control_server.md), [비전](vision.md), [시스템 모니터](monitoring_and_data.md)를 따른다.
 
 통합은 AMR, 관제, 시스템 모니터, 비전의 네 개발 단위로 관리한다. 관제와 시스템 모니터는 통합 실행 시 PC 3에서 함께 실행하며 개발·반영 상태는 각각 기록한다. PC 번호는 통합 실행 위치를 나타내며 개발자의 작업 PC를 지정하지 않는다. 문서 합의, 코드 반영, 장비 배포, 통합 검증은 별도 상태다.
 
@@ -16,7 +16,7 @@ UC별 목표·사전 조건·기본/예외 흐름·완료 조건과 W 흐름의 
 
 다음은 권장 점검 순서이며 정확한 실행 명령·서비스 의존성은 TBD-ARCH-001에서 확정한다.
 
-1. [AGENTS.md](../AGENTS.md)의 승인 범위와 개발 단위별 반영 버전을 확인한다. 모든 PC에서 같은 Git commit의 `patrol_interfaces 1.0.0`을 로컬 빌드하고 `scripts/verify_interface_v1.py --installed`의 `message_manifest_sha256`이 2026-09-09 16종 기준값 `d6f24b6e42d851f229994626cf376a5241d7321060fd2d5888849cf66a80c6d9`과 일치하지 않으면 통합시험을 시작하지 않는다. 이 값은 주석·빈 줄을 제외한 ROS 선언 기준이다.
+1. [AGENTS.md](../AGENTS.md)의 승인 범위와 개발 단위별 반영 버전을 확인한다. 모든 PC에서 같은 Git commit의 `patrol_interfaces 1.1.0`을 로컬 빌드하고 `scripts/verify_interface_v1.py --installed`의 `message_manifest_sha256`이 [v1.1 기준선](decisions/2026-09-09-detection-interface-v1.1.md)의 값과 일치하지 않으면 통합시험을 시작하지 않는다. 이 값은 주석·빈 줄을 제외한 ROS 선언 기준이다.
 2. robot1/robot6, /robot1·/robot6, AMR1/AMR2 매핑 및 대상 장비를 확인한다.
 3. 기존 TB4 Onboard 서버 ID 1·6 설정이 유지되는지 확인한다. 단일 서버로 통합하지 않는다.
 4. PC 3 Offboard 서버 ID 0, UDP 11811의 접속 주소와 서비스를 확인한다.
@@ -71,9 +71,11 @@ token 미수신/만료 또는 `ControlHeartbeat` 1초 미수신 → AMR 로컬 �
 
 AMR 탑재 카메라의 detecting node는 비전팀이 개발하고 각 AMR PC에서 실행한다. detecting node는 수동적으로 영상 탐지와 DetectionCandidate 제공만 담당하며 주행·회전 명령을 발행하지 않는다. AMR은 같은 candidate를 연결해 yaw 회전과 정렬을 수행하고, 최종 속도는 local_safety_supervisor를 통과시킨다. 상세 요청과 개발 경계는 [Detection 정렬 수정 요청서](change_requests/CR-관제_09-07_20-26_AMR_비전_Detection_정렬_계약.md)를 따른다.
 
-처리 순서는 DetectionCandidate → AMR yaw 정렬 → AMR 정지 확인 → 같은 candidate의 정렬 완료를 detecting node에 통지 → 정렬 완료 상태에서 detecting node가 같은 대상을 1초 연속 탐지 → DetectionEvent 확정·증적 생성 → 시스템 모니터 수집·중복 처리 방지·저장 및 관제 제어용 이벤트 전달이다. 정렬 완료 후 1초 확인 중에는 AMR이 정지 상태를 유지한다. 탐지 조건이 끊기거나 정렬 완료 상태가 해제되면 1초 확인을 초기화하며 DetectionEvent를 발행하지 않는다.
+처리 순서는 `detection/candidate` → AMR yaw 정렬 → AMR 정지 확인 → 같은 candidate의 `detection/alignment_status` 정렬 완료 → detecting node가 같은 대상을 1초 연속 검증 → `detection/event`와 `detection/evidence`를 비전 로컬 재전송 큐에 등록 → `detection/result` 발행이다. 확정 Event는 관제와 시스템 모니터가 받고 EvidenceChunk는 시스템 모니터가 수집·저장한다. 정렬 완료 후 1초 확인 중에는 AMR이 정지 상태를 유지한다. 탐지 조건이 끊기거나 정렬 완료 상태가 해제되면 1초 확인을 초기화하고 `VERIFY_FAILED`를 발행하며 DetectionEvent는 발행하지 않는다.
 
-정렬을 시작하면 일반 MissionCommand 변경, permit 반전이나 새 DetectionCandidate만으로 해당 정렬 작업을 중단·교체하지 않는다. 다만 E-stop, Drive Token 만료·회수, local_safety_supervisor의 장애물 차단, 센서·구동계 장애는 독립 안전 계층이므로 즉시 정렬을 중단하고 정지한다. 안전 중단 뒤에는 자동으로 정렬이나 1초 확인을 재개하지 않는다. event_type enum은 비전팀 제시와 공동 검토 전까지 TBD-IF-006으로 유지하며 severity enum과 severity 필드는 만들지 않는다.
+정렬을 시작하면 일반 MissionCommand 변경, permit 반전이나 새 DetectionCandidate만으로 해당 정렬 작업을 중단·교체하지 않는다. 다만 E-stop, Drive Token 만료·회수, local_safety_supervisor의 장애물 차단, 센서·구동계 장애는 독립 안전 계층이므로 즉시 정렬을 중단하고 정지한다. 안전 중단 뒤에는 자동으로 정렬이나 1초 확인을 재개하지 않는다. Candidate와 Event의 event_type은 UNKNOWN=0, FIRE=1, LEAK=2, OBSTACLE=3이며 `risk_level`과 `RISK_*`는 사용하지 않는다.
+
+`DetectionResult`는 CONFIRMED=0, VERIFY_FAILED=1, INTERNAL_ERROR=2다. CONFIRMED는 Event와 Evidence가 로컬 재전송 큐에 등록됐다는 뜻이며 시스템 모니터 저장 완료가 아니다. AMR은 현재 candidate와 일치하는 유효 종결 결과를 받으면 내부적으로 정렬 hold를 끝낼 수 있고, 관제의 새 RESUME_PATROL이나 시스템 모니터의 `ingestion_ack`를 기다리지 않는다. 시스템 모니터는 `/{robot}/ingestion_ack`을 발행하고 비전은 INCOMPLETE의 누락 청크를 재전송한다. 모든 노드는 launch namespace와 상대 토픽을 사용한다.
 
 화재 확정 시 부저를 ON하고 신규 순찰 구간을 추가하지 않은 채 현재 mission ID로 순찰·복귀·도킹까지 완료한다. 기존 Drive Token은 도킹 완료 또는 실패까지 유지하고 종료 시 회수한다. 이후 다른 로봇에 새 token을 발급하지 않고 전체 순찰을 중단한다. token 만료나 E-stop은 이 흐름보다 우선하며 새 token ID를 자동 발급해 복구하지 않는다.
 
@@ -98,8 +100,8 @@ DOCKED 완료 센서와 별도 충전 감지 신호 활성이 2초 연속이면 
 | IT-11 E-stop | UI OPERATOR 정지·해제, robot1·robot6·all, 각 비물리 reason의 동시 활성, 대표 reason, 3초 해제 조건 유지·중단을 시험 | UI 직접 발행 없음; Safety Arbiter 단일 발행·즉시 활성; 대표 원인은 `SYSTEM_FAULT → UNKNOWN → OPERATOR → KEEPOUT_FAILURE → COMMUNICATION → OBSTACLE → TOKEN` 순서와 일치; 조건 시작·초기화·해제 로그; 해제 후 새 token·command 전 이동 없음; 물리/manual reset 경로 없음 | v1.0 Q-10, 상세 조건은 차기 버전 TBD-IF-004·TBD-CTRL-004 |
 | IT-12 pose·보고 | 무효 pose, snapshot/pose 시각 차이, 결과 전 단절, 복구 후 같은 report ID 재전달 | 마지막 유효 pose와 age 구분; UNREPORTED 유지·대필 없음; command·mission·report ID 연결과 중복 제거 | TBD-IF-003 |
 | IT-13 배터리·도킹·교대 | SOC 경계, LOW mission 완료, LOW→CRITICAL, UNKNOWN, DOCKED·별도 충전 감지 신호 2초 경계, 도킹 timeout | enum·Q-11 일치; SOC 기반 `BatteryState`와 도킹용 충전 감지를 독립 판정; LOW는 현재 mission 도킹까지 완료; CRITICAL은 즉시 전환; Q-09 성공 조건; 실제 정지 뒤 교대 token | Q-09·11, TBD-AMR-004·TBD-INT-001 |
-| IT-14 Detection·정렬·화재 | 비전팀 detecting node를 robot1·robot6 AMR PC에서 각각 실행한다. 후보 발생 후 AMR yaw 정렬, 정지 확인, 같은 candidate의 정렬 완료 통지, 정렬 상태 1초 연속 탐지를 순서대로 시험한다. 1초 도중 탐지 단절·정렬 상태 해제·일반 명령·permit 반전·새 후보를 각각 주입하고, 별도로 token 만료·E-stop·장애물 차단을 주입한다. 화재 확정 뒤 현재 mission·도킹 흐름도 시험한다. | detecting node는 속도를 발행하지 않고 AMR만 yaw를 수행한다. 정지 확인 전에는 정렬 완료나 DetectionEvent가 없으며, 정렬 완료 후 같은 대상이 1초 연속 유효할 때 한 번만 확정한다. 일반 명령·permit·새 후보로 정렬을 교체하지 않는다. 안전 원인은 즉시 정렬 중단·정지하며 자동 재개하지 않는다. DetectionEvent에 severity enum·필드가 없고 event_type은 비전팀 제시 후 합의된 값과 일치한다. 화재 확정 후 부저·mission·token·도킹 결과는 기존 정책과 일치한다. | [Detection 정렬 요청](change_requests/CR-관제_09-07_20-26_AMR_비전_Detection_정렬_계약.md), Q-12, TBD-AMR-001·004, TBD-IF-006, TBD-INT-004 |
-| IT-15 증적·DB | 이벤트/이미지 순서 변경·전송 실패·DB 실패·복구 | 합의된 중복/재시도·불완전 상태·복구 결과, 읽기 전용 조회 | TBD-IF-007, TBD-MON-001·002 |
+| IT-14 Detection·정렬·화재 | robot1·robot6 launch namespace에서 비전 detecting node를 각각 실행하고 하드코딩된 robot6 절대 토픽이 없는지 확인한다. 후보 발생 후 AMR yaw 정렬, 정지 확인, 같은 candidate의 AlignmentStatus, 1초 연속 검증, DetectionResult를 순서대로 시험한다. CONFIRMED·VERIFY_FAILED·INTERNAL_ERROR와 candidate 불일치·잘못된 event_id 조합을 주입한다. 별도로 일반 명령·permit·새 후보 및 token 만료·E-stop·장애물 차단을 주입하고, FIRE 확정 뒤 현재 mission·도킹 흐름도 시험한다. | Candidate·Event의 event_type이 UNKNOWN=0·FIRE=1·LEAK=2·OBSTACLE=3으로 같고 risk 필드·enum이 없다. 비전은 속도를 발행하지 않고 AMR만 yaw를 수행한다. AMR은 일치하는 유효 종결 결과만 수락하고 별도 관제 RESUME나 IngestionAck 대기 없이 내부 hold를 종결하되 안전 게이트를 우회하지 않는다. CONFIRMED만 비어 있지 않은 event_id를 가지며 Event·Evidence가 로컬 큐에 있다. 안전 원인은 즉시 정렬 중단·정지하고 자동 재개하지 않는다. FIRE 이후 부저·mission·token·도킹 결과는 기존 정책과 일치한다. | [v1.1 기준선](decisions/2026-09-09-detection-interface-v1.1.md), TBD-AMR-001·004, TBD-IF-006, TBD-INT-004 |
+| IT-15 증적·DB | EvidenceChunk의 순서 변경·중복·일부 누락·SHA 불일치·전송 실패·DB 실패·복구를 주입한다. INCOMPLETE missing_chunks 재전송과 STORED·DUPLICATE·REJECTED를 각각 확인하고 ACK 지연 중 AMR 재개 여부도 검사한다. | 시스템 모니터만 `/{robot}/ingestion_ack`을 발행한다. 비전은 INCOMPLETE의 누락 청크만 재전송하고 STORED·DUPLICATE에서 로컬 큐 항목을 종료한다. ACK가 지연돼도 AMR 재개를 막지 않는다. event_type으로 저장·표시하고 risk_level을 요구하거나 산출하지 않는다. 장기 재시도 한도 미정 항목은 별도로 BLOCKED 기록한다. | [v1.1 기준선](decisions/2026-09-09-detection-interface-v1.1.md), TBD-IF-007, TBD-MON-001·002 |
 | IT-16 최종 속도 경계 | Nav2·AMR yaw 후보와 E-stop·token 만료·장애물 차단을 함께 발생시킨다. detecting node가 속도 토픽을 발행하지 않는지도 확인한다. | 최종 출력 발행권은 local_safety_supervisor 하나이며 yaw 정렬과 "정렬 중 일반 중단 금지" 정책이 안전 차단을 우회하지 않는다. | [Detection 정렬 요청](change_requests/CR-관제_09-07_20-26_AMR_비전_Detection_정렬_계약.md), [TBD-IF-009 결정](change_requests/CR-AMR_09-08_08-31_최종_cmd_vel_경로와_주행_후보_토픽.md), TBD-AMR-006 |
 
 IT-13의 배터리 경계는 interfaces.md 8절의 모든 임계값을 사용한다. 도킹 접점 유지가 짧게 끊기는 경우와 timeout 경계도 포함한다. 반복 시험 결과는 실행 일자·대상 robot_id·각 PC 버전·실제 값·로그 위치와 함께 기록한다.

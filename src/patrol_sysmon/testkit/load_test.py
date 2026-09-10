@@ -148,6 +148,8 @@ def _test_app(root):
         "VIDEO_DIR": str(instance / "live_frames"),
         "SECRET_KEY": secrets.token_urlsafe(32),
         "ROBOT_API_KEY": secrets.token_urlsafe(32),
+        # [부하 측정] 요청마다 이력 행이 생겨야 쓰기 경합을 그대로 잰다.
+        "ROBOT_STATUS_HISTORY_MIN_INTERVAL_SECONDS": 0,
         "ROBOT_OFFLINE_AFTER_SECONDS": 15,
         "MAP_MAX_CELLS": 1_000_000,
         "EVENT_IMAGE_MAX_BYTES": 5 * 1024 * 1024,
