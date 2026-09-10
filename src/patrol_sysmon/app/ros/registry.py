@@ -31,19 +31,19 @@ SUBSCRIPTIONS = (
         "map", "/map", "nav_msgs/msg/OccupancyGrid", "map", True,
     ),
     SubscriptionSpec(
-        "robot1_image", "/robot1/oakd/image/compressed",
+        "robot1_image", "/robot1/oakd/rgb/image_raw/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
-        "robot6_image", "/robot6/oakd/image/compressed",
+        "robot6_image", "/robot6/oakd/rgb/image_raw/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
-        "gate_image", "/vision/cctv/gate/image/compressed",
+        "gate_image", "/vision/cctv/gate_image/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
-        "center_image", "/vision/cctv/center/image/compressed",
+        "center_image", "/vision/cctv/center_image/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
@@ -51,33 +51,13 @@ SUBSCRIPTIONS = (
         "nav_msgs/msg/OccupancyGrid", "costmap", True,
     ),
     SubscriptionSpec(
-        "robot1_local_costmap", "/robot1/local_costmap/costmap",
-        "nav_msgs/msg/OccupancyGrid", "costmap", True,
-    ),
-    SubscriptionSpec(
         "robot6_global_costmap", "/robot6/global_costmap/costmap",
         "nav_msgs/msg/OccupancyGrid", "costmap", True,
     ),
-    SubscriptionSpec(
-        "robot6_local_costmap", "/robot6/local_costmap/costmap",
-        "nav_msgs/msg/OccupancyGrid", "costmap", True,
-    ),
-    SubscriptionSpec(
-        "robot1_detection", "/robot1/detection/event",
-        "patrol_interfaces/msg/DetectionEvent", "detection_event", True,
-    ),
-    SubscriptionSpec(
-        "robot6_detection", "/robot6/detection/event",
-        "patrol_interfaces/msg/DetectionEvent", "detection_event", True,
-    ),
-    SubscriptionSpec(
-        "robot1_evidence", "/robot1/detection/evidence",
-        "patrol_interfaces/msg/EvidenceChunk", "evidence_chunk", True,
-    ),
-    SubscriptionSpec(
-        "robot6_evidence", "/robot6/detection/evidence",
-        "patrol_interfaces/msg/EvidenceChunk", "evidence_chunk", True,
-    ),
+    # [local costmap 미구독] Nav2 local costmap은 odom 좌표계라 map 검증에서 매번 거부되고,
+    # NAV 지도는 global costmap만 바탕으로 쓰므로 구독하지 않는다.
+    # [사건 보고] DetectionEvent·EvidenceChunk 토픽은 구독하지 않는다. 확정 사건과 사진은
+    # ReportDetection 서비스(REPORT_DETECTION_SERVICE) 한 번으로 받는다.
     SubscriptionSpec(
         "gate_event", "/vision/cctv/gate_event",
         "patrol_interfaces/msg/CameraState", "camera_state", True,
@@ -159,30 +139,15 @@ ESTOP_REASONS = {
 }
 ESTOP_TARGETS = ("robot1", "robot6", "all")
 CAMERA_IDS_BY_TOPIC = {
-    "/robot1/oakd/image/compressed": "amr1",
-    "/robot6/oakd/image/compressed": "amr2",
-    "/vision/cctv/gate/image/compressed": "webcam1",
-    "/vision/cctv/center/image/compressed": "webcam2",
+    "/robot1/oakd/rgb/image_raw/compressed": "amr1",
+    "/robot6/oakd/rgb/image_raw/compressed": "amr2",
+    "/vision/cctv/gate_image/compressed": "webcam1",
+    "/vision/cctv/center_image/compressed": "webcam2",
 }
 COSTMAP_SOURCES_BY_TOPIC = {
     "/robot1/global_costmap/costmap": ("AMR1", "global"),
-    "/robot1/local_costmap/costmap": ("AMR1", "local"),
     "/robot6/global_costmap/costmap": ("AMR2", "global"),
-    "/robot6/local_costmap/costmap": ("AMR2", "local"),
 }
-DETECTION_SOURCES_BY_TOPIC = {
-    "/robot1/detection/event": "robot1",
-    "/robot6/detection/event": "robot6",
-}
-EVIDENCE_SOURCES_BY_TOPIC = {
-    "/robot1/detection/evidence": "robot1",
-    "/robot6/detection/evidence": "robot6",
-}
-DETECTION_EVENT_TYPES = {
-    1: "FIRE", 2: "LEAK", 3: "OBSTACLE",
-    4: "LIGHTING", 5: "FACILITY_DAMAGE",
-}
-DETECTION_RISK_LEVELS = {1: "LOW", 2: "MEDIUM", 3: "HIGH"}
 PATROL_VISIT_SOURCES_BY_TOPIC = {
     "/robot1/patrol_visit": "robot1",
     "/robot6/patrol_visit": "robot6",

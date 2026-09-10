@@ -28,7 +28,7 @@ def domain_id(value):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        description="운영 ROS 도메인과 DB를 건드리지 않고 기본·costmap·Detection·CCTV 토픽을 시험합니다."
+        description="운영 ROS 도메인과 DB를 건드리지 않고 기본·costmap·CCTV·순찰·안전 토픽을 시험합니다."
     )
     parser.add_argument("--duration", type=positive_float, default=3.0)
     parser.add_argument("--domain-id", type=domain_id, default=77)
@@ -37,7 +37,6 @@ def build_parser():
     parser.add_argument("--image-hz", type=positive_float, default=2.0)
     # [선택 토픽] 0이면 발행하지 않는다. 별도 프로세스 시험 CLI와 인자를 맞춘다.
     parser.add_argument("--costmap-hz", type=positive_float, default=0.0)
-    parser.add_argument("--detection-hz", type=positive_float, default=0.0)
     parser.add_argument("--cctv-hz", type=positive_float, default=0.0)
     parser.add_argument("--patrol-hz", type=positive_float, default=0.0)
     parser.add_argument("--safety-hz", type=positive_float, default=0.0)
@@ -54,7 +53,6 @@ def main(argv=None):
         map_hz=args.map_hz,
         image_hz=args.image_hz,
         costmap_hz=args.costmap_hz,
-        detection_hz=args.detection_hz,
         cctv_hz=args.cctv_hz,
         patrol_hz=args.patrol_hz,
         safety_hz=args.safety_hz,

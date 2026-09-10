@@ -20,19 +20,18 @@ class DatabaseTests(unittest.TestCase):
         }
         self.app = create_app(self.config)
 
-    def add_event(self, db, event_id="event-1", message_id="message-1", robot_id="AMR2", risk="HIGH"):
+    def add_event(self, db, event_id="event-1", robot_id="AMR2", status="NEW"):
         db.execute(
-            "INSERT INTO events (event_id, message_id, robot_id, event_type, occurred_at, risk_level) "
-            "VALUES (?, ?, ?, 'FIRE', '2026-09-05T08:00:00Z', ?)",
-            (event_id, message_id, robot_id, risk),
+            "INSERT INTO events (event_id, robot_id, event_type, occurred_at, status) "
+            "VALUES (?, ?, 'FIRE', '2026-09-05T08:00:00Z', ?)",
+            (event_id, robot_id, status),
         )
 
     def test_first_start_creates_empty_tables_and_folders(self):
         self.assertTrue(Path(self.config["DATABASE"]).is_file())
         self.assertTrue(Path(self.config["EVIDENCE_DIR"]).is_dir())
         expected = {"users", "robots", "robot_latest_status", "robot_status_history", "maps", "map_latest", "costmap_latest",
-                    "events", "event_evidence", "event_changes", "detection_event_messages",
-                    "evidence_ingestions", "evidence_chunks", "vehicle_access_logs",
+                    "events", "event_evidence", "event_changes", "vehicle_access_logs",
                     "cctv_state_events", "patrol_permit_latest", "patrol_permit_history",
             "keepout_latest", "estop_latest", "estop_history",
                     "dashboard_clear_state",
@@ -45,8 +44,14 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0], 0)
             self.assertEqual(db.execute("PRAGMA journal_mode").fetchone()[0], "wal")
             self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            # [사건 저장] ReportDetection 서비스 필드와 관제 처리 상태만 남는다.
             event_columns = {row[1] for row in db.execute("PRAGMA table_info(events)")}
-            self.assertTrue({"confidence", "location_valid", "evidence_id"} <= event_columns)
+            self.assertEqual(event_columns, {
+                "event_id", "robot_id", "event_type", "occurred_at", "x", "y", "frame_id",
+                "status", "received_at", "content_hash",
+            })
+            evidence_columns = {row[1] for row in db.execute("PRAGMA table_info(event_evidence)")}
+            self.assertEqual(evidence_columns, {"id", "event_id", "image_path", "captured_at", "created_at"})
         self.assertTrue((Path(self.config["DATABASE"]).parent / "maps").is_dir())
         self.assertTrue((Path(self.config["DATABASE"]).parent / "costmaps").is_dir())
         # [3단계 반영] DB 준비 후 기본 페이지는 로그인 사용자에게만 열린다.
@@ -99,21 +104,22 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual((row["access_id"], row["camera_id"], row["direction"]),
                              ("legacy-1", "webcam1", "ENTRY"))
 
-    def test_duplicate_message_invalid_robot_risk_and_extra_image_rejected(self):
+    def test_duplicate_event_invalid_robot_status_and_extra_image_rejected(self):
         with self.app.app_context():
             db = get_db()
             db.execute("INSERT INTO robots (robot_id, name) VALUES ('AMR2', '로봇 2')")
             self.add_event(db)
             db.execute("INSERT INTO event_evidence (event_id, image_path) VALUES ('event-1', 'first.jpg')")
             db.commit()
-            for event_id, message_id, robot_id, risk in [
-                ("event-2", "message-1", "AMR2", "HIGH"),
-                ("event-3", "message-3", "missing", "LOW"),
-                ("event-4", "message-4", "AMR2", "INVALID"),
+            for event_id, robot_id, status in [
+                ("event-1", "AMR2", "NEW"),
+                ("event-3", "missing", "NEW"),
+                ("event-4", "AMR2", "INVALID"),
             ]:
-                with self.subTest(event_id=event_id), self.assertRaises(sqlite3.IntegrityError):
+                with self.subTest(event_id=event_id, robot_id=robot_id, status=status), \
+                        self.assertRaises(sqlite3.IntegrityError):
                     with db:
-                        self.add_event(db, event_id, message_id, robot_id, risk)
+                        self.add_event(db, event_id, robot_id, status)
             with self.assertRaises(sqlite3.IntegrityError):
                 with db:
                     db.execute("INSERT INTO event_evidence (event_id, image_path) VALUES ('event-1', 'second.jpg')")

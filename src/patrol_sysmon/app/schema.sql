@@ -108,21 +108,16 @@ CREATE TABLE IF NOT EXISTS costmap_latest (
     PRIMARY KEY (robot_id, layer)
 );
 
--- [이벤트] message_id 중복 저장을 막고 위험도와 관제 처리 상태를 별도 필드로 관리한다.
+-- [이벤트] ReportDetection 서비스로 받은 확정 사건만 저장한다. 관제 처리 상태는 별도 필드로 관리한다.
 CREATE TABLE IF NOT EXISTS events (
     event_id TEXT PRIMARY KEY NOT NULL,
-    message_id TEXT NOT NULL UNIQUE,
     robot_id TEXT NOT NULL REFERENCES robots(robot_id),
-    -- [ReportDetection] 서비스로 받은 사건은 종류·위험도가 없다. 종류는 UNKNOWN, 위험도는 NULL.
+    -- 종류 필드가 생기기 전에 받은 사건은 UNKNOWN으로 남아 있다.
     event_type TEXT NOT NULL DEFAULT 'UNKNOWN',
     occurred_at TEXT NOT NULL,
     x REAL,
     y REAL,
     frame_id TEXT,
-    confidence REAL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 1)),
-    location_valid INTEGER NOT NULL DEFAULT 1 CHECK (location_valid IN (0, 1)),
-    evidence_id TEXT,
-    risk_level TEXT CHECK (risk_level IS NULL OR risk_level IN ('HIGH', 'MEDIUM', 'LOW')),
     status TEXT NOT NULL DEFAULT 'NEW'
         CHECK (status IN ('NEW', 'REVIEWING', 'WORK_REQUESTED', 'RESOLVED')),
     received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -134,45 +129,9 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE TABLE IF NOT EXISTS event_evidence (
     id INTEGER PRIMARY KEY,
     event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id),
-    evidence_id TEXT,
     image_path TEXT NOT NULL,
     captured_at TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-
--- [18단계: Detection 재전송] 보완 메시지로 events 최신값이 바뀌어도 모든 message_id 판정을 보존한다.
-CREATE TABLE IF NOT EXISTS detection_event_messages (
-    message_id TEXT PRIMARY KEY NOT NULL,
-    event_id TEXT NOT NULL REFERENCES events(event_id),
-    content_hash TEXT NOT NULL,
-    received_at TEXT NOT NULL
-);
-
--- [18단계: 증적 조립] 이벤트보다 먼저 온 증적도 보관하고 완료·거부 상태를 재시작 뒤 유지한다.
-CREATE TABLE IF NOT EXISTS evidence_ingestions (
-    evidence_id TEXT PRIMARY KEY NOT NULL,
-    event_id TEXT NOT NULL,
-    robot_id TEXT NOT NULL CHECK (robot_id IN ('AMR1', 'AMR2')),
-    captured_at TEXT NOT NULL,
-    media_type TEXT NOT NULL CHECK (media_type IN ('image/jpeg', 'image/png')),
-    sha256 TEXT NOT NULL,
-    total_size INTEGER NOT NULL CHECK (total_size > 0),
-    chunk_count INTEGER NOT NULL CHECK (chunk_count > 0),
-    status TEXT NOT NULL CHECK (status IN ('INCOMPLETE', 'STORED', 'REJECTED')),
-    image_path TEXT,
-    received_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
--- 완료 전에는 data를 두고 완료·거부 뒤에는 NULL로 비워 message_id·index 영수증만 유지한다.
-CREATE TABLE IF NOT EXISTS evidence_chunks (
-    evidence_id TEXT NOT NULL REFERENCES evidence_ingestions(evidence_id) ON DELETE CASCADE,
-    chunk_index INTEGER NOT NULL,
-    message_id TEXT NOT NULL UNIQUE,
-    content_hash TEXT NOT NULL,
-    data BLOB,
-    received_at TEXT NOT NULL,
-    PRIMARY KEY (evidence_id, chunk_index)
 );
 
 -- [관제 이력] 사용자 확인·메모·상태 변경을 기록한다. 상태 전이 규칙은 후속 서비스에서 검사한다.
@@ -341,8 +300,6 @@ CREATE INDEX IF NOT EXISTS idx_maps_observed ON maps(observed_at);
 CREATE INDEX IF NOT EXISTS idx_costmap_observed ON costmap_latest(observed_at);
 CREATE INDEX IF NOT EXISTS idx_event_changes_time ON event_changes(event_id, changed_at);
 CREATE INDEX IF NOT EXISTS idx_event_changes_changed_at ON event_changes(changed_at);
-CREATE INDEX IF NOT EXISTS idx_detection_messages_event ON detection_event_messages(event_id);
-CREATE INDEX IF NOT EXISTS idx_evidence_ingestions_event ON evidence_ingestions(event_id);
 CREATE INDEX IF NOT EXISTS idx_commands_robot_time ON commands(robot_id, requested_at);
 CREATE INDEX IF NOT EXISTS idx_patrol_robot_time ON patrol_runs(robot_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_visits_patrol ON patrol_visits(patrol_id, arrived_at);

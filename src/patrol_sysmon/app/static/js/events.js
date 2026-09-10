@@ -58,13 +58,6 @@ if (eventsPanel) {
         typeCell.appendChild(type);
         addTextCell(row, `${event.robot_name} ${event.robot_id}`);
         addTextCell(row, event.location_label);
-        // [증적 상태] 지연·누락은 주황으로 구분해 조치가 필요한 사건을 놓치지 않게 한다.
-        if (["DELAYED", "MISSING"].includes(event.evidence_state)) {
-            const warning = document.createElement("span");
-            warning.className = `evidence-warning evidence-${event.evidence_state.toLowerCase()}`;
-            warning.textContent = ` 증적 ${event.evidence_state_label}`;
-            timeCell.appendChild(warning);
-        }
         // [화면 정리] 위험도·처리 상태 칸은 목록에서 뺐다. 처리 상태는 상세 창의 이력에서 본다.
         const evidenceCell = addTextCell(row, "");
         if (event.evidence_url) {
@@ -153,7 +146,7 @@ if (eventsPanel) {
             if (!response.ok) throw new Error(`events ${response.status}`);
             const data = await response.json();
             const signature = JSON.stringify(data.events.map((event) => [
-                event.event_id, event.status, event.risk_level, event.occurred_at,
+                event.event_id, event.status, event.occurred_at,
             ]));
             if (force || signature !== lastSignature) {
                 renderEvents(data.events);

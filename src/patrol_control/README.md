@@ -38,7 +38,7 @@ ros2 run patrol_control patrol_control_node --ros-args \
 - Action 종료 또는 취소 시 활성 Token을 회수한다.
 - EStop 동작과 외부 운영 UI API는 현재 구현하지 않는다.
 
-## 코드별 flowchart
+`submit_command()`는 이후 관제 소유 API가 호출할 내부 진입점이다. 미정 API를 임의로 만들지 않기 위해 현재 노드는 외부 명령 service/action을 노출하지 않는다.
 
 ### `control_core.py` — 구현 대조 완료 (`patrol_control 0.2.0`)
 

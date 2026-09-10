@@ -6,9 +6,10 @@ from flask import Blueprint, current_app, g, jsonify, render_template
 from ..models import dashboard_state as dashboard_state_model
 from ..security import login_required
 from ..services import (
-    camera_service, cctv_service, event_service, map_service,
+    camera_service, cctv_service, event_service,
     patrol_service, robot_service, safety_service, vehicle_access_service,
 )
+from .costmaps import nav_map_state
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -20,8 +21,8 @@ def index():
     # [5단계: 초기 상태] 첫 화면부터 DB 최신 값을 표시하고 이후에는 브라우저가 API로 갱신한다.
     robots = robot_service.dashboard_robots()
     fleet_status = robot_service.fleet_summary(robots)
-    # [6단계: 지도 초기 상태] 저장된 최신 지도 메타데이터와 로봇 좌표를 첫 화면에 함께 전달한다.
-    map_state = map_service.dashboard_map()
+    # [NAV 지도 초기 상태] 최근 받은 로봇의 global costmap을 바탕으로 로봇 좌표를 첫 화면에 함께 전달한다.
+    map_state = nav_map_state()
     # [8단계: 이벤트 초기 목록] JavaScript 갱신 전에도 최근 이벤트를 표에 표시한다.
     events = event_service.recent_events(50, clear_state["events"])
     # [9단계: 영상 초기 상태] 저장된 최신 프레임의 유무와 최근 수신 여부를 첫 화면에 표시한다.

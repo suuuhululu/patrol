@@ -10,13 +10,17 @@ import tempfile
 from flask import current_app
 
 from ..models import costmap as costmap_model
-from .map_service import downsample_grid, occupancy_to_png, validate_map
+from .map_service import downsample_grid, occupancy_to_png, robot_overlay, validate_map
 
 
 COSTMAP_SOURCES = (
     ("AMR1", "global"), ("AMR1", "local"),
     ("AMR2", "global"), ("AMR2", "local"),
 )
+# [NAV 지도 바탕] global costmap은 정적 지도 층을 포함하므로 NAV 지도 바탕으로 쓴다.
+# local costmap은 로봇 주변만 따라다니는 격자라 바탕으로 쓰지 않는다.
+NAV_LAYER = "global"
+NAV_ROBOTS = ("AMR1", "AMR2")
 
 
 class CostmapValidationError(ValueError):
@@ -106,3 +110,36 @@ def dashboard_costmaps():
             "observed_at": row["observed_at"] if row else None,
         })
     return result
+
+
+def dashboard_nav_map(robot_id=None, now=None):
+    """선택한 로봇의 global costmap을 바탕으로 로봇 위치·최근 경로를 SVG용 JSON으로 만든다.
+
+    robot_id가 없으면 가장 최근에 받은 로봇을 고른다. 선택한 로봇이 아직 없으면
+    다른 로봇으로 몰래 바꾸지 않고 수신 대기로 알린다.
+    """
+    rows = {}
+    for candidate in NAV_ROBOTS:
+        row = costmap_model.latest_costmap(candidate, NAV_LAYER)
+        if row is not None:
+            rows[candidate] = dict(row)
+    sources = [{"robot_id": candidate, "available": candidate in rows} for candidate in NAV_ROBOTS]
+    if robot_id is None:
+        selected = max(rows, key=lambda key: rows[key]["received_at"]) if rows else None
+    else:
+        selected = validate_source(robot_id, NAV_LAYER)[0]
+    grid = rows.get(selected)
+    if grid is None:
+        label = f"{selected} 수신 대기" if selected else "수신 대기"
+        return {"available": False, "state_label": label, "source_robot": selected,
+                "sources": sources, "robots": [], "paths": [], "coordinate_warnings": []}
+    markers, paths, coordinate_warnings = robot_overlay(grid, now)
+    return {
+        "available": True, "state_label": "수신 중",
+        "source_robot": selected, "sources": sources,
+        "message_id": grid["message_id"], "frame_id": grid["frame_id"],
+        "resolution": grid["resolution"], "width": grid["width"], "height": grid["height"],
+        "origin": {"x": grid["origin_x"], "y": grid["origin_y"], "yaw": grid["origin_yaw"]},
+        "content_hash": grid["content_hash"], "observed_at": grid["observed_at"],
+        "robots": markers, "paths": paths, "coordinate_warnings": coordinate_warnings,
+    }

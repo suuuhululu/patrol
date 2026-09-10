@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from flask import Blueprint, current_app, jsonify, send_file, url_for
+from flask import Blueprint, current_app, jsonify, request, send_file, url_for
 
 from ..models import costmap as costmap_model
 from ..security import login_required
@@ -26,6 +26,28 @@ def list_costmaps():
             if grid["available"] else None
         )
     return jsonify(costmaps=grids)
+
+
+def nav_map_state(robot_id=None):
+    """NAV 지도 패널이 그릴 상태에 바탕 costmap 이미지 주소를 붙인다."""
+    data = costmap_service.dashboard_nav_map(robot_id)
+    data["image_url"] = (
+        url_for(
+            "costmaps.costmap_image", robot_id=data["source_robot"],
+            layer=costmap_service.NAV_LAYER, version=data["content_hash"][:16],
+        )
+        if data["available"] else None
+    )
+    return data
+
+
+@costmaps_bp.get("/nav")
+@login_required
+def nav_map():
+    try:
+        return jsonify(nav_map_state(request.args.get("robot") or None))
+    except costmap_service.CostmapValidationError as exc:
+        return jsonify(error="invalid_robot", message=str(exc)), 400
 
 
 @costmaps_bp.get("/<robot_id>/<layer>/image")
