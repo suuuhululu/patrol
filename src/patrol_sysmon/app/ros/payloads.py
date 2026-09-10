@@ -10,7 +10,7 @@ import math
 from .errors import RosMessageMappingError
 from .registry import (
     CAMERA_IDS_BY_TOPIC, CAMERA_STATE_SOURCES_BY_TOPIC, CAMERA_STATE_TYPES,
-    COSTMAP_SOURCES_BY_TOPIC, DETECTION_EVENT_TYPES, DETECTION_RISK_LEVELS,
+    COSTMAP_SOURCES_BY_TOPIC, DETECTION_EVENT_TYPES, DETECTION_RISK_LEVELS, REPORT_EVENT_TYPES,
     DETECTION_SOURCES_BY_TOPIC, EVIDENCE_SOURCES_BY_TOPIC, KEEPOUT_SOURCES_BY_TOPIC,
     ESTOP_REASONS, ESTOP_TARGETS,
     KEEPOUT_STATES, MISSION_STATES, PATROL_REPORT_RESULTS,
@@ -463,9 +463,13 @@ def report_detection_payload(request):
         image = bytes(request.image)
     except (AttributeError, TypeError, ValueError) as exc:
         raise RosMessageMappingError("ReportDetection 필수 필드가 올바르지 않습니다.") from exc
+    event_type = getattr(request, "event_type", None)
+    if event_type not in REPORT_EVENT_TYPES:
+        raise RosMessageMappingError("event_type은 1(화재)·2(누수)·3(장애물) 중 하나여야 합니다.")
     return {
         "robot_id": robot_id,
         "event_id": getattr(request, "event_id", ""),
+        "event_type": REPORT_EVENT_TYPES[event_type],
         "detected_at": detected_at,
         "x": _finite_number(getattr(position, "x", None), "position.x"),
         "y": _finite_number(getattr(position, "y", None), "position.y"),

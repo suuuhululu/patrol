@@ -163,12 +163,14 @@ def build_node(app, node_name="sysmon_ros_adapter"):
             try:
                 payload = report_detection_payload(request)
                 with self._app.app_context():
-                    outcome, _ = detection_service.receive_report(payload)
+                    outcome, stored = detection_service.receive_report(payload)
                 response.status = (
                     ReportDetection.Response.DUPLICATE if outcome == "duplicate"
                     else ReportDetection.Response.STORED
                 )
-                response.detail = ""
+                response.detail = str(stored.get("detail", ""))[:240]
+                if stored.get("suppressed_by"):
+                    outcome = "suppressed"
                 self.processing_counts[f"report_detection_{outcome}"] += 1
             except (
                 RosMessageMappingError, detection_service.DetectionValidationError,

@@ -1283,3 +1283,11 @@ flowchart TD
 - 설계 이유: 중복 판정은 `message_id` 없이 `event_id` + 내용 해시로 한다. 응답 유실 후 재시도는 같은 내용이므로 DUPLICATE, 같은 `event_id`에 다른 내용은 REJECTED다. 사진은 조각 없이 요청 안에 담으므로 `evidence_chunks`·`evidence_ingestions`·`detection_event_messages`를 쓰지 않는다. 이미지 형식은 바이트로 판별해 필드를 늘리지 않는다. 상한은 DDS 전송을 고려해 `REPORT_IMAGE_MAX_BYTES=1 MiB`다.
 - 검증: `tests/test_detection_report.py` 7개 추가, 전체 127개 통과(skip 7). 재구성 마이그레이션은 위험도 NOT NULL·사건·증거·변경 이력이 있는 구형 DB로 회귀시험했다.
 - 남은 일: 기존 토픽 경로(`DetectionEvent`·`EvidenceChunk`·`IngestionAck`)와 관련 표 3개는 계약 합의 뒤 제거한다. 요청서는 `CR-System monitor_09-09_20-14_Detection_증적_서비스_전환.md`이며 v1.1 기준선(토픽 방식)과 충돌하므로 네 팀 합의가 필요하다. 실제 상대 PC 호출 시험은 NOT_RUN.
+
+## 40. ReportDetection 종류 필드·사건 억제·화면 정리 (2026-09-09)
+
+- 목적: 통합 PC에서 감지 노드가 같은 누수 대상을 3초마다 새 `event_id`로 보고해 사진이 여러 장 쌓였고, 종류 없는 사건이 "미분류"로만 보였다. 요청에 종류를 넣고, 같은 로봇·같은 종류 사건은 억제 시간 안에 한 건만 남기며, 위험도가 계약에서 사라졌으므로 화면에서 위험도·처리 상태 칸을 뺀다.
+- 변경 파일·함수: `patrol_interfaces/srv/ReportDetection.srv`에 `uint8 event_type`(FIRE=1·LEAK=2·OBSTACLE=3, 0 포함 그 외 거부). `app/ros/registry.py::REPORT_EVENT_TYPES`, `payloads.py::report_detection_payload` 변환, `detection_service.py::validate_report` 검증·해시 포함, `models/detection.py::store_report` 저장. 억제는 `REPORT_SUPPRESS_SECONDS=60`과 `models/detection.py::find_recent_report`(같은 로봇·종류, `occurred_at` ± 창)로 하고 `receive_report`가 `duplicate` + `suppressed_by`·`detail`을 돌려주며 노드가 `detail`을 응답에 싣는다. 화면은 `templates/index.html`·`static/js/events.js`·`dashboard.css`에서 목록의 위험도·처리 상태 열과 상세 창의 위험도·처리 상태 항목을 제거했고, 압축 목록은 시각·이벤트·위치(좌표)를 보인다. 처리 메모·상태 변경 버튼·처리 이력은 그대로다.
+- 설계 이유: 0을 "모름"으로 받으면 상대가 값을 안 채워도 저장되므로 거부한다. 억제는 `event_id`가 매번 바뀌는 보고에 대한 서버 측 방어이며, 응답은 DUPLICATE로 돌려 상대가 재전송을 멈추게 한다. 기준선 v1.1의 종류 값과 같은 숫자를 써 상대가 `DetectionCandidate` 값을 그대로 넣을 수 있다.
+- 검증: `tests/` 128개 통과(skip 7, 신규 억제 시험 1·종류 시험 보강). 재빌드 후 임시 DB로 어댑터를 띄워 5회 호출: STORED → DUPLICATE → REJECTED(내용 다름) → REJECTED(robot9) → DUPLICATE(60초 억제, detail에 사유). 사건 1행·파일 1장만 남았다.
+- 남은 일: 억제 창 60초와 종류만 키로 쓰는 규칙은 운영값 확인 필요. 요청서를 6개 필드로 갱신해 전달한다.

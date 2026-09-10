@@ -222,16 +222,13 @@
 .recent-log-column #event-log .event-table td:nth-child(1) { width: 34%; }
 .recent-log-column #event-log .event-table th:nth-child(2),
 .recent-log-column #event-log .event-table td:nth-child(2) { width: 38%; }
-.recent-log-column #event-log .event-table th:nth-child(5),
-.recent-log-column #event-log .event-table td:nth-child(5) { width: 28%; }
+/* [화면 정리] 압축 목록은 시각 · 이벤트 · 위치(좌표)만 보인다. 위험도·처리 상태 칸은 없앴다. */
+.recent-log-column #event-log .event-table th:nth-child(4),
+.recent-log-column #event-log .event-table td:nth-child(4) { width: 28%; }
 .recent-log-column #event-log .event-table th:nth-child(3),
 .recent-log-column #event-log .event-table td:nth-child(3),
-.recent-log-column #event-log .event-table th:nth-child(4),
-.recent-log-column #event-log .event-table td:nth-child(4),
-.recent-log-column #event-log .event-table th:nth-child(6),
-.recent-log-column #event-log .event-table td:nth-child(6),
-.recent-log-column #event-log .event-table th:nth-child(7),
-.recent-log-column #event-log .event-table td:nth-child(7) { display: none; }
+.recent-log-column #event-log .event-table th:nth-child(5),
+.recent-log-column #event-log .event-table td:nth-child(5) { display: none; }
 .compact-event-button { max-width: 100%; padding: 0; overflow: hidden; border: 0; background: transparent; color: #f0b18a; font: inherit; font-weight: 600; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .compact-event-button:hover { color: #ffd0af; text-decoration: underline; }
 .recent-log-column .vehicle-access-table { min-width: 0; }

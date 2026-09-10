@@ -258,11 +258,30 @@ def find_report(event_id):
     ).fetchone()
 
 
+def find_recent_report(robot_id, event_type, occurred_at, window_seconds):
+    """같은 로봇·같은 종류 사건이 occurred_at ± window 안에 있으면 가장 가까운 것을 돌려준다."""
+    return get_db().execute(
+        """
+        SELECT event_id, robot_id, event_type, occurred_at, x, y, content_hash
+          FROM events
+         WHERE robot_id = ? AND event_type = ?
+           AND occurred_at BETWEEN strftime('%Y-%m-%dT%H:%M:%fZ', ?, ?)
+                            AND strftime('%Y-%m-%dT%H:%M:%fZ', ?, ?)
+         ORDER BY ABS(julianday(occurred_at) - julianday(?)) LIMIT 1
+        """,
+        (
+            robot_id, event_type,
+            occurred_at, f"-{int(window_seconds)} seconds",
+            occurred_at, f"+{int(window_seconds)} seconds",
+            occurred_at,
+        ),
+    ).fetchone()
+
+
 def store_report(record, image_name):
     """서비스로 받은 사건을 events 1행과 event_evidence 1행으로 한 transaction에 저장한다.
 
-    message_id·종류·위험도가 없는 사건이다. message_id에는 event_id를 넣고 event_type은
-    UNKNOWN, risk_level은 NULL로 둔다. 같은 event_id 판정은 서비스 계층이 먼저 했지만
+    message_id·위험도가 없는 사건이다. message_id에는 event_id를 넣고 risk_level은 NULL로 둔다. 같은 event_id 판정은 서비스 계층이 먼저 했지만
     동시 호출을 대비해 transaction 안에서 한 번 더 확인한다.
     """
     db = get_db()
@@ -287,10 +306,11 @@ def store_report(record, image_name):
                 (event_id, message_id, robot_id, event_type, occurred_at, x, y, frame_id,
                  confidence, location_valid, evidence_id, risk_level, status, received_at,
                  content_hash)
-            VALUES (?, ?, ?, 'UNKNOWN', ?, ?, ?, ?, NULL, 1, NULL, NULL, 'NEW', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, NULL, NULL, 'NEW', ?, ?)
             """,
             (
-                record["event_id"], record["event_id"], record["robot_id"], record["occurred_at"],
+                record["event_id"], record["event_id"], record["robot_id"], record["event_type"],
+                record["occurred_at"],
                 record["x"], record["y"], record["frame_id"], record["received_at"],
                 record["content_hash"],
             ),
