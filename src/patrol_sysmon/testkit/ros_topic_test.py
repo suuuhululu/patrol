@@ -37,7 +37,6 @@ class RosTopicTestConfig:
     map_hz: float = 1.0
     image_hz: float = 2.0
     costmap_hz: float = 0.0
-    detection_hz: float = 0.0
     cctv_hz: float = 0.0
     patrol_hz: float = 0.0
     safety_hz: float = 0.0
@@ -67,7 +66,7 @@ class RosTopicTestConfig:
                 or value <= 0
             ):
                 raise ValueError(f"{name}는 0보다 큰 유한한 숫자여야 합니다.")
-        for name in ("costmap_hz", "detection_hz", "cctv_hz", "patrol_hz", "safety_hz"):
+        for name in ("costmap_hz", "cctv_hz", "patrol_hz", "safety_hz"):
             value = getattr(self, name)
             if (
                 isinstance(value, bool)
@@ -166,14 +165,10 @@ def build_virtual_publisher(config):
     """선택한 단계의 계약 타입·QoS로 가상 토픽을 발행하는 노드를 만든다."""
     from nav_msgs.msg import OccupancyGrid
     from patrol_interfaces.msg import (
-        CameraState, DetectionEvent, EStop, EvidenceChunk, IngestionAck,
+        CameraState, EStop, IngestionAck,
         KeepoutStatus, PatrolReport, PatrolVisit, RobotStatus,
     )
 
-    # [시연 범위] 관제가 저장하는 세 종류만 사용한다.
-    DETECTION_DEMO_TYPES = (
-        DetectionEvent.FIRE, DetectionEvent.LEAK, DetectionEvent.OBSTACLE,
-    )
     from rclpy.node import Node
     from sensor_msgs.msg import CompressedImage
     from std_msgs.msg import Bool
@@ -214,18 +209,6 @@ def build_virtual_publisher(config):
                     "/robot6/local_costmap/costmap",
                 )
             } if config.costmap_hz > 0 else {}
-            self._detection_publishers = {
-                robot_id: self.create_publisher(
-                    DetectionEvent, f"/{robot_id}/detection/event", qos["detection_event"]
-                )
-                for robot_id in ("robot1", "robot6")
-            } if config.detection_hz > 0 else {}
-            self._evidence_publishers = {
-                robot_id: self.create_publisher(
-                    EvidenceChunk, f"/{robot_id}/detection/evidence", qos["evidence_chunk"]
-                )
-                for robot_id in ("robot1", "robot6")
-            } if config.detection_hz > 0 else {}
             self.received_acks = Counter()
             self._ack_subscriptions = {
                 robot_id: self.create_subscription(
@@ -234,9 +217,8 @@ def build_virtual_publisher(config):
                     qos["ingestion_ack"],
                 )
                 for robot_id in ("robot1", "robot6")
-            } if config.detection_hz > 0 else {}
+            } if config.patrol_hz > 0 else {}
             self._cctv_sequence = 0
-            self._detection_sequence = 0
             self._cctv_publishers = {
                 "gate_cam": self.create_publisher(
                     CameraState, "/vision/cctv/gate_event", qos["camera_state"]
@@ -280,8 +262,6 @@ def build_virtual_publisher(config):
             self.create_timer(1.0 / config.image_hz, self.publish_images)
             if config.costmap_hz > 0:
                 self.create_timer(1.0 / config.costmap_hz, self.publish_costmaps)
-            if config.detection_hz > 0:
-                self.create_timer(1.0 / config.detection_hz, self.publish_detections)
             if config.cctv_hz > 0:
                 self.create_timer(1.0 / config.cctv_hz, self.publish_cctv_state)
             if config.patrol_hz > 0:
@@ -373,63 +353,6 @@ def build_virtual_publisher(config):
                 message.data = [0] * (44 + index) + [100] * 8 + [-1] * (12 - index)
                 publisher.publish(message)
                 self.published_counts[topic] += 1
-
-        def publish_detections(self):
-            # [번갈아 발행] 호출마다 종류를 바꿔 세 이벤트가 모두 화면에 나오게 한다.
-            self._detection_sequence += 1
-            """로봇마다 증적 2개 chunk를 역순 사이에 event를 끼워 독립 도착을 시험한다."""
-            for index, robot_id in enumerate(self._detection_publishers):
-                stamp = self.get_clock().now().to_msg()
-                event_id = str(uuid.uuid4())
-                evidence_id = str(uuid.uuid4())
-                parts = (TEST_PNG[:len(TEST_PNG) // 2], TEST_PNG[len(TEST_PNG) // 2:])
-                digest = sha256(TEST_PNG).hexdigest()
-
-                def evidence_message(chunk_index):
-                    message = EvidenceChunk()
-                    message.header.stamp = stamp
-                    message.header.frame_id = "virtual_camera_optical_frame"
-                    message.message_id = str(uuid.uuid4())
-                    message.evidence_id = evidence_id
-                    message.event_id = event_id
-                    message.robot_id = robot_id
-                    message.captured_at = stamp
-                    message.media_type = "image/png"
-                    message.sha256 = digest
-                    message.total_size = len(TEST_PNG)
-                    message.chunk_index = chunk_index
-                    message.chunk_count = 2
-                    message.data = list(parts[chunk_index])
-                    return message
-
-                evidence_topic = f"/{robot_id}/detection/evidence"
-                self._evidence_publishers[robot_id].publish(evidence_message(1))
-                self.published_counts[evidence_topic] += 1
-
-                event = DetectionEvent()
-                event.header.stamp = stamp
-                event.header.frame_id = "map"
-                event.message_id = str(uuid.uuid4())
-                event.event_id = event_id
-                event.robot_id = robot_id
-                # [시연 범위] 관제가 저장하는 화재·누수·장애물만 로봇별로 번갈아 발행한다.
-                event.event_type = DETECTION_DEMO_TYPES[
-                    (self._detection_sequence + index) % len(DETECTION_DEMO_TYPES)
-                ]
-                event.confidence = 0.9
-                event.risk_level = DetectionEvent.RISK_MEDIUM
-                event.pose.pose.position.x = 1.0 + index
-                event.pose.pose.position.y = 2.0 + index
-                event.pose.pose.orientation.w = 1.0
-                event.location_valid = True
-                event.detected_at = stamp
-                event.evidence_id = evidence_id
-                event_topic = f"/{robot_id}/detection/event"
-                self._detection_publishers[robot_id].publish(event)
-                self.published_counts[event_topic] += 1
-
-                self._evidence_publishers[robot_id].publish(evidence_message(0))
-                self.published_counts[evidence_topic] += 1
 
         def _receive_ack(self, robot_id, message):
             self.received_acks[f"{robot_id}:{message.entity_type}:{message.status}"] += 1
@@ -577,10 +500,6 @@ def build_virtual_publisher(config):
                 "/costmap/" in topic for topic in self.published_counts
             ):
                 self.publish_costmaps()
-            if self._detection_publishers and not any(
-                "/detection/event" in topic for topic in self.published_counts
-            ):
-                self.publish_detections()
             if self._cctv_publishers and not any(
                 "/vision/cctv/" in topic and not topic.endswith("/image/compressed")
                 for topic in self.published_counts
@@ -600,14 +519,6 @@ def build_virtual_publisher(config):
             result.update({
                 topic: publisher.get_subscription_count()
                 for topic, publisher in self._costmap_publishers.items()
-            })
-            result.update({
-                f"/{robot_id}/detection/event": publisher.get_subscription_count()
-                for robot_id, publisher in self._detection_publishers.items()
-            })
-            result.update({
-                f"/{robot_id}/detection/evidence": publisher.get_subscription_count()
-                for robot_id, publisher in self._evidence_publishers.items()
             })
             result.update({
                 (
@@ -734,18 +645,6 @@ def _storage_report(app):
                 "SELECT robot_id, layer FROM costmap_latest ORDER BY robot_id, layer"
             )
         ]
-        detection_events = db.execute(
-            "SELECT COUNT(*) FROM detection_event_messages"
-        ).fetchone()[0]
-        stored_evidence = db.execute(
-            "SELECT COUNT(*) FROM evidence_ingestions WHERE status='STORED'"
-        ).fetchone()[0]
-        incomplete_evidence = db.execute(
-            "SELECT COUNT(*) FROM evidence_ingestions WHERE status='INCOMPLETE'"
-        ).fetchone()[0]
-        evidence_links = db.execute(
-            "SELECT COUNT(*) FROM event_evidence WHERE evidence_id IS NOT NULL"
-        ).fetchone()[0]
         patrol_visits = db.execute("SELECT COUNT(*) FROM patrol_visits").fetchone()[0]
         patrol_reports = db.execute("SELECT COUNT(*) FROM patrol_runs").fetchone()[0]
         keepout_states = [
@@ -759,9 +658,6 @@ def _storage_report(app):
             "ORDER BY received_at DESC LIMIT 1"
         ).fetchone()
         estop_changes = db.execute("SELECT COUNT(*) FROM estop_history").fetchone()[0]
-        chunk_payloads = db.execute(
-            "SELECT COUNT(*) FROM evidence_chunks WHERE data IS NOT NULL"
-        ).fetchone()[0]
         cctv_event_count = db.execute(
             "SELECT COUNT(*) FROM cctv_state_events"
         ).fetchone()[0]
@@ -787,11 +683,6 @@ def _storage_report(app):
         "robot_status_history": history_count,
         "maps": map_count,
         "costmap_sources": costmap_sources,
-        "detection_event_messages": detection_events,
-        "stored_evidence": stored_evidence,
-        "incomplete_evidence": incomplete_evidence,
-        "evidence_links": evidence_links,
-        "chunk_payloads_remaining": chunk_payloads,
         "patrol_visits": patrol_visits,
         "patrol_reports": patrol_reports,
         "keepout_states": keepout_states,
@@ -920,11 +811,10 @@ def run_local_ros_topic_test(config=None):
         report = {
             "stage": (
                 19 if config.cctv_hz > 0
-                else (18 if config.detection_hz > 0 else (17 if config.costmap_hz > 0 else 15))
+                else (17 if config.costmap_hz > 0 else 15)
             ),
             "test_kind": (
                 "LOCAL_VIRTUAL_DDS_WITH_CCTV" if config.cctv_hz > 0
-                else "LOCAL_VIRTUAL_DDS_WITH_DETECTION" if config.detection_hz > 0
                 else ("LOCAL_VIRTUAL_DDS_WITH_COSTMAP" if config.costmap_hz > 0 else "LOCAL_VIRTUAL_DDS")
             ),
             "external_publishers": "NOT_RUN",

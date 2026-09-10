@@ -220,7 +220,6 @@ def run_separate_process_ros_test(config=None):
             and not child_errors
             and len(matched) == (
                 7 + (4 if config.costmap_hz > 0 else 0)
-                + (4 if config.detection_hz > 0 else 0)
                 + (3 if config.cctv_hz > 0 else 0)
                 + (4 if config.patrol_hz > 0 else 0)
                 + (3 if config.safety_hz > 0 else 0)
@@ -239,19 +238,6 @@ def run_separate_process_ros_test(config=None):
                 or set(storage["costmap_sources"]) == {
                     "AMR1:global", "AMR1:local", "AMR2:global", "AMR2:local"
                 }
-            )
-            and (
-                config.detection_hz == 0
-                or (
-                    storage["detection_event_messages"] >= 2
-                    and storage["stored_evidence"] >= 2
-                    and storage["incomplete_evidence"] == 0
-                    and storage["evidence_links"] >= 2
-                    and storage["chunk_payloads_remaining"] == 0
-                    and len(ack_matches) == 2
-                    and all(count >= 1 for count in ack_matches.values())
-                    and sum(received_acks.values()) >= 6
-                )
             )
             and (
                 config.patrol_hz == 0
@@ -281,13 +267,12 @@ def run_separate_process_ros_test(config=None):
             "stage": (
                 20 if config.patrol_hz > 0 or config.safety_hz > 0
                 else 19 if config.cctv_hz > 0
-                else (18 if config.detection_hz > 0 else (17 if config.costmap_hz > 0 else 16))
+                else (17 if config.costmap_hz > 0 else 16)
             ),
             "test_kind": (
                 "SEPARATE_PROCESS_VIRTUAL_DDS_WITH_PATROL_SAFETY"
                 if config.patrol_hz > 0 or config.safety_hz > 0
                 else "SEPARATE_PROCESS_VIRTUAL_DDS_WITH_CCTV" if config.cctv_hz > 0
-                else "SEPARATE_PROCESS_VIRTUAL_DDS_WITH_DETECTION" if config.detection_hz > 0
                 else ("SEPARATE_PROCESS_VIRTUAL_DDS_WITH_COSTMAP" if config.costmap_hz > 0 else "SEPARATE_PROCESS_VIRTUAL_DDS")
             ),
             "external_publishers": "NOT_RUN",
@@ -298,7 +283,6 @@ def run_separate_process_ros_test(config=None):
                 "map_hz": config.map_hz,
                 "image_hz": config.image_hz,
                 "costmap_hz": config.costmap_hz,
-                "detection_hz": config.detection_hz,
                 "cctv_hz": config.cctv_hz,
                 "patrol_hz": config.patrol_hz,
                 "safety_hz": config.safety_hz,

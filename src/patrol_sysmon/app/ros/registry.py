@@ -63,22 +63,6 @@ SUBSCRIPTIONS = (
         "nav_msgs/msg/OccupancyGrid", "costmap", True,
     ),
     SubscriptionSpec(
-        "robot1_detection", "/robot1/detection/event",
-        "patrol_interfaces/msg/DetectionEvent", "detection_event", True,
-    ),
-    SubscriptionSpec(
-        "robot6_detection", "/robot6/detection/event",
-        "patrol_interfaces/msg/DetectionEvent", "detection_event", True,
-    ),
-    SubscriptionSpec(
-        "robot1_evidence", "/robot1/detection/evidence",
-        "patrol_interfaces/msg/EvidenceChunk", "evidence_chunk", True,
-    ),
-    SubscriptionSpec(
-        "robot6_evidence", "/robot6/detection/evidence",
-        "patrol_interfaces/msg/EvidenceChunk", "evidence_chunk", True,
-    ),
-    SubscriptionSpec(
         "gate_event", "/vision/cctv/gate_event",
         "patrol_interfaces/msg/CameraState", "camera_state", True,
     ),
@@ -170,19 +154,6 @@ COSTMAP_SOURCES_BY_TOPIC = {
     "/robot6/global_costmap/costmap": ("AMR2", "global"),
     "/robot6/local_costmap/costmap": ("AMR2", "local"),
 }
-DETECTION_SOURCES_BY_TOPIC = {
-    "/robot1/detection/event": "robot1",
-    "/robot6/detection/event": "robot6",
-}
-EVIDENCE_SOURCES_BY_TOPIC = {
-    "/robot1/detection/evidence": "robot1",
-    "/robot6/detection/evidence": "robot6",
-}
-DETECTION_EVENT_TYPES = {
-    1: "FIRE", 2: "LEAK", 3: "OBSTACLE",
-    4: "LIGHTING", 5: "FACILITY_DAMAGE",
-}
-DETECTION_RISK_LEVELS = {1: "LOW", 2: "MEDIUM", 3: "HIGH"}
 PATROL_VISIT_SOURCES_BY_TOPIC = {
     "/robot1/patrol_visit": "robot1",
     "/robot6/patrol_visit": "robot6",

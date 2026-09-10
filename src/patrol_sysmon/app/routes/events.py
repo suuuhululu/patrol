@@ -1,6 +1,8 @@
-"""화재·누수·장애물 이벤트 수신과 보호된 증거 이미지 조회 API."""
+"""이상 이벤트 목록·상세·증거 이미지 조회와 관제 처리 상태 변경 API.
 
-import json
+사건 수신은 ROS 서비스 ReportDetection(app/ros/node.py)이 맡는다. HTTP로는 받지 않는다.
+"""
+
 from pathlib import Path
 import sqlite3
 
@@ -8,10 +10,8 @@ from flask import Blueprint, current_app, g, jsonify, request, send_file, url_fo
 
 from ..models import event as event_model
 from ..models import dashboard_state as dashboard_state_model
-from ..models.event import (
-    EventMessageConflictError, EventNotFoundError, EventStatusTransitionError,
-)
-from ..security import device_token_is_authorized, login_required, roles_required
+from ..models.event import EventNotFoundError, EventStatusTransitionError
+from ..security import login_required, roles_required
 from ..services import event_service
 
 
@@ -25,42 +25,6 @@ def _with_evidence_url(event):
         if event["has_evidence"] else None
     )
     return data
-
-
-@events_bp.post("")
-def receive_event():
-    """ROS 연결 전 metadata JSON과 증거 이미지 한 장을 함께 수신한다."""
-    if not current_app.config.get("ROBOT_API_KEY"):
-        return jsonify(error="event_api_disabled", message="이벤트 수신 토큰이 설정되지 않았습니다."), 503
-    if not device_token_is_authorized():
-        return jsonify(error="unauthorized", message="이벤트 수신 토큰을 확인하세요."), 401
-    if not request.mimetype or not request.mimetype.startswith("multipart/form-data"):
-        return jsonify(error="invalid_content_type", message="multipart/form-data 요청이 필요합니다."), 415
-    try:
-        metadata = json.loads(request.form.get("metadata", ""))
-    except (json.JSONDecodeError, TypeError):
-        return jsonify(error="invalid_metadata", message="metadata에 JSON 객체가 필요합니다."), 400
-    image = request.files.get("image")
-    try:
-        outcome, stored = event_service.receive_event(metadata, image.stream if image else None)
-    except (event_service.EventValidationError, event_service.EvidenceValidationError) as exc:
-        current_app.logger.warning("이벤트 입력 거부: %s", exc)
-        return jsonify(error="invalid_event", message=str(exc)), 400
-    except EventMessageConflictError:
-        return jsonify(error="event_conflict", message="event_id 또는 message_id가 기존 이벤트와 충돌합니다."), 409
-    except sqlite3.OperationalError:
-        current_app.logger.exception("이벤트 DB 작업 실패")
-        return jsonify(error="storage_unavailable", message="이벤트 저장소를 잠시 사용할 수 없습니다."), 503
-    except (OSError, sqlite3.Error):
-        current_app.logger.exception("이벤트 이미지 또는 DB 저장 실패")
-        return jsonify(error="storage_error", message="이벤트를 저장하지 못했습니다."), 500
-    code = 201 if outcome == "accepted" else 200
-    return jsonify(
-        result=outcome,
-        event_id=stored["event_id"],
-        message_id=stored["message_id"],
-        status=stored.get("status", "NEW"),
-    ), code
 
 
 @events_bp.get("")

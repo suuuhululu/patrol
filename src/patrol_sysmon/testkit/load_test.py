@@ -14,10 +14,13 @@ import sqlite3
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
+import uuid
 
 from app import create_app
 from app.database import get_db
-from app.services import auth_service
+from app.models.detection import DetectionMessageConflictError
+from app.services import auth_service, detection_service
 from app.services.map_service import occupancy_to_png
 
 
@@ -318,37 +321,36 @@ def _camera_worker(app, stop_at, rate_hz, metrics, png):
 
 
 def _event_worker(app, stop_at, rate_hz, metrics, png):
-    client = app.test_client()
-    headers = _device_headers(app)
+    """ReportDetection 서비스 경로와 같은 저장 함수를 직접 호출해 사건 쓰기 부하를 잰다."""
     event_types = ("FIRE", "LEAK", "OBSTACLE")
 
     def send(sequence):
-        unique = f"{sequence}-{time.time_ns()}"
-        now = _utc_now()
-        metadata = {
-            "event_id": f"load-event-{unique}",
-            "message_id": f"load-event-message-{unique}",
+        payload = {
             "robot_id": "AMR1" if sequence % 2 == 0 else "AMR2",
+            "event_id": str(uuid.uuid4()),
             "event_type": event_types[sequence % len(event_types)],
-            "occurred_at": _utc_text(now),
-            "captured_at": _utc_text(now),
+            "detected_at": _utc_text(_utc_now()),
             "x": float(sequence % 30),
             "y": float(sequence % 15),
-            "frame_id": "map",
-            "risk_level": "MEDIUM",
+            "image": png,
         }
-        _measure(
-            metrics, "write_event",
-            lambda: client.post(
-                "/api/events",
-                data={
-                    "metadata": json.dumps(metadata),
-                    "image": (BytesIO(png), f"load-{unique}.png"),
-                },
-                headers=headers,
-                content_type="multipart/form-data",
-            ),
-        )
+
+        def store():
+            with app.app_context():
+                try:
+                    outcome, _ = detection_service.receive_report(payload)
+                except (detection_service.DetectionValidationError,
+                        DetectionMessageConflictError):
+                    return SimpleNamespace(status_code=400, close=lambda: None)
+                except sqlite3.OperationalError:
+                    # [잠금 대기 초과] HTTP 경로의 503과 같은 뜻으로 기록한다.
+                    return SimpleNamespace(status_code=503, close=lambda: None)
+                except (OSError, sqlite3.Error):
+                    return SimpleNamespace(status_code=500, close=lambda: None)
+            return SimpleNamespace(status_code=201 if outcome == "accepted" else 200,
+                                   close=lambda: None)
+
+        _measure(metrics, "write_event", store)
 
     _run_at_rate(stop_at, rate_hz, send)
 
@@ -467,7 +469,6 @@ def _storage_report(app):
                 "robot_status_history",
                 "maps",
                 "events",
-                "event_evidence",
                 "vehicle_access_logs",
             )
         }

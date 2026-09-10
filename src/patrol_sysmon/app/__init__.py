@@ -27,16 +27,11 @@ def create_app(test_config=None):
         # 화면용 PNG는 아래 최대 변 길이로 솎아 저장한다.
         MAP_MAX_CELLS=16_000_000,
         MAP_MAX_IMAGE_SIDE=2000,
-        EVENT_IMAGE_MAX_BYTES=5 * 1024 * 1024,
         # [ReportDetection 서비스] 사진을 요청 안에 통째로 받으므로 DDS 전송 부담을 고려해 1 MiB로 제한한다.
         REPORT_IMAGE_MAX_BYTES=1 * 1024 * 1024,
         # [사건 억제] 감지 노드가 같은 대상을 몇 초마다 다시 보고해도 사진 한 장만 남긴다.
         # 같은 로봇·같은 종류 사건이 이 시간 안에 이미 저장돼 있으면 DUPLICATE로 응답하고 저장하지 않는다. 0이면 끈다.
         REPORT_SUPPRESS_SECONDS=60,
-        # [증적 상태] 사건은 왔는데 증적 조립이 끝나지 않은 시간으로 지연·누락을 구분한다.
-        # 저장값은 INCOMPLETE 그대로 두고 경과 시간으로 화면 표시만 나눈다.
-        EVIDENCE_DELAYED_AFTER_SECONDS=30,
-        EVIDENCE_MISSING_AFTER_SECONDS=300,
         VIDEO_FRAME_MAX_BYTES=2 * 1024 * 1024,
         CAMERA_OFFLINE_AFTER_SECONDS=5,
         # [계약 2.5절] 표시용 영상은 최대 5 Hz까지만 처리한다. 초과분은 버린다.
@@ -45,7 +40,7 @@ def create_app(test_config=None):
         ESTOP_STALE_AFTER_SECONDS=10,
         PATROL_PERMIT_STALE_SECONDS=1.5,
         CSRF_EXEMPT_ENDPOINTS=(
-            "robots.receive_status", "maps.receive_map", "events.receive_event",
+            "robots.receive_status", "maps.receive_map",
             "cameras.receive_frame", "vehicle_access.receive_access",
         ),
         MAX_CONTENT_LENGTH=8 * 1024 * 1024,

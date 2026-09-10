@@ -1,4 +1,4 @@
-"""상대 publisher 대신 기본·costmap·Detection·CCTV 토픽을 발행하는 시험 CLI."""
+"""상대 publisher 대신 기본·costmap·CCTV·순찰·안전 토픽을 발행하는 시험 CLI. 사건은 서비스로 받으므로 발행하지 않는다."""
 
 from pathlib import Path
 import argparse
@@ -15,7 +15,7 @@ from tools.run_ros_topic_test import domain_id, positive_float
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="운영 도메인 6과 분리해 기본·costmap·Detection·CCTV 토픽을 발행합니다."
+        description="운영 도메인 6과 분리해 기본·costmap·CCTV·순찰·안전 토픽을 발행합니다."
     )
     parser.add_argument("--duration", type=positive_float, default=3.0)
     parser.add_argument("--domain-id", type=domain_id, default=80)
@@ -23,7 +23,6 @@ def main(argv=None):
     parser.add_argument("--map-hz", type=positive_float, default=1.0)
     parser.add_argument("--image-hz", type=positive_float, default=2.0)
     parser.add_argument("--costmap-hz", type=positive_float, default=0.0)
-    parser.add_argument("--detection-hz", type=positive_float, default=0.0)
     parser.add_argument("--cctv-hz", type=positive_float, default=0.0)
     parser.add_argument("--patrol-hz", type=positive_float, default=0.0)
     parser.add_argument("--safety-hz", type=positive_float, default=0.0)
@@ -36,7 +35,6 @@ def main(argv=None):
         map_hz=args.map_hz,
         image_hz=args.image_hz,
         costmap_hz=args.costmap_hz,
-        detection_hz=args.detection_hz,
         cctv_hz=args.cctv_hz,
         patrol_hz=args.patrol_hz,
         safety_hz=args.safety_hz,

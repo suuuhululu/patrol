@@ -1291,3 +1291,12 @@ flowchart TD
 - 설계 이유: 0을 "모름"으로 받으면 상대가 값을 안 채워도 저장되므로 거부한다. 억제는 `event_id`가 매번 바뀌는 보고에 대한 서버 측 방어이며, 응답은 DUPLICATE로 돌려 상대가 재전송을 멈추게 한다. 기준선 v1.1의 종류 값과 같은 숫자를 써 상대가 `DetectionCandidate` 값을 그대로 넣을 수 있다.
 - 검증: `tests/` 128개 통과(skip 7, 신규 억제 시험 1·종류 시험 보강). 재빌드 후 임시 DB로 어댑터를 띄워 5회 호출: STORED → DUPLICATE → REJECTED(내용 다름) → REJECTED(robot9) → DUPLICATE(60초 억제, detail에 사유). 사건 1행·파일 1장만 남았다.
 - 남은 일: 억제 창 60초와 종류만 키로 쓰는 규칙은 운영값 확인 필요. 요청서를 6개 필드로 갱신해 전달한다.
+
+## 41. 사건 저장 경로를 서비스 하나로 정리 — 옛 입구·표·칸 제거 (2026-09-10)
+
+- 목적: 사건을 ReportDetection 서비스로만 받게 되면서 토픽 경로(`DetectionEvent`·`EvidenceChunk`·detection용 `IngestionAck`)와 HTTP 경로(`POST /api/events`)가 쓰던 표·칸이 남아 있었다. 강사 지적(서비스가 읽는 것만 남기기)에 맞춰 `events`를 서비스가 주는 값 + 처리 상태 + 사진 경로만 갖게 줄이고, 사건 관련 표를 5개에서 1개로 합친다.
+- 변경 파일·함수: `app/schema.sql`의 `events`에서 `message_id`·`evidence_id`·`risk_level`·`confidence`·`location_valid`를 빼고 `image_path`·`captured_at`을 넣었다. `event_evidence`·`detection_event_messages`·`evidence_ingestions`·`evidence_chunks`를 제거했다. `app/database.py::_migrate_events_slim`이 구형 DB를 표 재구성으로 옮기며 사진 경로를 `event_evidence`에서 합치고 옛 표를 지운다(행·처리 이력 보존, 외래 키 검사). `app/models/detection.py`·`app/services/detection_service.py`는 서비스 경로만 남기고 다시 썼다. `app/models/event.py`·`app/services/event_service.py`·`app/routes/events.py`에서 HTTP 수신·재전송 판정·증적 상태 계산을 제거했다. `app/ros/node.py`·`registry.py`·`payloads.py`·`qos.py`에서 detection·evidence 구독 4개와 변환·enum 표를 제거했다(활성 토픽 25 → 21). 이력 검색에서 위험도 필터·열을 뺐다. `tools/send_demo_event.py`·`tests/test_detection_ingestion.py`를 삭제하고, 부하 시험은 서비스 저장 함수를 직접 호출한다. 가상 발행기의 detection 발행 옵션을 없앴다.
+- 설계 이유: 화면·API가 읽는 칸만 남긴다. 사건 1건 = `events` 1행 + 사진 파일 1장이므로 사진 경로를 별도 표에 둘 이유가 없다. `message_id`·`evidence_id`는 토픽 재전송 판정용이었고 서비스는 `event_id` + 내용 해시로 판정한다. 위험도는 v1.1 계약에서 삭제됐다.
+- 결과: 표 25 → 21, `events` 칸 15 → 12. 이 PC 시연 DB 사본(사건 26건·사진 26장)을 옮겨 행·사진 경로·외래 키 보존을 확인했다.
+- 검증: `tests/` 115개 통과(skip 6). ROS 환경에서 어댑터를 띄워 서비스 호출 5회(STORED·DUPLICATE·REJECTED×2·억제 DUPLICATE)와 임시 DB 저장을 확인했다.
+- 남은 일: 도면 1-6 상자의 표 목록(25 → 21)과 `commands`·`handovers` 제거 여부는 별도. 통합 PC의 DB는 pull 뒤 첫 실행에서 자동으로 재구성된다.

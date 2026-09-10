@@ -10,8 +10,7 @@ import math
 from .errors import RosMessageMappingError
 from .registry import (
     CAMERA_IDS_BY_TOPIC, CAMERA_STATE_SOURCES_BY_TOPIC, CAMERA_STATE_TYPES,
-    COSTMAP_SOURCES_BY_TOPIC, DETECTION_EVENT_TYPES, DETECTION_RISK_LEVELS, REPORT_EVENT_TYPES,
-    DETECTION_SOURCES_BY_TOPIC, EVIDENCE_SOURCES_BY_TOPIC, KEEPOUT_SOURCES_BY_TOPIC,
+    COSTMAP_SOURCES_BY_TOPIC, REPORT_EVENT_TYPES, KEEPOUT_SOURCES_BY_TOPIC,
     ESTOP_REASONS, ESTOP_TARGETS,
     KEEPOUT_STATES, MISSION_STATES, PATROL_REPORT_RESULTS,
     PATROL_REPORT_SOURCES_BY_TOPIC, PATROL_VISIT_RESULTS,
@@ -235,69 +234,6 @@ def compressed_image_input(topic, message):
         raise RosMessageMappingError("CompressedImage data가 비어 있습니다.")
     frame_id = f"ros-{camera_id}-{seconds}-{nanoseconds}"
     return camera_id, frame_id, _stamp_iso(header.stamp), BytesIO(image_bytes)
-
-
-def detection_event_payload(topic, message):
-    """계약 DetectionEvent를 증적과 독립 저장 가능한 내부 사건으로 바꾼다."""
-    expected_robot = DETECTION_SOURCES_BY_TOPIC.get(topic)
-    if expected_robot is None:
-        raise RosMessageMappingError("등록되지 않은 DetectionEvent 토픽입니다.")
-    contract_robot = getattr(message, "robot_id", "")
-    if contract_robot != expected_robot:
-        raise RosMessageMappingError("DetectionEvent robot_id가 토픽 namespace와 다릅니다.")
-    try:
-        header = message.header
-        _stamp_parts(header.stamp)
-        event_type = DETECTION_EVENT_TYPES[message.event_type]
-        risk_level = DETECTION_RISK_LEVELS[message.risk_level]
-        location_valid = bool(message.location_valid)
-        position = message.pose.pose.position
-        x = _finite_number(position.x, "pose.position.x") if location_valid else None
-        y = _finite_number(position.y, "pose.position.y") if location_valid else None
-    except (AttributeError, KeyError) as exc:
-        raise RosMessageMappingError("DetectionEvent 필수 필드 또는 enum이 올바르지 않습니다.") from exc
-    return {
-        "message_id": getattr(message, "message_id", ""),
-        "event_id": getattr(message, "event_id", ""),
-        "robot_id": ROBOT_DISPLAY_IDS[contract_robot],
-        "event_type": event_type,
-        "confidence": _finite_number(getattr(message, "confidence", None), "confidence"),
-        "risk_level": risk_level,
-        "x": x,
-        "y": y,
-        "frame_id": _frame_id(header),
-        "location_valid": location_valid,
-        "detected_at": _stamp_iso(message.detected_at),
-        "evidence_id": getattr(message, "evidence_id", ""),
-    }
-
-
-def evidence_chunk_payload(topic, message):
-    """계약 EvidenceChunk를 조립 서비스가 검증할 메타데이터와 bytes로 바꾼다."""
-    expected_robot = EVIDENCE_SOURCES_BY_TOPIC.get(topic)
-    if expected_robot is None:
-        raise RosMessageMappingError("등록되지 않은 EvidenceChunk 토픽입니다.")
-    contract_robot = getattr(message, "robot_id", "")
-    if contract_robot != expected_robot:
-        raise RosMessageMappingError("EvidenceChunk robot_id가 토픽 namespace와 다릅니다.")
-    try:
-        _stamp_parts(message.header.stamp)
-        data = bytes(message.data)
-    except (AttributeError, TypeError, ValueError) as exc:
-        raise RosMessageMappingError("EvidenceChunk 필수 필드가 올바르지 않습니다.") from exc
-    return {
-        "message_id": getattr(message, "message_id", ""),
-        "evidence_id": getattr(message, "evidence_id", ""),
-        "event_id": getattr(message, "event_id", ""),
-        "robot_id": ROBOT_DISPLAY_IDS[contract_robot],
-        "captured_at": _stamp_iso(message.captured_at),
-        "media_type": getattr(message, "media_type", ""),
-        "sha256": getattr(message, "sha256", ""),
-        "total_size": int(getattr(message, "total_size", 0)),
-        "chunk_index": int(getattr(message, "chunk_index", 0)),
-        "chunk_count": int(getattr(message, "chunk_count", 0)),
-        "data": data,
-    }
 
 
 def camera_state_payload(topic, message):

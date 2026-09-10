@@ -49,10 +49,9 @@ def init_db():
         connection.rollback()
         raise
     _migrate_vehicle_access(connection)
-    _migrate_detection_storage(connection)
     _migrate_pose_validity(connection)
     _migrate_safety_state(connection)
-    _migrate_events_report(connection)
+    _migrate_events_slim(connection)
 
 
 ESTOP_COLUMNS = {
@@ -121,66 +120,80 @@ def _migrate_safety_state(connection):
         raise
 
 
-def _migrate_events_report(connection):
-    """ReportDetection용으로 events의 위험도를 NULL 허용으로 바꾸고 내용 해시 열을 더한다.
+def _migrate_events_slim(connection):
+    """토픽·HTTP 경로용 칸을 걷어내고 증거 사진 경로를 events에 합친다.
 
-    SQLite는 CHECK 제약을 바꿀 수 없어 위험도가 NOT NULL인 기존 DB는 표를 다시 만들어 옮긴다.
-    다른 표가 events를 참조하므로 외래 키 검사를 잠시 끄고 수행한다. 기존 행은 모두 보존한다.
+    ReportDetection 서비스 하나로만 사건을 받게 되면서 message_id·evidence_id·risk_level·
+    confidence·location_valid 칸과 event_evidence·detection_event_messages·evidence_ingestions·
+    evidence_chunks 표가 필요 없어졌다. SQLite는 칸 제약을 바꿀 수 없어 표를 다시 만들어 옮긴다.
+    기존 사건 행·사진 경로·처리 이력은 모두 보존한다. 다른 표가 events를 참조하므로 외래 키
+    검사를 잠시 끄고 수행한다.
     """
-    info = {row[1]: row for row in connection.execute("PRAGMA table_info(events)")}
-    risk_not_null = bool(info["risk_level"][3]) if "risk_level" in info else False
-    if not risk_not_null and "content_hash" in info:
+    info = {row[1] for row in connection.execute("PRAGMA table_info(events)")}
+    tables = {
+        row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    legacy_columns = {"message_id", "evidence_id", "risk_level", "confidence", "location_valid"}
+    legacy_tables = {
+        "event_evidence", "detection_event_messages", "evidence_ingestions", "evidence_chunks",
+    }
+    if not (info & legacy_columns) and "image_path" in info and not (tables & legacy_tables):
         return
-    if not risk_not_null:
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            connection.execute("ALTER TABLE events ADD COLUMN content_hash TEXT")
-            connection.commit()
-        except sqlite3.Error:
-            connection.rollback()
-            raise
-        return
-    columns = [
-        "event_id", "message_id", "robot_id", "event_type", "occurred_at", "x", "y", "frame_id",
-        "confidence", "location_valid", "evidence_id", "risk_level", "status", "received_at",
-    ]
-    present = [name for name in columns if name in info]
-    column_list = ", ".join(present)
+    has_evidence_table = "event_evidence" in tables
+    image_expr = (
+        "evidence.image_path" if has_evidence_table
+        else ("e.image_path" if "image_path" in info else "NULL")
+    )
+    captured_expr = (
+        "evidence.captured_at" if has_evidence_table
+        else ("e.captured_at" if "captured_at" in info else "NULL")
+    )
+    hash_expr = "e.content_hash" if "content_hash" in info else "NULL"
+    join = (
+        " LEFT JOIN event_evidence evidence ON evidence.event_id = e.event_id"
+        if has_evidence_table else ""
+    )
     connection.execute("PRAGMA foreign_keys = OFF")
     try:
         connection.execute("BEGIN IMMEDIATE")
         connection.execute(
             """
-            CREATE TABLE events_report_new (
+            CREATE TABLE events_slim_new (
                 event_id TEXT PRIMARY KEY NOT NULL,
-                message_id TEXT NOT NULL UNIQUE,
                 robot_id TEXT NOT NULL REFERENCES robots(robot_id),
-                event_type TEXT NOT NULL DEFAULT 'UNKNOWN',
+                event_type TEXT NOT NULL,
                 occurred_at TEXT NOT NULL,
                 x REAL,
                 y REAL,
                 frame_id TEXT,
-                confidence REAL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 1)),
-                location_valid INTEGER NOT NULL DEFAULT 1 CHECK (location_valid IN (0, 1)),
-                evidence_id TEXT,
-                risk_level TEXT CHECK (risk_level IS NULL OR risk_level IN ('HIGH', 'MEDIUM', 'LOW')),
                 status TEXT NOT NULL DEFAULT 'NEW'
                     CHECK (status IN ('NEW', 'REVIEWING', 'WORK_REQUESTED', 'RESOLVED')),
                 received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-                content_hash TEXT
+                content_hash TEXT,
+                image_path TEXT,
+                captured_at TEXT
             )
             """
         )
         connection.execute(
-            f"INSERT INTO events_report_new ({column_list}) SELECT {column_list} FROM events"
+            f"""
+            INSERT INTO events_slim_new
+                (event_id, robot_id, event_type, occurred_at, x, y, frame_id,
+                 status, received_at, content_hash, image_path, captured_at)
+            SELECT e.event_id, e.robot_id, e.event_type, e.occurred_at, e.x, e.y, e.frame_id,
+                   e.status, e.received_at, {hash_expr}, {image_expr}, {captured_expr}
+              FROM events e{join}
+            """
         )
+        for name in ("evidence_chunks", "evidence_ingestions", "detection_event_messages",
+                     "event_evidence"):
+            connection.execute(f"DROP TABLE IF EXISTS {name}")
         connection.execute("DROP TABLE events")
-        connection.execute("ALTER TABLE events_report_new RENAME TO events")
+        connection.execute("ALTER TABLE events_slim_new RENAME TO events")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_events_occurred ON events(occurred_at)")
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_events_robot_time ON events(robot_id, occurred_at)"
         )
-        connection.execute("CREATE INDEX IF NOT EXISTS idx_events_evidence_id ON events(evidence_id)")
         problems = connection.execute("PRAGMA foreign_key_check").fetchall()
         if problems:
             raise sqlite3.IntegrityError(f"events 재구성 후 외래 키 불일치 {len(problems)}건")
@@ -310,45 +323,6 @@ def _migrate_pose_validity(connection):
                 )
             if "last_valid_pose_at" not in columns:
                 connection.execute(f"ALTER TABLE {name} ADD COLUMN last_valid_pose_at TEXT")
-        connection.commit()
-    except sqlite3.Error:
-        connection.rollback()
-        raise
-
-
-def _migrate_detection_storage(connection):
-    """기존 이벤트 이력을 보존하며 ROS Detection 연결에 필요한 열만 추가한다."""
-    event_columns = {
-        row[1] for row in connection.execute("PRAGMA table_info(events)")
-    }
-    evidence_columns = {
-        row[1] for row in connection.execute("PRAGMA table_info(event_evidence)")
-    }
-    try:
-        connection.execute("BEGIN IMMEDIATE")
-        if "confidence" not in event_columns:
-            connection.execute(
-                "ALTER TABLE events ADD COLUMN confidence REAL "
-                "CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 1))"
-            )
-        if "location_valid" not in event_columns:
-            connection.execute(
-                "ALTER TABLE events ADD COLUMN location_valid INTEGER NOT NULL DEFAULT 1 "
-                "CHECK (location_valid IN (0, 1))"
-            )
-        if "evidence_id" not in event_columns:
-            connection.execute("ALTER TABLE events ADD COLUMN evidence_id TEXT")
-        if "evidence_id" not in evidence_columns:
-            connection.execute("ALTER TABLE event_evidence ADD COLUMN evidence_id TEXT")
-        # [증적 식별자] NULL인 기존 HTTP 증적은 유지하고 ROS UUID만 전역 중복을 막는다.
-        connection.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_evidence_id "
-            "ON events(evidence_id) WHERE evidence_id IS NOT NULL"
-        )
-        connection.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_event_evidence_evidence_id "
-            "ON event_evidence(evidence_id) WHERE evidence_id IS NOT NULL"
-        )
         connection.commit()
     except sqlite3.Error:
         connection.rollback()

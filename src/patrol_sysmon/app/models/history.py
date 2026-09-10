@@ -37,11 +37,8 @@ def _where(clauses):
 def _event_query(filters):
     clauses, parameters = _common_conditions(
         filters, "e.occurred_at", "e.robot_id = ?",
-        ("e.event_id", "e.message_id", "e.event_type", "e.frame_id", "r.name"),
+        ("e.event_id", "e.event_type", "e.frame_id", "r.name"),
     )
-    if filters["risk_level"]:
-        clauses.append("e.risk_level = ?")
-        parameters.append(filters["risk_level"])
     if filters["event_status"]:
         clauses.append("e.status = ?")
         parameters.append(filters["event_status"])
@@ -51,9 +48,9 @@ def _event_query(filters):
                e.event_type AS title_code,
                CASE WHEN e.x IS NULL OR e.y IS NULL THEN '좌표 없음'
                     ELSE COALESCE(e.frame_id, '좌표계 없음') || printf(' (%.2f, %.2f)', e.x, e.y) END AS summary,
-               e.risk_level, e.status AS status_code, e.event_id,
+               NULL AS risk_level, e.status AS status_code, e.event_id,
                NULL AS actor,
-               EXISTS(SELECT 1 FROM event_evidence evidence WHERE evidence.event_id=e.event_id) AS has_evidence
+               (e.image_path IS NOT NULL) AS has_evidence
           FROM events e JOIN robots r ON r.robot_id=e.robot_id
     """ + _where(clauses)
     return sql, parameters
@@ -64,9 +61,6 @@ def _event_change_query(filters):
         filters, "c.changed_at", "e.robot_id = ?",
         ("e.event_id", "c.memo", "c.previous_status", "c.new_status", "u.username", "r.name"),
     )
-    if filters["risk_level"]:
-        clauses.append("e.risk_level = ?")
-        parameters.append(filters["risk_level"])
     if filters["event_status"]:
         clauses.append("c.new_status = ?")
         parameters.append(filters["event_status"])
@@ -76,9 +70,9 @@ def _event_change_query(filters):
                'EVENT_CHANGE' AS title_code,
                e.event_id || ' · ' || c.previous_status || ' → ' || c.new_status ||
                     CASE WHEN c.memo='' THEN '' ELSE ' · ' || c.memo END AS summary,
-               e.risk_level, c.new_status AS status_code, e.event_id,
+               NULL AS risk_level, c.new_status AS status_code, e.event_id,
                u.username AS actor,
-               EXISTS(SELECT 1 FROM event_evidence evidence WHERE evidence.event_id=e.event_id) AS has_evidence
+               (e.image_path IS NOT NULL) AS has_evidence
           FROM event_changes c
           JOIN events e ON e.event_id=c.event_id
           JOIN robots r ON r.robot_id=e.robot_id
@@ -283,7 +277,7 @@ QUERY_BUILDERS = {
 def search(filters):
     """선택한 기록 종류를 UNION한 뒤 전체 시간순으로 페이지 조회한다."""
     selected = list(QUERY_BUILDERS) if filters["record_type"] == "ALL" else [filters["record_type"]]
-    if filters["risk_level"] or filters["event_status"]:
+    if filters["event_status"]:
         selected = [name for name in selected if name in {"EVENT", "EVENT_CHANGE"}]
     if not selected:
         return [], 0
