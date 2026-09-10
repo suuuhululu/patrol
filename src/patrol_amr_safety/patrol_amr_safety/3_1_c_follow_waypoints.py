@@ -17,6 +17,7 @@
 # @author Roni Kreinin (rkreinin@clearpathrobotics.com)
 
 import math
+import sys
 
 import rclpy
 from nav2_simple_commander.robot_navigator import TaskResult
@@ -24,6 +25,10 @@ from nav2_msgs.action import NavigateToPose
 from rclpy import action, executors
 
 from turtlebot4_navigation.turtlebot4_navigator import TurtleBot4Directions, TurtleBot4Navigator
+if __package__:
+    from .move_to_safetyzone import Evacuation, arguments
+else:
+    from move_to_safetyzone import Evacuation, arguments
 # WP = {1: (-0.206, -1.038, 90.8), 2: (-1.147, 0.500, 175.4), 3: (-2.029, -0.916, 266.3),
 #       4: (-2.751, -2.422, 182.4), 5: (-4.389, -1.122, 94.3), 6: (-2.909, 0.575, 358.3), 7: (-1.374, -2.439, 359.8)}
 # n = 1
@@ -31,7 +36,7 @@ from turtlebot4_navigation.turtlebot4_navigator import TurtleBot4Directions, Tur
 SPIN = 'spin'   # goal_pose 목록에 넣으면 그 자리에서 360도 회전
 
 
-def startSpin(navigator, angle=2 * math.pi, time_allowance=20):
+def startSpin(navigator, angle=2 * math.pi, time_allowance=20, evacuation=None):
     """
     Perform spin action and wait until done.
     (turtlebot4_navigator의 startToPose와 같은 방식으로 Nav2 spin 액션을 감싼 함수)
@@ -43,6 +48,8 @@ def startSpin(navigator, angle=2 * math.pi, time_allowance=20):
         navigator.error('Spin request was rejected!')
         return False
 
+    if evacuation is not None:
+        return evacuation.wait_for_task()
     while not navigator.isTaskComplete():
         pass
 
@@ -59,7 +66,7 @@ def startSpin(navigator, angle=2 * math.pi, time_allowance=20):
     return False
 
 
-def run_patrol(navigator):
+def run_patrol(navigator, evacuation):
     # Start on dock
     if not navigator.getDockedStatus():
         navigator.info('Docking before intialising pose')
@@ -101,24 +108,29 @@ def run_patrol(navigator):
     goal_pose.append(navigator.getPoseStamped([-1.374, -2.439], TurtleBot4Directions.NORTH))
     goal_pose.append(SPIN)
     goal_pose.append(navigator.getPoseStamped([0.0, 0.0], TurtleBot4Directions.NORTH))
-    goal_pose.append(SPIN)
 
-    # Stop the patrol if a navigation or spin action fails.
-    for step in goal_pose:
-        if step is SPIN:
-            if not startSpin(navigator):
-                return False
-        else:
-            if not navigator.goToPose(step):
-                navigator.error('Navigation request was rejected!')
-                return False
-
-            while not navigator.isTaskComplete():
-                pass
-
-            if navigator.getResult() != TaskResult.SUCCEEDED:
-                navigator.error('Navigation did not succeed!')
-                return False
+    # ── 순찰은 여기서 실행; 대피 후 같은 단계부터 재개 ──
+    evacuation.active = True
+    index = 0
+    while index < len(goal_pose):
+        evacuation.tick()
+        if not evacuation.evacuate:
+            step = goal_pose[index]
+            if step == SPIN:
+                succeeded = startSpin(navigator, evacuation=evacuation)
+            else:
+                if not navigator.goToPose(step):
+                    navigator.error('Navigation request was rejected!')
+                    return False
+                succeeded = evacuation.wait_for_task()
+        if evacuation.evacuate:
+            evacuation.escape_and_wait(goal_pose, index)
+            continue
+        if not succeeded:
+            navigator.error('Patrol movement/spin failed!')
+            return False
+        index += 1
+    evacuation.active = False
 
     # Finished navigating, dock
     navigator.dock()
@@ -129,19 +141,28 @@ def run_patrol(navigator):
     return True
 
 
-def execute(goal, ns):
+def execute(goal, ns, settings):
     # The incoming pose is unused: a goal starts the fixed patrol route.
     navigator = None
+    evacuation = None
     try:
         navigator = TurtleBot4Navigator(namespace=ns)
-        if run_patrol(navigator):
+        evacuation = Evacuation(navigator, settings)
+        if run_patrol(navigator, evacuation):
             goal.succeed()
         else:
-            goal.abort()
+            raise RuntimeError('Patrol failed')
         return NavigateToPose.Result()
     except Exception as exc:
         if navigator is not None:
             navigator.error(f'Patrol error: {exc}')
+        # ── 7. 실패 시 다음 목표 금지·현재 이동 취소 및 정지 확인 ──
+        if evacuation is not None:
+            evacuation.active = False
+            try:
+                evacuation.stop()
+            except Exception as stop_error:
+                navigator.error(f'STOP NOT CONFIRMED: {stop_error}')
         goal.abort()
         return NavigateToPose.Result()
     finally:
@@ -150,20 +171,25 @@ def execute(goal, ns):
 
 
 def main():
-    rclpy.init()
-    node = rclpy.create_node('follow_waypoints_server', namespace='robot1')
+    settings = arguments()
+    # TransformListener의 절대 TF 토픽을 각 navigator의 namespace에 연결한다.
+    rclpy.init(args=[
+        *sys.argv, '--ros-args',
+        '-r', '/tf:=tf', '-r', '/tf_static:=tf_static',
+    ])
+    node = rclpy.create_node('follow_waypoints_server', namespace=settings.namespace)
     ns = node.get_namespace().strip('/')
     server = action.ActionServer(
         node,
         NavigateToPose,
-        'patrol_start',
-        execute_callback=lambda goal: execute(goal, ns),
+        'patrol_action',
+        execute_callback=lambda goal: execute(goal, ns, settings),
     )
     executor = executors.SingleThreadedExecutor()
 
     try:
         node.get_logger().info(
-            f'Waiting for a goal on {node.get_namespace()}/patrol_start'
+            f'Waiting for a goal on {node.get_namespace()}/patrol_action'
         )
         rclpy.spin(node, executor=executor)
     except KeyboardInterrupt:
