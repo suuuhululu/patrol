@@ -63,6 +63,7 @@ class CenterCam(Node):
         self._last_ok_read_time = time.time()                          # 마지막으로 프레임 읽기에 성공한 시각
         self._camera_fault = False                                     # 카메라 장애 여부 플래그
         self._image_frame_count = 0                                    # 영상 스트림 발행 주기 조절용(30Hz -> 10Hz)
+        self._last_annotated_frame = None                              # ROI 음영+박스+상태 텍스트가 그려진 최신 프레임(스트림용)
 
         self.create_timer(1.0 / 30.0, self._process_frame)             # 30Hz로 프레임 처리 반복
 
@@ -90,7 +91,7 @@ class CenterCam(Node):
         # 대시보드용으로 압축 발행한다(탐지 판정 자체는 이 주기와 무관하게 매 프레임 실행됨).
         self._image_frame_count += 1
         if self._image_frame_count % 3 == 0:
-            self._publish_image(frame)
+            self._publish_image()
 
     # ---- 탐지: 이번 프레임에서 conf가 가장 높은 박스 1개만 사용 ----
     def _detect_and_track(self, frame):
@@ -243,10 +244,13 @@ class CenterCam(Node):
         self.get_logger().info(
             f'[CENTER] state={state} conf={confidence:.2f} event_id={msg.event_id}')
 
-    # 대시보드가 CCTV 화면을 실시간으로 띄울 수 있게 원본 프레임을 JPEG로 압축해 발행한다.
-    # 판정용 원본 프레임을 그대로 쓴다(라인·박스 등 디버그용 그림은 안 그린 순수 화면).
-    def _publish_image(self, frame):
-        ok, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])  # JPEG 압축(품질 70)
+    # 대시보드가 CCTV 화면을 실시간으로 띄울 수 있게 프레임을 JPEG로 압축해 발행한다.
+    # _debug_draw가 그린 ROI 음영+박스+상태 텍스트 화면을 그대로 재사용한다(로컬 디버그창과 동일 화면).
+    def _publish_image(self):
+        if self._last_annotated_frame is None:                        # 아직 한 번도 탐지 로직이 안 돌았으면 스킵
+            return
+        ok, buf = cv2.imencode(
+            '.jpg', self._last_annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])  # JPEG 압축(품질 70)
         if not ok:                                                     # 인코딩 실패 시 이번 프레임은 건너뜀
             return
         msg = CompressedImage()
@@ -274,6 +278,7 @@ class CenterCam(Node):
         cv2.putText(annotated, f'STATE: {self._last_state_text}', (10, 30),           # 현재 상태 문구
                     cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 255), 2)
 
+        self._last_annotated_frame = annotated                         # 대시보드 스트림용으로 재사용할 수 있게 저장
         cv2.imshow('center_cam', annotated)                             # 화면에 표시
         cv2.waitKey(1)
 
