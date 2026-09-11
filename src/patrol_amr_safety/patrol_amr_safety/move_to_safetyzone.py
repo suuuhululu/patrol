@@ -46,6 +46,8 @@ def arguments():
     parser.add_argument("--robot-id", "--namespace", dest="namespace",
                         choices=("robot1", "robot6"), default="robot1")
     parser.add_argument("--command-topic")
+    parser.add_argument("--stop-service")
+    parser.add_argument("--resume-topic")
     parser.add_argument("--odom-topic")
     parser.add_argument("--base-frame", default="base_link")
     parser.add_argument("--safe", nargs=3, type=float, action="append",
@@ -55,6 +57,10 @@ def arguments():
     args = parser.parse_args(remove_ros_args()[1:])
     args.command_topic = (f"/{args.namespace}/safety_command"
                           if args.command_topic is None else args.command_topic)
+    args.stop_service = (f"/{args.namespace}/patrol_stop"
+                         if args.stop_service is None else args.stop_service)
+    args.resume_topic = (f"/{args.namespace}/patrol_resume"
+                         if args.resume_topic is None else args.resume_topic)
     args.odom_topic = f"/{args.namespace}/odom" if args.odom_topic is None else args.odom_topic
     args.safe = list(SAFE_ZONES.values()) if args.safe is None else args.safe
     values = [v for pose in args.safe for v in pose]
@@ -65,27 +71,31 @@ def arguments():
     if min(limits) <= 0 or args.stop_timeout <= args.stop_hold:
         parser.error("Limits must be positive; stop-timeout must exceed stop-hold")
     if not all((args.namespace.strip('/'), args.command_topic,
-                args.odom_topic, args.base_frame)):
+                args.odom_topic, args.base_frame, args.stop_service, args.resume_topic)):
         parser.error("Namespace, topics and base-frame must not be empty")
     return args
 
 
 class Evacuation:
-    def __init__(self, nav, args):
+    def __init__(self, nav, args, event_check=None):
         self.nav, self.args = nav, args
+        self.event_check = event_check
         self.state, self.saved_index = PATROLLING, None
         self.active = self.evacuate = self.resume = False
         self.odom = None
         self.tf = Buffer()
         self.listener = TransformListener(self.tf, nav)
-        self.command_sub = nav.create_subscription(
-            UInt8, args.command_topic, self.on_command, 10)
+        self.command_sub = None
+        if event_check is None:
+            self.command_sub = nav.create_subscription(
+                UInt8, args.command_topic, self.on_command, 10)
         self.odom_sub = nav.create_subscription(
             Odometry, args.odom_topic, self.on_odom, qos_profile_sensor_data)
         self.safe = [nav.getPoseStamped([x, y], yaw) for x, y, yaw in args.safe]
         nav.info(
             f"[SAFETY_SUB] node={nav.get_fully_qualified_name()} "
-            f"command={self.command_sub.topic_name} odom={self.odom_sub.topic_name} "
+            f"command={self.command_sub.topic_name if self.command_sub else 'event_check'} "
+            f"odom={self.odom_sub.topic_name} "
             f"tf={self.listener.tf_sub.topic_name} "
             f"tf_static={self.listener.tf_static_sub.topic_name}; "
             "active=False state=PATROLLING (patrol preparation)")
@@ -115,10 +125,20 @@ class Evacuation:
     def on_odom(self, msg):
         self.odom = msg
 
+    def set_active(self, active):
+        self.active = active
+        if self.event_check is not None:
+            self.event_check.set_active(active)
+
+    def check_events(self):
+        if self.event_check is not None and self.event_check.stop_requested:
+            self.evacuate = True
+
     def tick(self):
         if not rclpy.ok():
             raise RuntimeError("ROS shutdown")
         rclpy.spin_once(self.nav, timeout_sec=0.1)
+        self.check_events()
 
     def fresh(self, stamp):
         age = (self.nav.get_clock().now() - Time.from_msg(stamp)).nanoseconds / 1e9
@@ -138,6 +158,7 @@ class Evacuation:
     def wait_for_task(self, interruptible=True):
         while True:
             complete = self.nav.isTaskComplete()
+            self.check_events()
             if interruptible and self.evacuate:
                 self.nav.info("[SAFETY_STEP] evacuation flag detected; leaving patrol task wait")
                 return False
@@ -159,15 +180,23 @@ class Evacuation:
         self.nav.info("[SAFETY_NAV] task succeeded")
 
     def stop(self):
-        self.nav.cancelTask()
         deadline = time.monotonic() + self.args.stop_timeout
-        self.nav.info("[SAFETY_STOP] cancelTask returned; waiting for action termination")
+        # Bound cancellation acknowledgement too; cancelTask() itself waits forever.
+        if self.nav.result_future is not None and not self.nav.result_future.done():
+            cancel = self.nav.goal_handle.cancel_goal_async()
+            while not cancel.done():
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Action cancellation acknowledgement timeout")
+                self.tick()
+            cancel.result()  # propagate transport failure; still verify action termination
+        self.nav.info("[SAFETY_STOP] cancellation checked; waiting for action termination")
         while not self.nav.isTaskComplete():
             if time.monotonic() >= deadline:
                 raise RuntimeError("Action termination timeout")
             self.tick()
         # 취소 이전 측정값을 정지 확인에 재사용하지 않음
         self.odom = None
+        after_stop_stamp = self.nav.get_clock().now().nanoseconds
         settled = None
         first_stamp = None
         self.nav.info(
@@ -176,7 +205,8 @@ class Evacuation:
             self.tick()
             msg = self.odom
             stopped = False
-            if msg is not None and self.fresh(msg.header.stamp):
+            if (msg is not None and self.fresh(msg.header.stamp)
+                    and Time.from_msg(msg.header.stamp).nanoseconds > after_stop_stamp):
                 v, w = msg.twist.twist.linear, msg.twist.twist.angular
                 stopped = (math.hypot(v.x, v.y, v.z) <= self.args.linear_epsilon
                            and math.hypot(w.x, w.y, w.z) <= self.args.angular_epsilon)

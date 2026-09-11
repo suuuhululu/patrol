@@ -45,7 +45,11 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 
 ## 1.2 코드별 Flowchart 작성
 
-개별 기능 시험용 [genius_patrol WP1 이동 코드·flowchart](genius_patrol.md)는 사용자 첨부 순서도를 단계별로 구현하는 별도 시험 경로다.
+개별 기능 시험용 [genius_patrol 순찰 코드·flowchart](genius_patrol.md)와 [move_to_safetyzone 대피·재개 코드·flowchart](move_to_safetyzone_flowchart.md)는 현재 작업본의 함수·콜백·전달값을 대조한 별도 시험 경로 문서다. 2026-09-11 대조 기준으로 순찰 17단계(이동 9회·spin 8회)와 대피 후 동일 단계 재실행을 설명하며, 공용 임무 계약을 변경하지 않는다.
+
+`patrol_amr_safety`의 감지 시 현재 위치 정지·보고·재개 연계와 진단 로그는 [event_check·vision_node_v2 코드별 flowchart](event_check.md)를 따른다.
+
+네 파일의 실제 노드 구성, ROS 통신 이름·타입·QoS, 설정값, 조건부 대피 경로 및 공용 인터페이스와의 차이는 [노드·인터페이스 전체 정리](patrol_test_nodes_interfaces.md)를 참조한다. 2026-09-11 사용자가 알린 네 파일의 단위 기능 테스트 수행 사실과 이번 문서의 정적 대조 범위를 구분해 기록했다.
 
 각 시나리오 모듈과 공통 동작 모듈에 별도의 Mermaid flowchart를 작성한다. 실제 코드가 추가되면 아래 대응표를 모듈별로 채우고 그림을 같은 절에 추가한다. 표의 미작성 상태는 구현 완료를 뜻하지 않는다.
 
@@ -101,6 +105,32 @@ flowchart TD
     SAFE -->|안전 중단 통지| STOP
     STOP --> WAIT[관제 명령·재개 조건 대기]
 ~~~
+
+### 1.3 Nav2 파라미터 파일 선택 — 구현 대조 완료
+
+2026-09-11 사용자 요청에 따라 [nav2.launch.py](../src/turtlebot4_navigation/launch/nav2.launch.py)의 `params_file` 기본값을 `/home/mu-01/patrol/src/turtlebot4_navigation/config/nav2.yaml`로 지정했다. 해당 프로젝트 실행 경로에만 적용하며, 명시적인 `params_file:=...` 인자는 기존처럼 우선한다. YAML의 수치·토픽·플러그인과 하위 Nav2 동작은 변경하지 않았다. 대상 코드 SHA-256: `1713c84aa4979ab3cf18c5de8b271006b6ed8d37ecc2d6d321edcff5c8282415`.
+
+```mermaid
+flowchart TD
+    G[generate_launch_description] --> A[use_sim_time / params_file / namespace 선언]
+    A --> P{params_file을 명시했는가?}
+    P -->|예| O[사용자 지정 경로 유지]
+    P -->|아니오| D[patrol 프로젝트의 지정 nav2.yaml 선택]
+    O --> L[OpaqueFunction: launch_setup]
+    D --> L
+    L --> N[namespace 정규화 / PushRosNamespace / scan remap]
+    N --> I[navigation_launch.py 포함: params_file / namespace / use_sim_time 전달]
+    I -->|패키지 또는 파일 로딩 실패| E[launch 오류 / 별도 fallback 없음]
+    I --> R[하위 launch가 YAML을 읽고 Nav2 실행]
+```
+
+이 진입점에는 별도 재시도·복구·취소 콜백이 없다. 종료와 노드 lifecycle은 하위 launch가 처리한다. Python 구문, 인자 기본값·명시적 override 및 아래 소스 경로의 `--show-args`를 확인했다. 실행 중인 Nav2 재시작과 실기 주행은 수행하지 않았다.
+
+다른 워크스페이스가 같은 패키지명으로 먼저 선택되는 환경에서는 이 프로젝트 launch를 직접 지정한다. 기존 Nav2를 종료한 뒤 실행한다.
+
+```bash
+ros2 launch /home/mu-01/patrol/src/turtlebot4_navigation/launch/nav2.launch.py namespace:=/robot1
+```
 
 ## 2. 명령과 임무 실행
 

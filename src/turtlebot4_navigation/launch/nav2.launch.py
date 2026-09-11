@@ -35,11 +35,7 @@ ARGUMENTS = [
                           choices=['true', 'false'],
                           description='Use sim time'),
     DeclareLaunchArgument('params_file',
-                          default_value=PathJoinSubstitution([
-                              get_package_share_directory('turtlebot4_navigation'),
-                              'config',
-                              'nav2.yaml'
-                              ]),
+                          default_value='/home/mu-01/patrol/src/turtlebot4_navigation/config/nav2.yaml',
                           description='Nav2 parameters'),
     DeclareLaunchArgument('namespace', default_value='',
                           description='Robot namespace')
