@@ -76,6 +76,7 @@ flowchart LR
 | `/{robot}/patrol_action` | `patrol_interfaces/action/Patrol` | Control Server ↔ AMR `mission_supervisor` | 순찰 시작, 진행 상태, 방문 완료, 최종 결과 |
 | `/{robot}/patrol_command` | `patrol_interfaces/msg/PatrolCommand` | Control Server → AMR `mission_supervisor` | 안전구역 이동과 순찰 재개 |
 | `/{robot}/drive_token` | `patrol_interfaces/msg/DriveToken` | Control Server → AMR `local_safety_supervisor` | 주행 권한 부여·갱신·회수 |
+| `/{robot}/mission_execution_event` | `patrol_interfaces/msg/MissionExecutionEvent` | AMR mission 실행부 → AMR command gateway | 명령 수용·시작·저장 완료 수명 이벤트 |
 | `/{robot}/detect_event` | `patrol_interfaces/action/DetectEvent` | AMR `mission_supervisor` ↔ AMR 감지 노드 | AMR 내부 정렬·연속 검증 |
 | `/system_monitor/report_detection` | `patrol_interfaces/srv/ReportDetection` | AMR 감지 노드 → System monitor | 확정 사건과 증거 사진 저장 |
 | `/vision/cctv/gate_event` | `patrol_interfaces/msg/CameraState` | `gate_cam` → `cam_master` | 차량 진입·이탈 상태 |
@@ -347,6 +348,20 @@ REJECTED  = 2
 - 응답을 받지 못했을 때만 같은 `event_id`와 같은 내용으로 재시도한다.
 - 같은 `event_id`에 다른 내용을 보내면 `REJECTED`다.
 
+### 8.1 지원 메시지
+
+`DetectionEvidence`는 `robot_id`, `event_id`, `evidence_id`와
+`sensor_msgs/CompressedImage` 한 장을 묶는 공용 타입이다. 현재 기본 감지 보고는
+`ReportDetection.image`를 사용하며, `DetectionEvidence`의 별도 토픽 이름과 송수신
+주체는 아직 확정하지 않는다.
+
+`MissionExecutionEvent`는 `/{robot}/mission_execution_event`에서 AMR mission
+실행부가 command gateway에 명령 수용·거절·시작·저장 완료를 전달하는 내부
+메시지다. QoS는 RELIABLE / TRANSIENT_LOCAL / KEEP_LAST(20)이다.
+`RESULT_STORED`에서는 `has_result=true`로 설정하고 `result_outcome`,
+`result_reason_code`, `result_reason`에 [Patrol Action Result](#43-result)의 값을
+그대로 복사한다. 제거된 `PatrolReport` 타입은 사용하지 않는다.
+
 ## 9. CCTV 차량 상태
 
 `CameraState`:
@@ -431,7 +446,9 @@ src/patrol_interfaces/
 │   ├── PatrolCommand.msg
 │   ├── DriveToken.msg
 │   ├── EStop.msg
-│   └── CameraState.msg
+│   ├── CameraState.msg
+│   ├── DetectionEvidence.msg
+│   └── MissionExecutionEvent.msg
 └── srv/
     └── ReportDetection.srv
 ```

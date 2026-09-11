@@ -20,8 +20,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DriveToken.msg"
   "msg/EStop.msg"
   "msg/CameraState.msg"
+  "msg/DetectionEvidence.msg"
+  "msg/MissionExecutionEvent.msg"
   "srv/ReportDetection.srv"
-  DEPENDENCIES std_msgs geometry_msgs builtin_interfaces
+  DEPENDENCIES std_msgs sensor_msgs geometry_msgs builtin_interfaces
 )
 
 ament_export_dependencies(rosidl_default_runtime)

@@ -18,5 +18,10 @@ uint64 sequence
 uint8 mission_state
 uint32 reason_code
 string reason
-bool has_report
-patrol_interfaces/PatrolReport report
+
+# RESULT_STORED일 때 Patrol.action Result를 평탄화해 보관한다.
+# result_outcome, result_reason_code, result_reason의 값은 Patrol.action Result와 같다.
+bool has_result
+uint8 result_outcome
+uint16 result_reason_code
+string result_reason
