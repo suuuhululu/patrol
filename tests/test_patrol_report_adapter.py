@@ -1,7 +1,15 @@
+from pathlib import Path
+from dataclasses import replace
+import sys
 from types import SimpleNamespace
 import unittest
 
-from patrol_amr.patrol_report_adapter import (
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+for package_root in ('src/patrol_amr_safety', 'src/patrol_amr'):
+    sys.path.insert(0, str(REPOSITORY_ROOT / package_root))
+
+from patrol_amr_safety.patrol_report_adapter import (
     nanoseconds_to_time, PatrolReportDrain, PatrolReportPublishError)
 from patrol_amr.patrol_report_outbox import PendingPatrolReport
 
@@ -100,6 +108,25 @@ class PatrolReportAdapterTest(unittest.TestCase):
     def test_nanosecond_conversion_rejects_negative_time(self):
         with self.assertRaises(ValueError):
             nanoseconds_to_time(-1, time_message())
+
+    def test_ros_time_range_and_types(self):
+        for invalid in (True, 1.5, '1', None, (2 ** 31) * 1_000_000_000):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    nanoseconds_to_time(invalid, time_message())
+        message = nanoseconds_to_time((2 ** 31) * 1_000_000_000 - 1, time_message())
+        self.assertEqual((message.sec, message.nanosec), (2 ** 31 - 1, 999_999_999))
+
+    def test_conversion_failure_keeps_record_and_recovery_can_retry(self):
+        outbox = FakeOutbox([replace(record(), finished_at_ns=(2 ** 31) * 1_000_000_000)])
+        publisher = FakePublisher()
+        drain = PatrolReportDrain(outbox, publisher, report_message, lambda: 'now')
+        with self.assertRaises(PatrolReportPublishError):
+            drain.publish_pending()
+        self.assertEqual(publisher.messages, [])
+        self.assertEqual(outbox.removed, [])
+        outbox.records = [record()]
+        self.assertEqual(drain.publish_pending(), 1)
 
 
 if __name__ == '__main__':

@@ -36,14 +36,14 @@ def ingress(store):
 
 
 class DecisionTests(unittest.TestCase):
-    def test_new_command_is_accepted_and_dispatched_once(self):
+    def test_pending_command_is_dispatched_without_early_accepted(self):
         with STORE.CommandStore(':memory:', 'robot1') as store:
             first = ingress(store).observe(**args())
             retry = ingress(store).observe(**args(received_at=99.0))
-        self.assertIs(first.check_meaning, CHECKS.CheckMeaning.ACCEPTED)
+        self.assertIsNone(first.check_meaning)
         self.assertTrue(first.dispatch_new)
-        self.assertIs(retry.check_meaning, CHECKS.CheckMeaning.ACCEPTED)
-        self.assertFalse(retry.dispatch_new)
+        self.assertIsNone(retry.check_meaning)
+        self.assertTrue(retry.dispatch_new)
 
     def test_executing_retry_reports_executing_without_dispatch(self):
         with STORE.CommandStore(':memory:', 'robot1') as store:
@@ -108,13 +108,18 @@ class WireCopyTests(unittest.TestCase):
             ),
         )
         message = SimpleNamespace(
+            header=SimpleNamespace(
+                stamp=SimpleNamespace(sec=8, nanosec=9), frame_id=''),
             command_id='cmd-1', mission_id='msn-1', robot_id='robot1',
             command=1, target_id='P1', target_pose=pose,
+            issued_by='ctrl-20260909T080000',
         )
         fields = MODULE.mission_command_fields(message, received_at=9.0)
         self.assertEqual(fields['target_pose']['header']['frame_id'], 'map')
         self.assertEqual(fields['target_pose']['pose']['position']['z'], 5.0)
         self.assertEqual(fields['target_pose']['pose']['orientation']['w'], 0.5)
+        self.assertEqual(fields['header']['stamp']['sec'], 8)
+        self.assertEqual(fields['issued_by'], 'ctrl-20260909T080000')
         self.assertEqual(fields['received_at'], 9.0)
 
     def test_missing_wire_fields_are_rejected(self):

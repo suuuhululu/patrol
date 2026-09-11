@@ -45,6 +45,12 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 
 ## 1.2 코드별 Flowchart 작성
 
+개별 기능 시험용 [genius_patrol 순찰 코드·flowchart](genius_patrol.md)와 [move_to_safetyzone 대피·재개 코드·flowchart](move_to_safetyzone_flowchart.md)는 현재 작업본의 함수·콜백·전달값을 대조한 별도 시험 경로 문서다. 2026-09-11 대조 기준으로 순찰 17단계(이동 9회·spin 8회)와 대피 후 동일 단계 재실행을 설명하며, 공용 임무 계약을 변경하지 않는다.
+
+`patrol_amr_safety`의 감지 시 현재 위치 정지·보고·재개 연계와 진단 로그는 [event_check·vision_node_v2 코드별 flowchart](event_check.md)를 따른다.
+
+네 파일의 실제 노드 구성, ROS 통신 이름·타입·QoS, 설정값, 조건부 대피 경로 및 공용 인터페이스와의 차이는 [노드·인터페이스 전체 정리](patrol_test_nodes_interfaces.md)를 참조한다. 2026-09-11 사용자가 알린 네 파일의 단위 기능 테스트 수행 사실과 이번 문서의 정적 대조 범위를 구분해 기록했다.
+
 각 시나리오 모듈과 공통 동작 모듈에 별도의 Mermaid flowchart를 작성한다. 실제 코드가 추가되면 아래 대응표를 모듈별로 채우고 그림을 같은 절에 추가한다. 표의 미작성 상태는 구현 완료를 뜻하지 않는다.
 
 | 대상 코드·모듈 | 코드 경로·진입 함수 | Flowchart·대조 상태 |
@@ -52,7 +58,7 @@ AMR1(robot1)과 AMR2(robot6)은 이 문서를 공유한다. 각 로봇은 명령
 | 정상 순찰 | `src/patrol_amr/patrol_amr/scenarios/start_patrol.py:start_patrol`, `scenarios/patrol.py:PatrolScenario.run` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#시나리오) · IT-02·07 |
 | 안전구역 대피 | `src/patrol_amr/patrol_amr/scenarios/safe_zone.py:move_to_safe_zone` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#시나리오) · 실제 후보 공급 TBD-CTRL-002 · IT-07·09 |
 | 순찰 재개 | `src/patrol_amr/patrol_amr/scenarios/resume_patrol.py:resume_patrol` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#시나리오) · 기본 비활성, TBD-AMR-005 |
-| 도킹 | `src/patrol_amr/patrol_amr/scenarios/docking.py:dock`, `docking_runner.py:DockingRunner` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#nav2와-도킹) · 센서 의미 TBD-AMR-004 · IT-13 |
+| 도킹 | `src/patrol_amr/patrol_amr/scenarios/docking.py:dock`, `docking_runner.py:DockingRunner` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#nav2와-도킹) · TBD-AMR-004 결정/코드 반영 대기 · IT-13 |
 | 감지·증적 | `src/patrol_amr/patrol_amr/fire_event_registry.py:FireEventRegistry`, `audio_note_sequence_adapter.py:AudioNoteSequenceAdapter` | [이벤트 기초 모듈 구현 대조](../src/patrol_amr/docs/mission_navigation.md#이벤트-기능-기초) · 상세 계약 TBD-AMR-001·TBD-IF-006·007 |
 | 중단·복구 대응 | `src/patrol_amr/patrol_amr/scenarios/interruption.py:interrupt_navigation`, `mission_arbiter.py:MissionArbiter` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#명령-콜백과-실행-수명) · STOP/CANCEL 차이 TBD-AMR-005 |
 | mission_supervisor | `src/patrol_amr/patrol_amr/mission_supervisor.py:MissionSupervisor`, `mission_command_callback.py:MissionCommandCallback`, `mission_worker.py:MissionWorker`, `mission_controller.py:MissionController` | [미션·내비게이션 구현 대조](../src/patrol_amr/docs/mission_navigation.md#명령-콜백과-실행-수명) · CommandCheck v1.0 고정, 실행 전이 TBD-AMR-005 |
@@ -99,6 +105,32 @@ flowchart TD
     SAFE -->|안전 중단 통지| STOP
     STOP --> WAIT[관제 명령·재개 조건 대기]
 ~~~
+
+### 1.3 Nav2 파라미터 파일 선택 — 구현 대조 완료
+
+2026-09-11 사용자 요청에 따라 [nav2.launch.py](../src/turtlebot4_navigation/launch/nav2.launch.py)의 `params_file` 기본값을 `/home/mu-01/patrol/src/turtlebot4_navigation/config/nav2.yaml`로 지정했다. 해당 프로젝트 실행 경로에만 적용하며, 명시적인 `params_file:=...` 인자는 기존처럼 우선한다. YAML의 수치·토픽·플러그인과 하위 Nav2 동작은 변경하지 않았다. 대상 코드 SHA-256: `1713c84aa4979ab3cf18c5de8b271006b6ed8d37ecc2d6d321edcff5c8282415`.
+
+```mermaid
+flowchart TD
+    G[generate_launch_description] --> A[use_sim_time / params_file / namespace 선언]
+    A --> P{params_file을 명시했는가?}
+    P -->|예| O[사용자 지정 경로 유지]
+    P -->|아니오| D[patrol 프로젝트의 지정 nav2.yaml 선택]
+    O --> L[OpaqueFunction: launch_setup]
+    D --> L
+    L --> N[namespace 정규화 / PushRosNamespace / scan remap]
+    N --> I[navigation_launch.py 포함: params_file / namespace / use_sim_time 전달]
+    I -->|패키지 또는 파일 로딩 실패| E[launch 오류 / 별도 fallback 없음]
+    I --> R[하위 launch가 YAML을 읽고 Nav2 실행]
+```
+
+이 진입점에는 별도 재시도·복구·취소 콜백이 없다. 종료와 노드 lifecycle은 하위 launch가 처리한다. Python 구문, 인자 기본값·명시적 override 및 아래 소스 경로의 `--show-args`를 확인했다. 실행 중인 Nav2 재시작과 실기 주행은 수행하지 않았다.
+
+다른 워크스페이스가 같은 패키지명으로 먼저 선택되는 환경에서는 이 프로젝트 launch를 직접 지정한다. 기존 Nav2를 종료한 뒤 실행한다.
+
+```bash
+ros2 launch /home/mu-01/patrol/src/turtlebot4_navigation/launch/nav2.launch.py namespace:=/robot1
+```
 
 ## 2. 명령과 임무 실행
 
@@ -188,7 +220,7 @@ flowchart TD
 
 ## 3. 로컬 안전과 속도 출력
 
-local_safety_supervisor가 `/{robot}/cmd_vel`의 최종 속도 발행권을 가진다. Nav2나 yaw 정렬 기능이 안전 출력을 우회하지 않도록 한다. TBD-IF-009는 2026-09-08 결정됐으며 Nav2 `collision_monitor`의 `/{robot}/cmd_vel_safe`와 mission_supervisor의 `/{robot}/cmd_vel_yaw`는 `TwistStamped`, 최종 출력은 `Twist`를 사용한다. 두 후보 사이의 중재 정책은 TBD-AMR-001에 남아 있다.
+local_safety_supervisor가 `/{robot}/cmd_vel`의 최종 속도 발행권을 가진다. Nav2나 yaw 정렬 기능이 안전 출력을 우회하지 않도록 한다. TBD-IF-009는 2026-09-08 결정됐으며 Nav2 `collision_monitor`의 `/{robot}/cmd_vel_safe`와 mission_supervisor의 `/{robot}/cmd_vel_yaw`는 `TwistStamped`, 최종 출력은 `Twist`를 사용한다. 2026-09-09 TBD-AMR-001 결정으로 두 후보 중 하나만 신선할 때만 통과시키고 둘 다 신선하면 fail-safe 0을 출력한다. 상세 수치와 실행 순서는 [yaw 중재 결정](change_requests/CR-AMR_09-09_10-53_yaw_정렬_Nav2_중재_확정.md)을 따른다. 코드 반영과 시험 완료는 별도다.
 
 - 유효하지 않은 token은 주행에 사용하지 않는다. 만료·회수 시 신규 주행을 막고 안전 정지한다.
 - token의 `control_session_id`·`token_id`·`holder_robot_id`·`message_sequence`를 확인한다. 로컬 lease 경과는 Q-01을 따른다.
@@ -279,7 +311,7 @@ flowchart TD
 
 2026-09-07: 사용자가 5단계 범위를 확인 질문 후 축소 승인해 [motion_guard.py](../src/patrol_amr_safety/patrol_amr_safety/motion_guard.py)에 이미 확정된 두 규칙만 결합하는 최종 출력 게이트를 구현했다. 현재 코드는 `patrol_amr_safety` 패키지에 있다. [3.1](#31-drive_token_guardpy--구현-대조-완료)·[3.2절](#32-estop_guardpy--구현-대조-완료)과 같이 ROS 노드가 아닌 일반 Python 모듈이며 6단계 `local_safety_supervisor`가 사용한다.
 
-원래 파일명이 함의하는 범위(장애물 회피·정지 거리·감속)는 TBD-AMR-006이 "로컬 정지 감속·거리·장애물 및 센서 실패 판정"으로 전부 미정으로 남긴 부분이다. Nav2 후보와 yaw 정렬 후보 사이의 선택은 TBD-AMR-001 "주행 중재"도 미정이다. 두 TBD 모두 실제 로봇 동역학·센서 사양이 필요해 이 저장소의 문서만으로는 근거 없이 숫자를 정할 수 없었다. 사용자에게 확인한 뒤 범위를 좁혀, 이미 문장으로 확정된 것만 구현했다.
+원래 파일명이 함의하는 범위(장애물 회피·정지 거리·감속)는 TBD-AMR-006이 "로컬 정지 감속·거리·장애물 및 센서 실패 판정"으로 남긴 부분이다. Nav2 후보와 yaw 정렬 후보 사이의 선택은 당시 TBD-AMR-001이라 구현하지 않았다. 2026-09-09 사용자가 수치와 fail-safe 중재를 확정했으므로 이제 계약은 결정됐고 코드 반영이 남아 있다.
 
 - `MotionGuard.evaluate(drive_token_granted, estop_active, candidate, candidate_age)`: `candidate`는 이미 상류에서 결정된(TBD-AMR-001) `(linear, angular)` 실수 쌍이거나, 아직 후보를 받지 못했으면 `None`이다. TBD-IF-009가 2026-09-08 확정됐지만 이 모듈은 계속 ROS 타입을 쓰지 않는다 — 순수 튜플과 초 단위 실수만 다루고, 실제 `TwistStamped`↔`Twist` 변환은 12단계 `local_safety_supervisor`가 한다.
 - 3절의 두 확정 문장을 AND로 결합한다 — "유효하지 않은 token은 주행에 사용하지 않는다... 안전 정지한다"(token 미부여), "E-stop 활성화는 즉시 반영한다"(E-stop 활성). 둘 중 하나라도 해당하면 `candidate`를 버리고 `STOP = (0.0, 0.0)`을 반환한다. 둘 다 아니면 `candidate`를 그대로 통과시킨다 — 속도 제한·형태 변형은 하지 않는다.
@@ -294,13 +326,13 @@ flowchart TD
 - 음수 age(후보 stamp가 미래)는 낡음으로 보지 않는다. 후보와 이 게이트는 같은 AMR PC의 같은 시계를 쓰고, 허용 가능한 시계 역행 폭을 정한 문서가 없어 임의 임계값을 만들지 않았다.
 - `candidate`와 `candidate_age`는 짝으로만 받는다. 한쪽만 `None`이면 `ValueError`다. 어느 후보의 신선도인지 말하지 않고 물어볼 수 없게 했다.
 
-**TBD-AMR-001·006으로 남긴 부분** — 추측해 구현하지 않았다.
+**2026-09-08 구현에서 제외한 부분** — TBD-AMR-001은 2026-09-09 결정됐고 구현 대기, TBD-AMR-006은 미정이다.
 
 - Nav2·yaw 후보 중 선택(주행 중재)은 이 모듈에 없다. `candidate` 하나만 받는다.
 - 장애물 감지·정지 거리·감속 프로파일·센서 고장 시 출력 규칙이 없다. 실제 로봇 사양이 정해지면 반영한다.
 - 속도 상한·형태 clamp가 없다. `candidate`가 유한한 실수인지만 확인하고 크기는 검사하지 않는다.
 
-TBD-IF-009는 2026-09-08 AMR·관제 합의로 해결됐다. 확정 범위는 토픽·타입·Q-17, namespace 파생 방식과 `cmd_vel_yaw` 발행자이며 두 후보 사이의 중재만 TBD-AMR-001에 남는다.
+TBD-IF-009는 2026-09-08 AMR·관제 합의로 토픽·타입·Q-17, namespace와 `cmd_vel_yaw` 발행자를 정했다. 두 후보 중재와 yaw 수치는 2026-09-09 TBD-AMR-001 결정으로 확정됐으며 현재 코드 반영 대기다.
 
 **구현 대조 완료** — 2026-09-08 현재 코드 기준. 패키지 실행 등록은 9단계에서 추가했다.
 
@@ -343,7 +375,7 @@ flowchart TD
 
 **12단계 추가 — 최종 속도 출력(2026-09-08).** TBD-IF-009 확정으로 이 노드가 interfaces.md 7절의 "유일한 최종 발행자" 역할을 실제로 수행한다.
 
-- **입력** `cmd_vel_safe`(`geometry_msgs/TwistStamped`) 하나만 구독한다. Nav2 표준 체인의 `collision_monitor` 출력을 여기로 돌린 것이다. `cmd_vel_yaw`는 계약에만 예약하고 구독하지 않는다 — 두 후보 중 선택은 주행 중재(TBD-AMR-001)이고 `mission_supervisor` 담당이라 이 범위 밖이다. 후보 하나 들어오고 출력 하나 나간다.
+- **현재 입력**은 `cmd_vel_safe`(`geometry_msgs/TwistStamped`) 하나다. Nav2 표준 체인의 `collision_monitor` 출력을 여기로 돌린 것이다. `cmd_vel_yaw`는 2026-09-09 중재 계약이 확정됐지만 아직 구독하지 않으므로 두 후보 입력과 동시 신선 시 0 출력 구현이 남아 있다.
 - **출력** `cmd_vel`(`geometry_msgs/Twist`). 구동부 `diffdrive_controller`가 `use_stamped_vel: false`이므로 stamp를 떼고 내보낸다. 후보에 stamp가 필요한 이유는 Q-17 판정뿐이다.
 - 토픽 이름은 모두 상대 이름이다. `/robot1`·`/robot6` namespace 아래에서 실행하면 architecture.md 2절이 요구하는 로봇별 토픽이 된다. launch 배선은 13단계다.
 - **두 시계를 분리해서 넘긴다.** Q-01 lease는 `time.monotonic()`(벽시계 점프에 영향받지 않음), Q-17 후보 age는 후보의 ROS stamp와 같은 `get_clock()`으로 잰다. `SafetyGate.output(monotonic_now, ros_now)`가 둘을 따로 받으므로 이 클래스는 여전히 ROS에 의존하지 않는다.
@@ -356,7 +388,7 @@ flowchart TD
 
 **16단계 추가 — accepted token 상태 연결(2026-09-08).** `SafetyGate.token_status(now)`가 Q-01 lease까지 반영한 현재 token을 `(accepted_token_id, token_valid)`로 한 번에 계산한다. 노드는 이를 상대 내부 토픽 `accepted_token_id`(`std_msgs/String`, RELIABLE・TRANSIENT_LOCAL・KEEP_LAST(1))로 발행한다. 비어 있지 않은 값은 해당 ID가 현재 유효하다는 뜻이고, 미수신·만료·회수·다른 holder는 빈 문자열이다. ID와 bool을 독립 토픽으로 보내 시점이 섞이는 일을 피했으며 공용 메시지 계약은 추가하지 않았다. 최초 상태와 token 콜백 직후, 0.1초 재확인에서 값이 달라질 때만 발행하므로 새 메시지 없이 lease가 만료되어도 빈 값으로 돌아간다.
 
-**TBD-AMR-001·006으로 남긴 부분** — 5단계와 같은 이유다.
+**남은 부분** — TBD-AMR-001은 결정됐으나 코드 반영 대기이고, TBD-AMR-006은 계속 미정이다.
 
 - Nav2·yaw 후보 중재는 이 노드에 없다. 후보 토픽 하나만 구독한다.
 - 속도 상한·clamp·감속 프로파일·장애물 판정이 없다. 통과가 허용된 후보는 변형 없이 그대로 나간다.
@@ -669,7 +701,7 @@ flowchart TD
 
 검증: [단위시험](../tests/test_battery_monitor.py)은 SOC 경계, 상태 쌍의 즉시/유지시간 경계, 후보 중단·재시작, 입력 유효성, 즉시 무효화를 확인한다. 실행 명령은 저장소 루트에서 `python3 -m unittest discover -s tests -p test_battery_monitor.py -v`다. [IT-13](integration.md#4-통합시험-명세)의 배터리 모델 일부이며 실센서·도킹·교대 통합시험은 미실행이다. 확정 결정과 영향은 [배터리 입력 정책 요청서](change_requests/CR-AMR_09-07_14-01_배터리_입력_정책.md)에 기록돼 있다.
 
-도킹은 DOCKING 진입 시 타이머를 시작한다. Q-09의 제한 안에서는 Nav2 재계획을 허용하지만 새 도킹 mission을 만들지 않는다. 접점 또는 완료 센서의 연속 확인으로 성공을 판정하고 실패는 관제로 보고한다. 가용 로봇 선정과 역할 교대는 관제 책임이다.
+도킹은 DOCKING 진입 시 타이머를 시작한다. Q-09의 제한 안에서는 Nav2 재계획을 허용하지만 새 도킹 mission을 만들지 않는다. 신선한 `DockStatus.is_docked`와 원본 `BatteryState` 충전 상태의 동시 2초 유지로 성공을 판정하고 실패는 관제로 보고한다. 가용 로봇 선정과 역할 교대는 관제 책임이다.
 
 ## 6. 로컬 Detection과 증적
 
@@ -682,11 +714,11 @@ OAK-D 영상 → bbox 생성 / DetectionCandidate
 → DetectionEvent 확정 → 증적 생성 → 시스템 모니터 수집·저장 / 관제 제어용 이벤트 전달
 ~~~
 
-1초 조건의 의도는 보존하지만 정렬 오차, 동일 대상 기준, 탐지 단절 시 초기화, yaw timeout·token 및 이동 제한은 TBD-AMR-001이다.
+정렬 오차·confidence·후보 단절·yaw 속도와 timeout·Nav2 중재는 [2026-09-09 TBD-AMR-001 결정](change_requests/CR-AMR_09-09_10-53_yaw_정렬_Nav2_중재_확정.md)을 따른다. 정렬 완료 뒤 비전의 동일 대상 1초 최종 확인과 이벤트 생산 상세는 TBD-IF-006에 남아 있다.
 
 Candidate/Event와 증적은 `patrol_interfaces 1.0.0`의 wire 필드·상수를 고정해 사용한다. event_type 의미·후보 중재·중복 보존과 증적 ACK·재전송의 잔여 의미는 차기 버전 TBD-IF-006·007을 참조한다. 차량 CameraState와 DetectionEvent를 합친다고 가정하지 않는다.
 
-화재 확정 시 부저 ON, 동일 event_id 중복 처리 금지, 도킹 완료 후 OFF라는 정책을 유지한다. Q-12는 `BatteryState.CHARGING`을 비교하지 않고 도킹 기능의 별도 충전 감지 신호가 2초 연속 활성인지 확인한다. 따라서 SOC에 따른 `PATROL_READY`·`FULL`과 독립적으로 판정한다. 도킹 완료 센서와 충전 감지 신호의 출처·정확한 생성 기준, 실제 부저 제어 위치·계약만 TBD-AMR-004에 남긴다.
+화재 확정 시 부저 ON, 동일 event_id 중복 처리 금지 정책을 유지한다. Q-09·12는 신선한 `DockStatus.is_docked`와 원본 `BatteryState.present`·`power_supply_status=CHARGING/FULL`을 2초 연속 확인한다. SOC 구간으로 만든 내부 `PATROL_READY/FULL`과는 독립적으로 판정한다. 도킹 성공 뒤 다른 활성 화재가 없으면 OFF한다. 도킹 실패·timeout·취소는 결과와 관제 경고를 먼저 기록하고 다른 활성 화재가 없을 때 OFF한다. 상세는 [2026-09-09 결정](change_requests/CR-AMR_09-09_11-05_도킹_충전_부저_OFF_조건_확정.md)을 따른다.
 
 ## 7. 상태·결과·진단
 
@@ -880,10 +912,10 @@ E-stop 해제 부저는 사용하지 않는다. 화재 부저와 E-stop 로그 �
 
 | ID | 미정 사항 | 영향 단위 | 상태 |
 |---|---|---|---|
-| TBD-AMR-001 | 정렬 오차, 동일 대상·confidence, 연속 탐지 단절, yaw 속도·timeout·주행 중재 | AMR·관제 | OPEN |
+| TBD-AMR-001 | **결정(2026-09-09):** confidence≥0.70, `abs(horizontal_error)≤0.05` 0.5초 연속, yaw 절댓값 0.08~0.25rad/s, timeout 10초, 후보 단절 0.6초, Nav2 취소·실제 정지 후 yaw 시작, 두 후보 동시 신선 시 최종 0, 안전 중단은 SAFETY_ABORTED, terminal 뒤 자동 재개 금지. [결정 기록](change_requests/CR-AMR_09-09_10-53_yaw_정렬_Nav2_중재_확정.md) | AMR·관제 | 결정·코드 반영 대기 |
 | TBD-AMR-002 | AMR2 LiDAR 검증 대상·연산 위치·요청/결과·timeout | AMR·관제 | OPEN |
 | TBD-AMR-003 | 결정(2026-09-07): `BatteryState` 3초 미수신 시 UNKNOWN. CHARGING/FULL은 충전, DISCHARGING은 방전. 나머지 status·present=false·NaN·범위 밖 SOC는 UNKNOWN. 근거: 사용자 권장안 승인. 영향: AMR·관제. [결정 기록](change_requests/CR-AMR_09-07_14-01_배터리_입력_정책.md) | AMR·관제 | 결정·v1.0 반영 완료 |
-| TBD-AMR-004 | **일부 결정(2026-09-08):** 도킹 성공의 충전 감지는 `BatteryState` enum과 독립한 신호로 판정하며 `PATROL_READY`·`FULL`인 동안에도 활성일 수 있음. 잔여: 도킹 완료 센서와 충전 감지 신호의 출처·생성 기준, 화재 부저 제어자·해제 계약 | AMR·관제 | OPEN |
+| TBD-AMR-004 | **결정(2026-09-09):** `DockStatus.is_docked=true`와 원본 `BatteryState.present=true`, `power_supply_status=CHARGING/FULL`, 각 age≤1초를 2초 연속 확인한다. 단절·무효·stale이면 계수 초기화, DOCKING timeout 60초다. AMR 화재 대응 mission이 부저를 소유하고 성공 또는 terminal 실패·취소 결과와 경고 뒤 다른 활성 화재가 없을 때 OFF한다. [결정 기록](change_requests/CR-AMR_09-09_11-05_도킹_충전_부저_OFF_조건_확정.md) | AMR·관제 | 결정·코드 반영 대기 |
 | TBD-AMR-005 | 상세 상태 전이·STOP/CANCEL 차이·재개 지점·waypoint/scan 정책 | AMR·관제 | OPEN |
 | TBD-AMR-006 | 로컬 정지 감속·거리·장애물 및 센서 실패 판정 | AMR·관제 | OPEN |
 

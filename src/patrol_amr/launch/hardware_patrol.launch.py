@@ -17,13 +17,13 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
     """Build a robot6-ready launch that remains inert without an arm token."""
     mission_share = get_package_share_directory('patrol_amr')
-    turtlebot_share = get_package_share_directory('turtlebot4_navigation')
     robot_id = LaunchConfiguration('robot_id')
     use_sim_time = LaunchConfiguration('use_sim_time')
     start_localization = LaunchConfiguration('start_localization')
     start_nav2 = LaunchConfiguration('start_nav2')
     start_local_safety = LaunchConfiguration('start_local_safety')
     start_status_reporter = LaunchConfiguration('start_status_reporter')
+    start_command_gateway = LaunchConfiguration('start_command_gateway')
     motion_enable_token = LaunchConfiguration('motion_enable_token')
     source_session_id = LaunchConfiguration('source_session_id')
 
@@ -117,6 +117,12 @@ def generate_launch_description():
                 'False when the namespaced Nav2 stack is already running'),
         ),
         DeclareLaunchArgument(
+            'start_command_gateway',
+            default_value='true',
+            choices=['true', 'false'],
+            description='False only when command_gateway is already running',
+        ),
+        DeclareLaunchArgument(
             'start_local_safety',
             default_value='true',
             choices=['true', 'false'],
@@ -154,13 +160,14 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'localization_params_file',
             default_value=os.path.join(
-                turtlebot_share, 'config', 'localization.yaml'),
+                mission_share, 'config', 'patrol_localization.yaml'),
         ),
         DeclareLaunchArgument(
             'nav2_params_file',
             default_value=os.path.join(
                 mission_share, 'config', 'patrol_nav2.yaml'),
         ),
+        command_gateway,
         local_safety,
         status_reporter,
         localization,

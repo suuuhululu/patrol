@@ -1,15 +1,21 @@
 # 미션·내비게이션 구현 대조
 
-구현 대조 기준: `patrol_amr` 0.4.0,
-`feat/amr-mission-navigation` 작업 트리, 2026-09-08.
+구현 대조 기준: `patrol_amr` 0.4.0, 커밋 `1933d4c` 작업 트리,
+2026-09-09. 각 Mermaid 그림은 표기된 원본 파일의 함수·분기를 기준으로
+대조했다. 단, `mission_supervisor.py`는 충돌 표식은 제거됐지만 삭제된
+`command_lifecycle` import의 호출이 남아 있고 D17 생산부·TRANSIENT_LOCAL
+구독이 없으므로 해당 노드 구성 그림과 신규 실행 이벤트 연결은
+**설계 대조 / 재확인 필요**다. 나머지 파일은 **구현 대조 완료**다.
 
 이 문서는 박성현 담당 미션·내비게이션 코드와 조정묵 담당
 `local_safety_supervisor`를 연결한 경계를 설명한다. 2026-09-08
 TBD-IF-009 합의로 Nav2 후보는 `cmd_vel_safe`(`TwistStamped`), 최종
 구동 출력은 `cmd_vel`(`Twist`), 후보 신선도는 Q-17 0.5초로
-확정됐다. 미션 노드는 `motion_allowed`를 받아 안전 권한이 사라지면
-실행 중인 Nav2·Dock Action을 취소한다. `mission_reporter.py`의 실제 ROS
-발행과 yaw 후보 중재는 각각 TBD-IF-003·TBD-AMR-001의 후속 범위다.
+확정됐다. 미션 노드는 `command_gateway`가 발행한 내부
+`mission_dispatch/MissionCommand`와 로컬 안전 노드의 `motion_allowed`만
+받는다. 안전 권한이 사라지면 실행 중인 Nav2·Dock Action을 취소한다.
+명령·미션 수명 규칙은
+`docs/decisions/2026-09-09-amr-command-mission-contract.md`를 따른다.
 
 ## Patrol Nav2 bringup
 
@@ -43,19 +49,63 @@ manager는 Nav2 프로세스 시작 10초 뒤에 실행한다.
 후 별도 lifecycle manager를 시작한다. 기존 manager는 `autostart=false`로
 유지해 활성화 요청이 중복되지 않게 한다.
 
+## Localization 설정 및 launch 흐름
+
+구현 대조 완료: `1933d4c` 기반 2026-09-10 작업 트리의 아래 두 launch 파일.
+기준: 2026-09-10 사용자가 제공한 localization 설정과 프로젝트 설정 추가 승인.
+두 진입점의 기본 설정은 [patrol_localization.yaml](../config/patrol_localization.yaml)이다.
+기존 AMCL·map_saver 값은 제공된 설정을 유지했다. `map_saver` 설정 자체는
+노드를 실행하지 않으며, 지도는 기존 `final_project_map.yaml` 인자로 전달한다.
+
+초기 위치 자동 적용은 실제 시작 좌표가 제공되지 않아 `set_initial_pose: false`다.
+`initial_pose`의 0.0은 자리표시자다. 지도 기준 실제 x/y(m), yaw(rad)를 입력하고
+`set_initial_pose: true`로 변경하면 AMCL이 초기 위치 파라미터를 사용한다.
+두 로봇의 시작 위치가 다르면 각각의 YAML을 인자로 전달한다.
+설정 추가는 AMR 내부 변경이며 공용 계약 변경이나 다른 팀 코드 변경은 없다.
+실기 실행·위치 추정 검증은 수행하지 않았다.
+
+### `launch/patrol_localization.launch.py`
+
+```mermaid
+flowchart TD
+    A[generate_launch_description] --> B[namespace / map / params_file / use_sim_time / delay 선언]
+    B --> C[OpaqueFunction: _launch_setup]
+    C --> D[PushRosNamespace]
+    D --> E[Nav2 localization_launch.py 포함\nautostart=false / 전달받은 YAML]
+    D --> F[TimerAction: 기본 10초]
+    F --> G[patrol_lifecycle_manager_localization\nmap_server / amcl 활성화 시도]
+    G --> H{활성화 성공?}
+    H -->|성공| I[AMCL 위치 추정\n초기 위치 정책은 YAML 사용]
+    H -->|실패| J[Nav2 lifecycle 오류 처리\n이 wrapper에 별도 재시도 없음]
+```
+
+### `launch/hardware_patrol.launch.py`
+
+```mermaid
+flowchart TD
+    A[generate_launch_description] --> B[robot_id 및 실행 인자 선언\nlocalization_params_file 기본: patrol_localization.yaml]
+    B --> C{start_localization?}
+    C -->|true| D[patrol_localization.launch.py 포함\nnamespace=robot_id / params_file 전달]
+    C -->|false| E[localization 시작 생략]
+    B --> F[각 실행 조건에 따라 command_gateway / local_safety / status_reporter 구성]
+    B --> G[start_nav2 조건에 따라 patrol_nav2.launch.py 포함]
+    B --> H[patrol.launch.py 포함\nmission 설정 / motion_enable_token 전달]
+    D --> I[활성화 및 실패 흐름은 위 localization 그림 참조]
+```
+
 ## 파일 책임
 
 | 코드 | 진입점·책임 |
 |---|---|
 | `mission_supervisor.py` | `MissionSupervisor.__init__`: ROS 구성과 수명 관리 |
 | `mission_config.py` | `load_config`: namespace·파라미터 조합 |
-| `motion_authorization.py` | 로봇별 구동 토큰과 선택한 속도 경로 검증 |
+| `motion_authorization.py` | 로봇별 구동 설정 검증용 보조 모듈; 실행 중 권한 판정은 `motion_allowed` 사용 |
 | `robot_readiness.py` | AMCL pose age·LiDAR·odometry 수신 상태 관리 |
 | `robot_readiness_callbacks.py` | AMCL·scan·odom 콜백을 readiness 상태에 전달 |
 | `motion_gate.py` | 정적 구동 승인과 실시간 센서 준비 상태 결합 |
-| `drive_token_guard.py` | 공용 안전 규칙: holder·session·sequence·로컬 monotonic lease 검증 |
-| `mission_drive_token.py` | 공용 guard를 worker-safe snapshot 형태로 감싼 미션 adapter |
-| `drive_token_callback.py` | DriveToken 콜백을 guard와 mission 취소 gate에 전달 |
+| `drive_token_guard.py` | 과거 직접 연계 호환 모듈; 현재 supervisor 실행 경로에서는 사용하지 않음 |
+| `mission_drive_token.py` | 과거 직접 연계 호환 adapter; 현재 supervisor 실행 경로에서는 사용하지 않음 |
+| `drive_token_callback.py` | 과거 직접 연계 호환 callback; DriveToken의 실제 소유자는 local safety |
 | `motion_permission.py` | `motion_allowed` Bool 콜백 상태를 fail-closed로 저장 |
 | `local_safety_supervisor.py` | DriveToken·E-stop·Q-17을 `cmd_vel_safe`에 적용해 최종 `cmd_vel` 발행 |
 | `waypoint_repository.py` | `load_waypoints`: W1~W7 개수·순서·유한 좌표 검증 |
@@ -71,7 +121,7 @@ manager는 Nav2 프로세스 시작 10초 뒤에 실행한다.
 | `patrol_report_outbox.py` | 미전송 PatrolReport를 report ID와 함께 영속 보관 |
 | `patrol_report_adapter.py` | outbox record를 ROS 메시지로 변환·발행 |
 | `status_reporter.py` | Q-02 RobotStatus 발행과 PatrolReport outbox drain |
-| `command_store.py` | `CommandStore.claim/finish`: 중복·충돌·checkpoint 원자 저장 |
+| `mission_command_store.py` | `CommandStore.claim/finish`: mission 실행 side effect의 중복·충돌·checkpoint 원자 저장 |
 | `navigation_adapter.py` | `NavigationAdapter`: Nav2·도킹 구현 조합 |
 | `nav2_goal_runner.py` | `Nav2GoalRunner.go_to`: pose goal·안전 취소·결과 정규화 |
 | `docking_runner.py` | `DockingRunner.dock/ensure_undocked`: Action과 Q-09 확인 |
@@ -88,13 +138,15 @@ manager는 Nav2 프로세스 시작 10초 뒤에 실행한다.
 
 `mission_supervisor.py`
 
+상태: **설계 대조 / D17 producer와 런타임 참조 수정 후 재확인 필요**
+
 ~~~mermaid
 flowchart TD
     A[MissionSupervisor 생성] --> B{MissionCommand 타입 설치됨}
     B -->|아니오| X[오류 종료]
     B -->|예| C[mission_config.load_config]
     C --> D[CommandStore·State·Readiness·MotionGate 생성]
-    D --> E[mission_command·/control/drive_token·motion_allowed 구독]
+    D --> E[mission_dispatch/MissionCommand·motion_allowed 구독]
     E --> F[MissionWorker 시작]
     F --> J[MissionSupervisor 전용 executor spin]
     F --> K[worker의 TurtleBot4Navigator는<br/>별도 global executor 사용]
@@ -138,29 +190,36 @@ flowchart TD
     L -->|아니오| N[사유 코드와 함께 주행 명령 거부·현재 goal 취소]
 ~~~
 
-`drive_token_callback.py`, `drive_token_guard.py`
+`command_gateway`, `mission_supervisor`, `local_safety_supervisor`
+
+상태: gateway와 local safety는 **구현 대조 완료**. mission의 D17 이벤트
+생산은 **설계**다.
 
 ~~~mermaid
 flowchart TD
-    A[/control/drive_token callback] --> C{control session과 sequence 유효}
-    C -->|아니오| Y[역순·중복·과거 session 무시]
-    C -->|예| B{holder가 현재 robot_id인가}
-    B -->|아니오| X[현재 로봇 권한 회수·mission cancel]
-    B -->|예| D{token_id가 비어 있는가}
-    D -->|예| E[즉시 회수·활성 mission cancel]
-    D -->|아니오| F[수신 monotonic 시각부터 최대 1초 lease]
-    F --> G[MissionCommand 수신 대기]
-    G --> H{MissionCommand와 token·센서 준비가 모두 유효}
-    H -->|예| I[mission queue 수락]
-    H -->|아니오| J[명령 거부·주행 없음]
-    F --> K{50 ms watchdog에서 만료 확인}
-    K -->|만료| E
+    A[외부 명령] --> B[command_gateway 단일 진입점]
+    B -->|PENDING 저장 후<br/>mission_dispatch / MissionCommand| C[mission_supervisor]
+    C -.->|MissionExecutionEvent<br/>ADMITTED 또는 REJECTED| B
+    D[/control/drive_token] --> E[local_safety_supervisor]
+    F[/control/estop] --> E
+    E -->|motion_allowed| C
+    C --> G{명령 구조·센서 준비·motion_allowed 유효}
+    G -->|예| H[mission queue 수락]
+    H -.->|MissionExecutionEvent ADMITTED| B
+    G -->|아니오| I[명령 거부·주행 없음]
+    I -.->|MissionExecutionEvent REJECTED| B
+    H --> N[worker 실제 시작]
+    N -.->|MissionExecutionEvent STARTED| B
+    E -->|false| J[활성 Nav2·Dock 취소 요청]
+    J --> K[CANCELED / 102 / LOCAL_SAFETY_REVOKED]
+    K --> L[checkpoint 삭제·새 MissionCommand 대기]
 ~~~
 
-DriveToken은 주행 권한이며 자체적으로 임무를 시작하지 않는다. 같은 token의
-갱신은 증가하는 `message_sequence`를 사용해야 한다. 토큰이 회수되거나 로컬
-lease가 만료되면 현재 Nav2 또는 Dock Action이 취소되며, 다시 출발하려면
-유효한 토큰과 새로운 MissionCommand가 모두 필요하다.
+DriveToken은 주행 권한이며 자체적으로 임무를 시작하지 않는다. 미션 노드는
+DriveToken을 중복 판정하지 않고 local safety가 만든 단일 권한 값
+`motion_allowed`를 사용한다. 권한이 회수되면 현재 실행은 안전 정책 취소로
+종료되고 checkpoint를 제거한다. 권한이 복구돼도 자동 재출발하지 않으며
+새로운 MissionCommand가 필요하다.
 
 `local_safety_supervisor.py`, `motion_permission.py`
 
@@ -198,6 +257,9 @@ monitor가 담당한다.
 
 `mission_command_parser.py`, `mission_command_callback.py`
 
+상태: **구현 대조 완료**. 아래 queue 결과를 D17 ADMITTED/REJECTED로
+발행하는 ROS adapter는 아직 없으므로 해당 연결만 설계다.
+
 ~~~mermaid
 flowchart TD
     A[MissionCommand callback] --> B[MissionCommandParser.parse]
@@ -210,30 +272,43 @@ flowchart TD
     E -->|예| G[MissionRequest]
     G --> H[MissionArbiter.submit]
     H -->|허용| I[즉시 callback 종료]
-    H -->|busy·safety 미준비·종료 중| R
+    H -->|중복| J[재실행 없이 상태 로그]
+    H -->|ID 충돌·INVALID_STATE·<br/>safety 미준비·종료 중| R
 ~~~
 
 `mission_arbiter.py`
 
 ~~~mermaid
 flowchart TD
-    A[submit] --> B{STOP/CANCEL}
-    B -->|예| C[cancel_event 설정]
-    C --> D[interrupt를 worker queue에 추가]
-    B -->|아니오| E{worker 영구 차단 또는<br/>MotionGate 미준비}
-    E -->|예| R[SAFETY_NOT_READY와 실제 사유]
-    E -->|아니오| F{주행 queued 또는 active}
-    F -->|예| G[BUSY / 대체 우선순위 TBD-AMR-005]
-    F -->|아니오| H[주행 1개 queue]
-    I[worker finish interrupt] --> J{남은 interrupt 있음}
-    J -->|아니오| K[cancel_event 해제]
+    A[submit] --> B{종료 중인가}
+    B -->|예| X[SHUTTING_DOWN]
+    B -->|아니오| C{같은 command ID가 queued/active인가}
+    C -->|같은 내용| D[DUPLICATE]
+    C -->|다른 내용| E[COMMAND_ID_CONFLICT]
+    C -->|아니오| F{명령별 mission 상태·ID 유효한가}
+    F -->|아니오| G[INVALID_STATE]
+    F -->|예| H{주행 명령의 motion 권한 유효한가}
+    H -->|아니오| I[SAFETY_NOT_READY]
+    H -->|예| J{queued 또는 active 명령이 있는가}
+    J -->|아니오| K[queue 수락]
+    J -->|예| L{새 명령 우선순위가 더 높은가}
+    L -->|아니오| G
+    L -->|예| M[기존 command SUPERSEDED·Action 취소]
+    M --> K
+    N[motion_allowed false] --> O[external stop latch·cancel_event 설정]
+    O --> P[활성 작업 CANCELED]
+    P --> Q[worker가 안전 정책 취소로 분류]
 ~~~
 
 `mission_worker.py`
 
+상태: worker 실행·저장 흐름은 **구현 대조 완료**. STARTED,
+NONTERMINAL_STORED, RESULT_STORED를 D17로 바꾸어 발행하는 adapter는
+**설계**다.
+
 ~~~mermaid
 flowchart TD
-    A[worker 시작] --> B{구동 경로 선택과 로봇별 token 일치}
+    A[worker 시작] --> B{구동 경로 설정과 motion_allowed 유효}
     B -->|예| C[NavigationAdapter 생성·Nav2 active 대기]
     C -->|실패| D[주행 차단·오류 로그]
     B -->|아니오| E[주행 차단 상태]
@@ -246,12 +321,15 @@ flowchart TD
     G -->|저장 실패| J[주행 차단]
     G -->|신규| K[시작 state 영속 저장]
     K --> L[MissionController.execute]
-    L --> M[종료 결과·시각·마지막 waypoint 확정]
-    M --> N[PatrolReport outbox 저장]
-    N --> O[command 결과·terminal state 저장]
+    L --> M[결과·시각·마지막 waypoint 확정]
+    M --> N{STOP·SUPERSEDED 또는<br/>안전구역 도착 성공인가}
+    N -->|예| O[비종결 상태 저장·PatrolReport 없음]
+    N -->|아니오| P[PatrolReport outbox 저장]
+    P --> Q[command 결과·terminal state 저장]
     O --> F
-    N -->|실패| P[REPORT_DURABILITY_FAILED·주행 차단]
-    O -->|저장 실패| Q[해당 durability 사유·주행 차단]
+    Q --> F
+    P -->|실패| R[REPORT_DURABILITY_FAILED·주행 차단]
+    Q -->|저장 실패| S[해당 durability 사유·주행 차단]
 ~~~
 
 `mission_controller.py`
@@ -316,11 +394,11 @@ flowchart TD
 
 ~~~mermaid
 flowchart TD
-    A[RESUME_PATROL] --> B{resume_policy}
-    B -->|disabled| X[REJECTED / TBD-AMR-005]
-    B -->|합의된 설정| C{checkpoint 존재}
+    A[RESUME_PATROL] --> B{resume_policy가 next_waypoint인가}
+    B -->|아니오| X[설정 오류로 기동 차단]
+    B -->|예| C{checkpoint 존재}
     C -->|아니오| D[REJECTED]
-    C -->|예| E[정책에 따른 start index]
+    C -->|예| E[저장 index를 다음 미완료 waypoint로 사용]
     E --> F[PatrolScenario.run]
 ~~~
 
@@ -353,8 +431,13 @@ flowchart TD
 ~~~mermaid
 flowchart TD
     A[STOP 또는 CANCEL] --> B[NavigationAdapter.cancel]
-    B --> C[자동 재개하지 않고 다음 MissionCommand 대기]
-    C --> D[상태 보존 차이는 TBD-AMR-005]
+    B --> C{명령 종류}
+    C -->|STOP| D[MISSION_PAUSED·checkpoint/mission ID 보존]
+    D --> E[PatrolReport 없음]
+    C -->|CANCEL| F[MISSION_CANCELED·checkpoint 삭제]
+    F --> G[CANCELED PatrolReport 영속 저장]
+    E --> H[자동 재개 없이 새 MissionCommand 대기]
+    G --> H
 ~~~
 
 ## Nav2와 도킹
@@ -502,10 +585,11 @@ flowchart TD
 
 ~~~mermaid
 flowchart TD
-    A[MissionRequest·outcome·reason code·시각] --> B{outcome}
-    B -->|REJECTED| C[NOT_REPORTABLE]
-    B -->|그 외 미지원 값| D[ValueError]
-    B -->|SUCCEEDED·FAILED·CANCELED| E{실패·취소 reason 존재}
+    A[MissionRequest·outcome·reason code·시각] --> B{종결 보고 대상인가}
+    B -->|REJECTED·STOP·안전구역 도착 성공| C[NOT_REPORTABLE]
+    B -->|그 외| N{outcome}
+    N -->|미지원 값| D[ValueError]
+    N -->|SUCCEEDED·FAILED·CANCELED| E{실패·취소 reason 존재}
     E -->|필요하지만 없음| D
     E -->|유효| F[uint32 code·시간 순서·event ID 검증]
     F --> M[불변 MissionCompletion 생성]
@@ -589,11 +673,11 @@ flowchart TD
 | subscriber 확인 후 drain | 명백히 수신자가 없는 상태에서 VOLATILE report를 버리지 않는다. | 연결만으로 DB 저장 완료를 보장하지 않으며 검토 요청서에서 ACK를 요청했다. |
 | REJECTED 비발행 | PatrolReport의 확정 enum은 SUCCEEDED/FAILED/CANCELED 세 개뿐이다. | 명령 거부는 v1.0 `CommandCheck.REJECTED`로 전달하고 PatrolReport를 만들지 않는다. |
 
-`command_store.py`
+`mission_command_store.py`
 
 ~~~mermaid
 flowchart TD
-    A[command_id·6필드 fingerprint] --> B[24시간+과거 최신 1,000개 보관 정리]
+    A[command_id·fingerprint] --> B[24시간+과거 최신 1,000개 보관 정리]
     B --> C{기존 ID}
     C -->|없음| D[temp 파일 write·fsync]
     D --> E[atomic replace·directory fsync]
@@ -615,8 +699,9 @@ flowchart TD
   읽어 RobotStatus의 mission·command·waypoint·reason 필드를 만든다.
 - TBD-IF-009의 `cmd_vel_safe → local_safety_supervisor → cmd_vel` 경로와
   Q-17 0.5초는 2026-09-08 AMR 회신에 따라 코드에 반영됐다.
-- W1~W7 이동 단위 테스트는 수행할 수 있다. scan 완료 정의와 재개 지점은
-  TBD-AMR-005라 기본 dwell은 0, resume은 disabled다.
+- W1~W7 이동 단위 테스트는 수행할 수 있다. 재개 정책은 `next_waypoint`로
+  확정했으며 checkpoint는 다음 미완료 waypoint index를 저장한다. STOP은
+  checkpoint를 보존하고 CANCEL 및 local safety 취소는 제거한다.
 - 활성 화재 집계와 audio Action adapter는 단위시험을 통과했다. Detection
   메시지·yaw·증적·화재음 계약이 열려 있어 event node는 BLOCKED이며
   `CR-AMR_09-07_19-10_Detection_증적_화재부저_계약_검토.md`에 기록했다.
@@ -625,9 +710,27 @@ flowchart TD
   supervisor 전용 executor로 분리했다. 수정 후 실제 장비 재시험은 남아
   있으며, 최종 IT-16은 local safety 결합 뒤 수행한다.
 - `MissionReporter → 영속 outbox → status_reporter → PatrolReport` 연결은
-  AMR-07 범위에서 완료했다. 수신 애플리케이션 ACK와 큐 삭제 기준은
+  AMR-07 범위에서 완료했다. STOP과 안전구역 도착 성공은 비종결이므로
+  PatrolReport를 만들지 않는다. 수신 애플리케이션 ACK와 큐 삭제 기준은
   `CR-AMR_09-08_10-42_PatrolReport_ACK와_큐_삭제_조건_검토.md`의
   TBD-IF-003 잔여 결정 전까지 provisional 동작이다.
+
+## 2026-09-09 계약 반영 검증
+
+- `mission_dispatch/MissionCommand` 단일 내부 입력과 `motion_allowed` 구독을
+  wiring 테스트로 고정했다.
+- `next_waypoint` 설정 검증, checkpoint 기반 W2 재개, 미지원 재개 정책 거부를
+  단위시험으로 확인했다.
+- 안전구역 도착 성공이 `MISSION_WAITING_SAFE_ZONE`을 유지하고 outbox를 만들지
+  않는지 확인했다.
+- local safety 권한 철회가 `CANCELED / 102 / LOCAL_SAFETY_REVOKED`로 종료되고
+  checkpoint를 삭제하는지 확인했다.
+- `STOP > MOVE_TO_SAFE_ZONE > DOCK > CANCEL > RESUME_PATROL > START_PATROL`
+  우선순위, 동일/낮은 명령 거부, 높은 명령 선점, `SUPERSEDED` 비종결 저장을
+  단위시험으로 확인했다.
+- 공유 `MissionExecutionEvent` 메시지와 gateway 소비부는 조정묵 승인 범위로
+  반영됐다. 성현님 mission의 ADMITTED/REJECTED/STARTED/저장 완료 생산부와
+  실행 ledger 연결은 미반영이다. System monitor ACK 계약은 계속 보류한다.
 
 ## 2026-09-08 검증 결과
 

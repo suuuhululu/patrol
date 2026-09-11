@@ -30,6 +30,7 @@ REMOVED_MESSAGES = (
     "IngestionAck",
     "KeepoutStatus",
     "MissionCommand",
+    "MissionExecutionEvent",
     "PatrolReport",
     "PatrolVisit",
     "RobotStatus",

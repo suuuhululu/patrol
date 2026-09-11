@@ -56,11 +56,11 @@ class PersistenceTests(unittest.TestCase):
     def store(self):
         return MODULE.CommandStore(self.path, 'robot1')
 
-    def test_new_command_is_persisted_as_accepted(self):
+    def test_new_command_is_persisted_as_pending(self):
         with self.store() as store:
             observed = store.register(**command_args())
             self.assertIs(observed.verdict, V.NEW)
-            self.assertIs(observed.state, S.ACCEPTED)
+            self.assertIs(observed.state, S.PENDING)
             self.assertEqual(store.count(), 1)
 
     def test_exact_retry_returns_current_state_without_new_row(self):
@@ -69,8 +69,8 @@ class PersistenceTests(unittest.TestCase):
             observed = store.register(
                 **command_args(received_at=9999.0)
             )
-            self.assertIs(observed.verdict, V.DUPLICATE_ACCEPTED)
-            self.assertIs(observed.state, S.ACCEPTED)
+            self.assertIs(observed.verdict, V.DUPLICATE_PENDING)
+            self.assertIs(observed.state, S.PENDING)
             self.assertEqual(store.count(), 1)
 
     def test_conflict_fields_are_all_compared(self):
@@ -100,7 +100,7 @@ class PersistenceTests(unittest.TestCase):
             observed = store.register(**command_args(
                 target_pose={'y': 2, 'x': 1}
             ))
-            self.assertIs(observed.verdict, V.DUPLICATE_ACCEPTED)
+            self.assertIs(observed.verdict, V.DUPLICATE_PENDING)
 
     def test_executing_retry_does_not_execute_again(self):
         with self.store() as store:
@@ -147,6 +147,65 @@ class PersistenceTests(unittest.TestCase):
             observed = reopened_again.register(**command_args())
             self.assertIs(observed.verdict, V.DUPLICATE_COMPLETED)
             self.assertEqual(observed.report_payload_json, '{"result":0}')
+
+    def test_restart_restores_full_pending_dispatch_payload(self):
+        args = command_args(
+            header={
+                'stamp': {'sec': 123, 'nanosec': 456},
+                'frame_id': 'control',
+            },
+            issued_by='ctrl-20260909T090000',
+        )
+        with self.store() as store:
+            store.register(**args)
+        with self.store() as reopened:
+            pending = reopened.pending_commands()
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(pending[0].command_id, args['command_id'])
+            self.assertEqual(pending[0].mission_id, args['mission_id'])
+            self.assertEqual(pending[0].header, args['header'])
+            self.assertEqual(pending[0].target_pose, args['target_pose'])
+            self.assertEqual(pending[0].issued_by, args['issued_by'])
+            self.assertEqual(pending[0].received_at, args['received_at'])
+
+    def test_rejected_and_nonterminal_retries_preserve_reason(self):
+        with self.store() as store:
+            rejected = command_args(index=1)
+            store.register(**rejected)
+            store.mark_rejected(
+                rejected['command_id'], reason_code=206,
+                reason='MISSION_DISPATCH_TIMEOUT')
+            observed = store.register(**rejected)
+            self.assertIs(observed.verdict, V.DUPLICATE_REJECTED)
+            self.assertEqual(observed.reason_code, 206)
+            self.assertEqual(observed.reason, 'MISSION_DISPATCH_TIMEOUT')
+
+            paused = command_args(index=2)
+            store.register(**paused)
+            store.mark_nonterminal(
+                paused['command_id'], reason_code=0, reason='PAUSED')
+            observed = store.register(**paused)
+            self.assertIs(observed.verdict, V.DUPLICATE_NONTERMINAL)
+            self.assertEqual(observed.reason, 'PAUSED')
+
+            superseded = command_args(index=3)
+            store.register(**superseded)
+            store.mark_nonterminal(
+                superseded['command_id'], reason_code=101,
+                reason='SUPERSEDED')
+            observed = store.register(**superseded)
+            self.assertIs(observed.verdict, V.DUPLICATE_SUPERSEDED)
+
+    def test_execution_event_key_is_durable_and_idempotent(self):
+        command_id = command_args()['command_id']
+        with self.store() as store:
+            store.register(**command_args())
+            self.assertTrue(store.record_event(command_id, 1))
+            self.assertFalse(store.record_event(command_id, 1))
+        with self.store() as reopened:
+            self.assertTrue(reopened.event_recorded(command_id, 1))
+            self.assertTrue(reopened.record_event(command_id, 5, 'rpt-1'))
+            self.assertFalse(reopened.record_event(command_id, 5, 'rpt-1'))
 
     def test_validated_report_round_trips_through_store_restart(self):
         command_id = command_args()['command_id']
@@ -214,6 +273,21 @@ class PersistenceTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 store.complete_report(command_id, other_command)
+
+    def test_lifecycle_identity_must_match_stored_mission_and_robot(self):
+        command_id = command_args()['command_id']
+        with self.store() as store:
+            store.register(**command_args())
+            self.assertIs(
+                store.validate_identity(
+                    command_id,
+                    command_args()['mission_id'],
+                    'robot1',
+                ),
+                S.PENDING,
+            )
+            with self.assertRaisesRegex(ValueError, 'identity'):
+                store.validate_identity(command_id, 'msn-other', 'robot1')
 
     def test_state_transitions_are_idempotent_but_not_reversible(self):
         command_id = command_args()['command_id']
@@ -333,7 +407,7 @@ class RetentionTests(unittest.TestCase):
             self.assertEqual(store.count(), MODULE.MIN_OLD_RECORDS + 1)
             self.assertIs(
                 store.observation(recent['command_id']).state,
-                S.ACCEPTED,
+                S.PENDING,
             )
 
     def test_exactly_24_hours_old_is_retained(self):

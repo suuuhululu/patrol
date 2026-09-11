@@ -17,7 +17,7 @@
          -4.389,  -1.122,  94.3,
          -2.909,   0.575, 358.3]
       waypoint_dwell_s: 0.0
-      resume_policy: disabled
+      resume_policy: next_waypoint
       command_store_path: ''
       mission_status_path: ''
       report_outbox_path: ''

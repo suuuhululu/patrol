@@ -14,10 +14,10 @@
         -4.389, -1.122,  94.3,
         -2.909,  0.575, 358.3,
         -1.374, -2.439, 359.8]
-      # Dwell/scan completion and resume rules remain TBD-AMR-005. A zero
-      # dwell avoids inventing a wait duration; it does not mark scan complete.
+      # A zero dwell avoids inventing a wait duration; it does not mark scan
+      # complete. RESUME continues from the next not-yet-completed waypoint.
       waypoint_dwell_s: 0.0
-      resume_policy: disabled
+      resume_policy: next_waypoint
       command_store_path: ''  # derives ~/.ros/patrol_amr/<robot_id>/...
       mission_status_path: ''  # same robot-specific runtime directory
       report_outbox_path: ''   # pending PatrolReport survives restart

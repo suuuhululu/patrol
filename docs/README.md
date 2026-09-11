@@ -33,6 +33,9 @@ docs/
 | [vision.md](vision.md) | PC 4 CCTV·차량 이벤트·patrol_allowed |
 | [monitoring_and_data.md](monitoring_and_data.md) | 시스템 모니터 팀: 모니터링·이력·증적·읽기 전용 대시보드 |
 | [integration.md](integration.md) | 기동·연결·정상 및 장애 흐름·통합시험 |
+| [amr_patrol_safety_flowchart.md](amr_patrol_safety_flowchart.md) | `amr_patrol_safety` 담당 노드·내부 모듈·메시지 연결의 구현 전 설계 읽기본 |
+| [genius_patrol.md](genius_patrol.md) · [move_to_safetyzone_flowchart.md](move_to_safetyzone_flowchart.md) | 개별 시험 코드의 현재 함수별 순서도·정확한 입력/출력값·분기·실패·대피/재개 경로 (2026-09-11 구현 대조) |
+| [순찰·이벤트·안전구역·로컬 비전 노드와 인터페이스](patrol_test_nodes_interfaces.md) | 네 파일의 실제 노드·토픽·서비스·액션·QoS·설정 및 공용 계약과의 차이 (2026-09-11 작업본) |
 | [change_requests/README.md](change_requests/README.md) | 개발 단위 간 수정 요청 양식·처리 상태 |
 | [관제 인터페이스 v1.0](decisions/2026-09-08-control-interface-baseline.md) | 현재 단계 확정 계약과 차기 버전 이관 TBD |
 

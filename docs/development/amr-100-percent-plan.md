@@ -41,7 +41,7 @@
 
 | 업무 행 | 기준 % | 100%가 되기 위해 남은 종단 조건 | 구현 단계 |
 |---|---:|---|---:|
-| AMR-03 공용 메시지 패키지 구현·검증 | 100 | `patrol_interfaces 1.0.0`의 15종 빌드·manifest·`interface show` 회귀 유지 | 27 |
+| AMR-03 공용 메시지 패키지 구현·검증 | 100 | `patrol_interfaces 1.0.0`의 16종 빌드·manifest·`interface show` 회귀 유지 | 27 |
 | AMR-04 drive_token 로컬 검증·만료 | 90 | 실제 ROS 연동에서 정상 token, 역순·만료·회수, 최종 주행 정지 확인 | 20 |
 | AMR-05 명령 수신·검증·중복 제거 | 80 | `command_store` 병합/구현, ACK·중복·충돌·24시간/1,000개 보존, 재시작 영속 시험 | 20 |
 | AMR-06 RobotStatus 상태 모델·발행 | 60 | mission/docking/safety/waypoint/scan/reason 포함 v1.0 25필드 실제 입력 연결과 상태 전이·2/10 Hz ROS 시험 | 20 |

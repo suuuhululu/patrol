@@ -21,11 +21,15 @@ setup(
     license="Apache-2.0",
     entry_points={
         "console_scripts": [
+            "event_check = patrol_amr_safety.event_check:main",
+            "genius_patrol = patrol_amr_safety.genius_patrol:main",
+            "vision_node_v2 = patrol_amr_safety.vision_node_v2:main",
             "battery_monitor = patrol_amr_safety.battery_monitor:main",
             "command_gateway = patrol_amr_safety.command_gateway:main",
             "local_safety_supervisor = "
             "patrol_amr_safety.local_safety_supervisor:main",
             "status_reporter = patrol_amr_safety.status_reporter:main",
+            "3_1_c_follow_waypoints = patrol_amr_safety.3_1_c_follow_waypoints:main"
         ],
     },
 )
