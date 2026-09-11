@@ -50,7 +50,7 @@ SUBSCRIPTIONS = (
         "map", "/map", "nav_msgs/msg/OccupancyGrid", "map", True,
     ),
     SubscriptionSpec(
-        "robot1_image", "/robot1/oakd/rgb/image_raw/compressed",
+        "robot1_image", "/robot1/oakd/rgb/preview/image_raw/compressed",
         "sensor_msgs/msg/CompressedImage", "camera_frame", True,
     ),
     SubscriptionSpec(
@@ -130,7 +130,7 @@ ESTOP_REASONS = {
 }
 ESTOP_TARGETS = ("robot1", "robot6", "all")
 CAMERA_IDS_BY_TOPIC = {
-    "/robot1/oakd/rgb/image_raw/compressed": "amr1",
+    "/robot1/oakd/rgb/preview/image_raw/compressed": "amr1",
     "/robot6/oakd/rgb/image_raw/compressed": "amr2",
     "/vision/cctv/gate_image/compressed": "webcam1",
     "/vision/cctv/center_image/compressed": "webcam2",
