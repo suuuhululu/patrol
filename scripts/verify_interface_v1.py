@@ -16,7 +16,14 @@ import xml.etree.ElementTree as ET
 EXPECTED_VERSION = "2.0.0"
 EXPECTED_INTERFACES = {
     "action": ("DetectEvent", "Patrol"),
-    "msg": ("CameraState", "DriveToken", "EStop", "PatrolCommand"),
+    "msg": (
+        "CameraState",
+        "DetectionEvidence",
+        "DriveToken",
+        "EStop",
+        "MissionExecutionEvent",
+        "PatrolCommand",
+    ),
     "srv": ("ReportDetection",),
 }
 REMOVED_MESSAGES = (
@@ -30,7 +37,6 @@ REMOVED_MESSAGES = (
     "IngestionAck",
     "KeepoutStatus",
     "MissionCommand",
-    "MissionExecutionEvent",
     "PatrolReport",
     "PatrolVisit",
     "RobotStatus",
@@ -148,6 +154,17 @@ def _source_report(root: Path) -> dict[str, object]:
         "msg/CameraState.msg": (
             "uint8 STATE_UNKNOWN=0",
             "uint8 STATE_EXITING=4",
+        ),
+        "msg/DetectionEvidence.msg": (
+            "string event_id",
+            "sensor_msgs/CompressedImage image",
+        ),
+        "msg/MissionExecutionEvent.msg": (
+            "uint8 RESULT_STORED=5",
+            "bool has_result",
+            "uint8 result_outcome",
+            "uint16 result_reason_code",
+            "string result_reason",
         ),
         "srv/ReportDetection.srv": (
             "uint8[] image",
