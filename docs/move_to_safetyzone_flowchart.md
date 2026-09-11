@@ -1,5 +1,7 @@
 # move_to_safetyzone.py 코드 흐름과 전달값
 
+> 아래는 명시된 해시 버전의 대피 흐름 기록이다. 현재 감지 정지·재개 연결과 2026-09-11 spin 정지 확인 보강은 [최신 구현 대조 및 코드별 흐름도](event_check.md)를 따른다.
+
 **구현 대조 완료: 2026-09-11 KST.** 대상은 현재 작업 트리의 [move_to_safetyzone.py](../src/patrol_amr_safety/patrol_amr_safety/move_to_safetyzone.py)다. 기준 HEAD는 `dd63a49142f269cd526237bbd0f08cb8bc1db9f9`, 대상 파일 SHA-256은 `34637ffd14929c85b1f054e6970ea9ee93c93c2807f035d0b71aba5069883430`이다. 이 표시는 소스와 그림의 대조 상태이며 실제 ROS 통신·주행·물리적 정지 시험 완료를 뜻하지 않는다.
 
 호출자와 공통 기호 기준은 [genius_patrol.py 코드 흐름](genius_patrol.md)을 참조한다. 시작·반환·예외 전파는 단말 기호, 계산·대입은 처리 기호, 수신·로그·값 출력은 입출력 기호, 조건은 판단 기호, 다른 함수 호출은 미리 정의된 처리 기호로 표시한다. 판단 분기는 `True`/`False`를 명시한다. 함수의 예외 전파 단말은 프로그램 전체 종료를 뜻하지 않는다.

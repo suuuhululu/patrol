@@ -157,6 +157,11 @@ class Evacuation:
     # ── 3. 기존 순찰의 이동·spin 완료 대기 중 명령 확인 ──
     def wait_for_task(self, interruptible=True):
         while True:
+            # Stop requests take priority over polling either Move or Spin.
+            self.check_events()
+            if interruptible and self.evacuate:
+                self.nav.info("[SAFETY_STEP] stop requested; leaving patrol task wait")
+                return False
             complete = self.nav.isTaskComplete()
             self.check_events()
             if interruptible and self.evacuate:

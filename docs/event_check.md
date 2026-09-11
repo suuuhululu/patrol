@@ -11,8 +11,8 @@
 | 파일 | SHA-256 |
 |---|---|
 | event_check.py | 71075b7bc793e0d4f52b270205180375c9a87967b47fc92280631bfc371da0bd |
-| genius_patrol.py | 5fae34a8ba2e9775b99d5076d7cec04889399a53dd11d1e8f4a6885fafef0970 |
-| move_to_safetyzone.py | 1934f394a2799540d16ab9f9982057ce847efdeb1a5dbebda63aebe20d6fad72 |
+| genius_patrol.py | d70bb62e576458225d3baf943f197985a54818e0c247c1fa3c190e3b3af42b8c |
+| move_to_safetyzone.py | e93313ef796cccef981b349ea0eaea740940cda7b6cbd51ced4cdf1de7f81324 |
 | vision_node_v2.py | a9b8bd4e6726941bda0985f5ffc2ce2878cb5f7ad678765018356f504b3f5470 |
 
 ## event_check.py
@@ -79,7 +79,7 @@ flowchart TD
     I --> Q{event_check 연결?}
     Q -->|예| C[기존 UInt8 구독 제외 / set_active로 상태 전달]
     Q -->|아니오| O[기존 on_command와 대피 흐름 유지]
-    C --> T[tick 또는 wait_for_task에서 check_events]
+    C --> T[tick 또는 wait_for_task의 Action 조회 전후 check_events]
     T -->|정지 요청| F[evacuate 설정 / 순찰 대기 반환]
     S[stop] --> K[미완료 action 취소 요청 / 응답 대기]
     K --> R[isTaskComplete로 종료 확인]
@@ -151,3 +151,53 @@ flowchart TD
 2026-09-11 진단 로그 추가 후 아래 26개 검사를 다시 통과했다. 모델을 시험 대역으로 바꾸고 localhost·별도 ROS domain에서 노드를 실행해, 카메라가 없는 상태의 시작 로그와 5초 `VISION STATUS` 출력을 확인했다. 이 확인에서 정지 서비스 요청은 보내지 않았으며 실제 모델 추론·카메라·로봇 정지 성공을 검증한 것은 아니다. 시험 환경의 pytest 플러그인 호환 문제는 자동 플러그인 로딩을 끄고, ROS 로그 저장 경로는 `/tmp`로 지정해 검사했다.
 
 `test/test_event_check.py`, `test/test_vision_event_link.py`: 26개 검사 통과. 실제 로컬 ROS executor의 서비스·토픽 왕복, 완료 전 응답 금지, 먼저 도착한 재개, 중복 정지, 이동·회전 동일 단계 재실행, 오래된 odom·움직이는 odom·취소 미완료 실패를 확인했다. 비전 코드의 첫 bbox 정지 요청과 hold/정지 응답 순서, 시스템 모니터 STORED 이후에만 재개하는 것도 확인했다. Nav2/odom/카메라/YOLO/시스템 모니터는 시험 대역을 사용했다. 실기 주행 및 실제 비전·모니터 통합시험은 수행하지 않았다. 기존 패키지 전체 빌드·배포는 검증 범위에 포함하지 않았다.
+
+
+## 2026-09-11 spin 정지 확인 보강 및 Nav2 설정
+
+기준: 사용자 요청으로 AMR 순찰 spin 감지 정지를 점검하고 회전 속도와 inflation을 변경했다. 위 해시의 작업본과 구현 대조 완료. `vision_node_v2.py`는 이미 이동 종류와 무관하게 첫 유효 후보에서 정지를 요청하므로 수정하지 않았다. 기존 보고·중복 사건은 여전히 요청 대상에서 제외된다.
+
+`genius_patrol.startSpin`은 회전 요청 전에 `check_events()`를 호출해 대기 중인 정지를 우선한다. 공통 `Evacuation.wait_for_task`는 Action 완료 조회 전후 모두 정지를 확인한다. 정지 요청이면 False를 반환하고, 호출자가 기존 `pause_and_wait → stop`으로 현재 Action을 취소한 뒤 새 odom의 선속도·각속도 정지를 확인한다. 서비스 성공 응답 및 보고 후 재개 조건은 유지한다.
+
+```mermaid
+flowchart TD
+    S[startSpin] --> H{Evacuation 연결?}
+    H -->|예| C[check_events]
+    C --> P{evacuate?}
+    P -->|예| F[False 반환 / 순찰의 정지 분기로]
+    P -->|아니오| A[navigator.spin 요청]
+    H -->|아니오| A
+    A --> R{목표 수락?}
+    R -->|아니오| F
+    R -->|예| E{Evacuation 연결?}
+    E -->|예| W[wait_for_task / 아래 공통 대기]
+    E -->|아니오| I[isTaskComplete 반복 / getResult]
+    I --> B[SUCCEEDED이면 True / 그 외 False]
+    W --> B2[공통 대기의 bool 반환]
+    A -->|예외| X[호출자로 전파 / 순찰 실패 처리]
+    W -->|예외| X
+```
+
+```mermaid
+flowchart TD
+    W[wait_for_task] --> C[check_events]
+    C --> P{interruptible이며 evacuate?}
+    P -->|예| F[False 반환]
+    P -->|아니오| A[isTaskComplete / ROS 콜백 처리]
+    A --> C2[check_events]
+    C2 --> P2{interruptible이며 evacuate?}
+    P2 -->|예| F
+    P2 -->|아니오| D{Action 완료?}
+    D -->|예| R[SUCCEEDED 여부 반환]
+    D -->|아니오| O{ROS 실행 중?}
+    O -->|예| C
+    O -->|아니오| X[예외 / 호출자 실패 처리]
+    A -->|예외| X
+    F --> S[순찰 호출자: pause_and_wait / 기존 stop 흐름 참조]
+```
+
+[nav2.yaml](../src/turtlebot4_navigation/config/nav2.yaml)의 local/global `inflation_radius`는 모두 0.08 → **0.3 m**다. DWB `max_vel_theta`는 0.8 → **0.6 rad/s**, behavior server의 최대/최소 회전 속도는 1.0/0.4 → **0.6/0.3 rad/s**, velocity smoother의 각속도 상하한은 0.8/-1.0 → **0.6/-0.6 rad/s**다. 선속도·가감속·정지 임계값·spin 시간 허용값 20초는 유지한다. 저장소 전체의 동일 파일명 검색 결과 원본과 `install/turtlebot4_navigation/share/turtlebot4_navigation/config/nav2.yaml` 심볼릭 링크가 있으며, 설치 링크는 이 원본을 가리킨다.
+
+검증: 관련 테스트 총 **30개 통과**. 추가 시험은 정지 대기 중 spin 전송 금지, Action 완료 조회 전 정지 우선, 회전 중 요청에 따른 취소와 새로운 각속도 정지 odom 확인 후 서비스 성공 응답을 검사한다. Nav2·odom은 시험 대역이며 실제 회전 시험이 아니다. 수정 전 HEAD의 두 함수로도 회전 취소 및 기존 이동·spin 재개 시험 **3개가 통과**했다. 따라서 보고된 실기 미정지의 원인이 move 전용 조건이었다고 판단할 근거는 없고, 당시 감지 생략·서비스 수신·취소 로그와 실제 실행 버전 확인이 필요하다. 이번 변경은 정지 우선 처리 보강이며 실기 원인 해결을 입증하지 않는다.
+
+공용 계약·다른 개발 단위 코드는 변경하지 않았고 새 TBD 결정이나 수정 요청서는 없다. 기존 TBD는 [amr.md](amr.md)를 따른다. 실행 중인 프로세스 재시작, Nav2 설정 로드 및 하드웨어 정지·재개 검증은 수행하지 않았다.

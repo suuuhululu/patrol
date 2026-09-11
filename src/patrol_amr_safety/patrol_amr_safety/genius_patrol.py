@@ -48,6 +48,11 @@ def startSpin(navigator, angle=2 * math.pi, time_allowance=20, evacuation=None):
     :param angle: 회전량(라디안). 기본 2*pi = 360도. 양수 반시계, 음수 시계.
     :param time_allowance: 제한 시간(초, 정수).
     """
+    if evacuation is not None:
+        evacuation.check_events()
+        if evacuation.evacuate:
+            navigator.info('Spin skipped: patrol stop is pending')
+            return False
     if not navigator.spin(spin_dist=angle, time_allowance=time_allowance):
         navigator.error('Spin request was rejected!')
         return False

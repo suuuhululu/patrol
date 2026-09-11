@@ -1,5 +1,7 @@
 # move_to_safetyzone.py — 코드 기준 함수별 흐름
 
+> 아래는 명시된 해시 버전의 대피 흐름 기록이다. 현재 감지 정지·재개 연결과 2026-09-11 spin 정지 확인 보강은 [최신 구현 대조 및 코드별 흐름도](../event_check.md)를 따른다.
+
 **구현 대조 완료: 2026-09-11 07:39:45 KST.** [move_to_safetyzone.py](../../src/patrol_amr_safety/patrol_amr_safety/move_to_safetyzone.py) 228행, SHA-256 `34637ffd14929c85b1f054e6970ea9ee93c93c2807f035d0b71aba5069883430`. 아래 L번호는 이 소스의 줄 번호다. 기존 Markdown 대신 Python과 설치 라이브러리 코드를 직접 대조했다. 호출자는 [genius_patrol](genius_patrol.md), 값 설명 그림은 [data_values](data_values.md)를 참조한다.
 
 ## 1. 입력·공유 변수

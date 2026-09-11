@@ -1,5 +1,7 @@
 # genius_patrol.py — 코드 기준 전체·상세 흐름
 
+> 아래는 명시된 해시 버전의 대피 흐름 기록이다. 현재 감지 정지·재개 연결과 2026-09-11 spin 정지 확인 보강은 [최신 구현 대조 및 코드별 흐름도](../event_check.md)를 따른다.
+
 **구현 대조 완료: 2026-09-11 07:39:45 KST.** [genius_patrol.py](../../src/patrol_amr_safety/patrol_amr_safety/genius_patrol.py) 206행, SHA-256 `12344529c2f84c9817348b721127efd435d3a014eaf867a1b0cd4fe3b181383a`. 기존 Markdown은 동작 근거로 사용하지 않았다. Python과 설치된 ROS 메시지 정의를 직접 대조했다. 현재 소스에는 Recheck 연결이 없다.
 
 G:L번호는 이 파일, M:L번호는 [move_to_safetyzone.py](../../src/patrol_amr_safety/patrol_amr_safety/move_to_safetyzone.py)의 줄 번호다. T는 TurtleBot4Navigator, N은 BasicNavigator다. 파일 경로·해시는 [source_manifest.json](source_manifest.json), 좌표·설정 그림은 [data_values.md](data_values.md), 대피 상세는 [move_to_safetyzone.md](move_to_safetyzone.md)에 있다.

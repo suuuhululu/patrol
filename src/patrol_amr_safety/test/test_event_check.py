@@ -240,6 +240,90 @@ def test_actual_stop_needs_multiple_fresh_stopped_odometry_samples(monkeypatch):
     assert len(samples) >= 3
 
 
+def test_pending_stop_prevents_spin_dispatch(events):
+    from patrol_amr_safety.genius_patrol import startSpin
+
+    request_stop(events)
+    helper = Evacuation.__new__(Evacuation)
+    helper.event_check, helper.evacuate = events, False
+    nav = SimpleNamespace(
+        info=lambda _: None,
+        spin=lambda **_: pytest.fail('Spin must not start with a pending stop'))
+    assert not startSpin(nav, evacuation=helper)
+    assert helper.evacuate
+
+
+def test_pending_stop_precedes_action_poll(events):
+    request_stop(events)
+    helper = Evacuation.__new__(Evacuation)
+    helper.event_check, helper.evacuate = events, False
+    helper.nav = SimpleNamespace(
+        info=lambda _: None,
+        isTaskComplete=lambda: pytest.fail('Pending stop must precede action polling'))
+    assert not helper.wait_for_task()
+
+
+def test_spin_cancels_and_waits_for_angular_stop_before_response(events, monkeypatch):
+    from patrol_amr_safety.genius_patrol import startSpin
+
+    clock = SimpleNamespace(now=10.0)
+    monkeypatch.setattr(safety.time, 'monotonic', lambda: clock.now)
+    result = Future()
+    order, requests, samples = [], [], []
+
+    def spin(**kwargs):
+        order.append('spin')
+        assert kwargs['spin_dist'] > 6.0
+        return True
+
+    def complete():
+        if not requests:
+            requests.append(request_stop(events)[0])  # detection during active spin
+        return result.done()
+
+    def cancel():
+        order.append('cancel_spin')
+        result.set_result(None)
+        future = Future()
+        future.set_result(SimpleNamespace(goals_canceling=[object()]))
+        return future
+
+    helper = Evacuation.__new__(Evacuation)
+    helper.event_check, helper.evacuate = events, False
+    helper.args = SimpleNamespace(stop_timeout=2.0, stop_hold=0.2,
+                                  data_max_age=1.0, linear_epsilon=0.01,
+                                  angular_epsilon=0.02)
+    helper.nav = SimpleNamespace(
+        spin=spin, result_future=result,
+        goal_handle=SimpleNamespace(cancel_goal_async=cancel),
+        isTaskComplete=complete, info=lambda _: None,
+        get_clock=lambda: SimpleNamespace(
+            now=lambda: Time(seconds=clock.now, clock_type=ClockType.ROS_TIME)))
+
+    def tick():
+        clock.now += 0.1
+        if events._completion.done():
+            assert len(samples) >= 5  # includes moving and stopped angular samples
+            assert response_of(requests[0]).success
+            order.append('stop_response')
+            events.on_resume(Bool(data=True))
+            return
+        msg = Odometry()
+        msg.header.stamp = Time(seconds=clock.now).to_msg()
+        msg.twist.twist.angular.z = 0.3 if len(samples) < 2 else 0.0
+        helper.on_odom(msg)
+        samples.append(msg)
+
+    helper.tick = tick
+    assert not startSpin(helper.nav, evacuation=helper)
+    assert helper.evacuate and not result.done()
+    assert not events._completion.done()
+    events.pause_and_wait(helper, 1)
+    assert order == ['spin', 'cancel_spin', 'stop_response']
+    assert helper.saved_index == 1
+    assert not helper.evacuate
+
+
 @pytest.mark.parametrize('options', [
     {'moving': True}, {'stale': True}, {'queued_before_stop': True},
     {'action_done': False}, {'action_done': False, 'cancel_done': False},
