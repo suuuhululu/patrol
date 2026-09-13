@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 
 EXPECTED_VERSION = "2.0.0"
 EXPECTED_INTERFACES = {
-    "action": ("DetectEvent", "Patrol"),
+    "action": ("Patrol",),
     "msg": (
         "CameraState",
         "DetectionEvidence",
@@ -137,11 +137,6 @@ def _source_report(root: Path) -> dict[str, object]:
             "uint8 WAYPOINT_REACHED=11",
             "uint8 outcome",
             "string current_waypoint_id",
-        ),
-        "action/DetectEvent.action": (
-            "string detection_id",
-            "bool confirmed",
-            "float32 confirm_elapsed",
         ),
         "msg/PatrolCommand.msg": (
             "uint8 MOVE_TO_SAFE_ZONE=1",

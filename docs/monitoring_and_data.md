@@ -1,82 +1,98 @@
-# 시스템 모니터 기능 설계 — 모니터링과 데이터
+# 시스템 모니터 기능 설계
 
-> 기준: [2026-09-07 PM 설계 결정](decisions/2026-09-07-design-baseline.md). 관제는 별도 노드, 시스템 모니터는 UI 전용, 공용 패키지는 `patrol_interfaces`이며 상세 계약은 System design의 확정 내용을 우선한다.
+> 기준일: 2026-09-13 · 공용 계약: `patrol_interfaces 2.0.0`
+>
+> 담당: 시스템 모니터 팀 · 통합 실행 위치: PC 3
 
-상태: 기능 범위 기준·저장 모델 제안 · 담당: 시스템 모니터 팀 · 통합 실행 위치: 관제 PC(PC 3)
+시스템 모니터는 관제와 별도 개발 단위다. 수신 결과와 이력을 저장·표시하지만
+순찰·주행 권한·안전 판단을 생성하지 않는다.
 
-시스템 시나리오는 [scenarios.md](scenarios.md)를 따른다. 이 팀은 UC-06·07의 읽기 전용 조회 및 UC-01~05·08의 수신 결과 표시 범위를 담당하며, UC 전체를 단독 구현하는 것으로 해석하지 않는다.
+## 1. 공용 인터페이스 범위
 
-## 1. 책임과 경계
+시스템 모니터가 서버로 제공하는 최종 공용 인터페이스는 다음 하나다.
 
-관제 팀과 별도 개발 단위이며, 이 문서는 시스템 모니터 팀의 구현 범위다. 통합 실행 시 관제 코드와 PC 3에서 함께 실행한다. 개발용 PC는 지정하지 않는다.
-
-상태·이벤트·임무 결과를 수집해 관측 가능한 상태와 이력으로 제공한다. Dashboard는 읽기 전용이다. 모니터 기능이 독립적으로 mission·token·E-stop을 발행하지 않는다. 상태·통신 이상·경고·보고 누락을 포함한 운영 판단은 모두 [관제](control_server.md)가 수행하고 결과를 토픽으로 제공한다. 시스템 모니터는 수신한 값을 화면에 표시하며 별도 임계값·타이머로 STALE·timeout·UNREPORTED 등을 판단하지 않는다. 이력 저장·조회는 수신 결과의 보존 기능이며 새로운 운영 판단을 생성하지 않는다.
-
-| 기능 | 역할 |
-|---|---|
-| Topic Ingestion | RobotStatus·PatrolReport·확정 이벤트 및 관련 상태 토픽 수신·표시용 변환 |
-| Robot Status Monitor | 로봇 상태·pose 유효성·신선도·배터리·도킹 표시 |
-| Event / Alarm Monitor | 확정 이벤트·화재·안전 원인·중복 처리 상태 관측 |
-| Patrol / Handover Monitor | 관제가 제공한 순찰·방문·교대·보고 누락 상태 표시 |
-| Monitoring Data Logger | 이력·증적 연결·저장 오류 기록 |
-| Monitoring DB / Dashboard | 조회용 데이터와 읽기 전용 화면 |
-
-관제에서 생성하는 명령·권한·Keepout·복구·교대·안전 기록은 관제 팀이 제공하고 시스템 모니터 팀이 수집·저장·표시한다. 공용 토픽·메시지 필드·전송 계약은 [TBD-IF-011](interfaces.md#tbd)에서 합의하고, 내부 DB·저장 스키마·인덱스·보존·백업은 TBD-MON-001에서 정한다. 같은 PC에서 실행한다는 이유로 내부 함수·메모리·DB 직접 접근을 공용 계약으로 가정하지 않는다.
-
-## 2. 상태와 결과 수집
-
-- 화면 표시명 AMR1/AMR2는 robot1/robot6 매핑으로 표시한다.
-- pose_valid=false일 때 마지막 유효 위치임을 구분하고 age를 표시한다. 무효 위치를 현재 위치처럼 표시하지 않는다.
-- STALE은 관제가 Q-03으로 판단해 토픽으로 제공한 값을 표시한다. 모니터가 자체 수신 시간을 기준으로 STALE을 생성하지 않으며 AMR operational enum과 분리한다.
-- 관제가 결과 미수신으로 판단하여 제공한 UNREPORTED를 표시한다. FAILED 또는 CANCELED 보고서를 대필하지 않는다.
-- CCTV timeout은 관제가 판단한 경고 토픽을 받아 표시·기록한다. permit은 수신한 값을 표시하며 자체 timeout 판단으로 변경하지 않는다.
-- E-stop 원인·활성화·해제 조건 시작/취소·해제 및 token 회수/만료 로그를 연결한다.
-
-보고 재수신과 재연결 후 이력 합치기, 메시지 ID·측정 시각·수신 시각 필드는 [TBD-IF-003](interfaces.md#tbd)에서 확정한다. 수신 시각을 로봇의 측정 시각으로 대체하지 않는다.
-
-## 3. 이벤트와 증적
-
-시스템 모니터는 AMR에서 확정된 DetectionEvent와 증적 메타데이터를 수신한다. bbox 정렬·감지 검증은 AMR에서 수행한다. v1.0 wire의 event_id·evidence_id 필드는 사용하되 같은 ID의 중복 보존 기간과 재전송 종료 정책은 차기 버전 TBD-IF-006·007에서 정한다.
-
-증적 이미지의 생성·전달·저장 완료는 제공된 상태에 따라 구분해 표시한다. 운영상 증적 누락·지연 경고는 관제가 판단하여 제공한다. 이벤트 도착과 이미지 도착의 순서·원자성이 보장된다고 가정하지 않는다. 실제 전송 방식은 TBD-IF-007, 재시도·불완전 상태 표시와 저장 실패 처리는 TBD-MON-002다.
-
-화재 부저의 실제 제어는 확정된 담당자·계약에 따른다. 모니터는 정책과 관측 결과를 보여주며 별도 제어권을 임의로 갖지 않는다.
-
-## 4. 논리 데이터 모델 초안
-
-아래 이름은 저장 모델의 논리 항목 제안이다. 실제 DB·컬럼·타입·제약조건·DDL은 확정하지 않았다.
-
-| 논리 항목 | 기록할 내용 | 연결 의도 |
+| 이름 | 타입 | 역할 |
 |---|---|---|
-| events | 로봇별 확정 감지 이벤트 | robot_id, event_id |
-| event_evidence | 증적 위치·메타데이터·저장 상태 | 해당 event_id |
-| event_changes | 이벤트 처리 상태 변경 이력 | 해당 event_id |
-| robot_status_history | 로봇 상태와 시간 이력 | robot_id, 관측 시각 |
-| patrol_runs | 순찰 실행·결과·보고 상태 | patrol/mission 식별자 |
-| patrol_visits | waypoint 방문·스캔·결과 | 순찰 실행 식별자 |
+| `/system_monitor/report_detection` | `patrol_interfaces/srv/ReportDetection` | 확정 사건과 증거 사진 저장 |
 
-ID 관계는 의도이며 필드 계약으로 확정된 것은 아니다. 명령과 임무·순찰·보고 ID의 연결은 interfaces.md에서 먼저 정하고 데이터 모델이 이를 따른다. event_changes는 '조회 전용 Dashboard에서 사용자가 수정한다'는 의미가 아니다.
+Patrol Action의 상태와 결과를 화면에 표시할 수 있지만, 이를 위해 새로운 공용
+상태 메시지를 추가하지 않는다. 구체적인 Action 상태 소비 방법은 시스템 모니터
+구현 범위에서 정한다.
 
-## 5. Dashboard 범위
+## 2. ReportDetection 처리
 
-로봇별 상태·최근 유효 위치·배터리·도킹·현재 임무, 통신 신선도, permit·Keepout·안전 상태, 순찰/교대 진행, 이벤트와 증적 조회를 기능 초안으로 둔다. 정확한 화면 구성과 갱신 주기, 검색·조회 범위는 TBD-MON-003이다.
+Request 검증:
 
-## 6. 보존과 운영
+- `robot_id`: `robot1` 또는 `robot6`
+- `event_id`: 소문자 UUID v4
+- `detected_at`: 서버 시각보다 5분 이상 미래가 아님
+- `position`: `map` 좌표계, `z=0`
+- `image`: JPEG 또는 PNG, 최대 1 MiB
+- `event_type`: FIRE=1, LEAK=2, OBSTACLE=3
 
-원본 데이터 유지 기간, 이미지 저장 위치·용량, 삭제 정책, 백업·복구, DB 장애 시 로컬 버퍼 여부는 아직 미정이다. 무제한 보존이나 자동 삭제를 기본 정책으로 채택하지 않는다.
+Response:
 
-명령 ID의 AMR 영속 캐시, CCTV 중복 제거 캐시, 시스템 모니터 DB 보존은 서로 다른 저장 목적이다. Q-13/Q-14 값을 DB 전체의 보존 기간으로 사용하지 않는다.
+- `STORED`: 처음 저장 완료
+- `DUPLICATE`: 같은 사건 또는 억제 기간 안의 동일 종류 사건
+- `REJECTED`: 필드나 내용이 계약과 다름
 
-## 7. 검증
+같은 `event_id`와 같은 내용의 재시도는 중복 저장하지 않는다. 같은 `event_id`에
+다른 내용이 들어오면 거절한다. 저장 성공 전에는 `STORED`를 반환하지 않는다.
 
-관제가 제공한 STALE·경고·UNREPORTED와 화면 표시의 일치, 무효 pose 표시, 중복 저장 처리, 증적 상태 표시, 저장 실패, 조회 화면의 읽기 전용 범위를 검증한다. 모니터만 수신이 끊겨도 로봇의 운영 상태를 자체 판단하거나 제어 명령을 발행하지 않는지 확인한다. 모니터 토픽 미수신 시 화면 표현은 TBD-MON-003에서 정한다. [IT-12·14·15](integration.md#4-통합시험-명세)에 연결한다.
+## 3. 책임 경계
+
+- bbox 정렬, 감지 판단과 사건 확정은 AMR 감지 측 책임이다.
+- 관제는 Patrol Feedback의 감지 상태를 사용해 운영 판단을 수행한다.
+- 시스템 모니터는 `ReportDetection` 요청을 검증·저장하고 결과를 반환한다.
+- 시스템 모니터는 Patrol Goal, PatrolCommand, DriveToken, EStop을 발행하지 않는다.
+- Dashboard는 읽기 전용이다.
+
+`DetectionEvidence`는 공용 타입으로 존재하지만 전용 토픽은 확정하지 않았다.
+기본 감지 저장 경로에서는 `ReportDetection.image`를 사용한다.
+
+## 4. 논리 데이터 모델
+
+아래는 내부 저장 모델의 최소 요구사항이며 공용 ROS 계약이 아니다.
+
+| 항목 | 필수 내용 |
+|---|---|
+| detection_events | robot_id, event_id, detected_at, position, event_type |
+| detection_images | event_id, 원본 이미지, 저장 형식·크기 |
+| ingestion_results | event_id, status, detail, 서버 수신 시각 |
+| patrol_runs | Action 식별자와 최종 outcome·reason |
+
+DB 엔진, 컬럼 타입, 인덱스, 보존 기간과 백업 정책은 시스템 모니터 팀 내부 설계로
+관리한다. 내부 DB 구조를 다른 개발 단위의 직접 접근 계약으로 사용하지 않는다.
+
+## 5. Dashboard
+
+기본 화면은 다음 정보를 읽기 전용으로 표시한다.
+
+- robot1·robot6 Patrol 진행 상태와 최근 pose
+- waypoint 도착 상태
+- permit과 관제가 제공한 운영 상태
+- Patrol Result
+- 감지 사건, 위치, 종류와 증거 사진
+- 저장 성공·중복·거절 상태
+
+화면이 자체 timeout이나 안전 상태를 계산해 관제 판단을 대체하지 않는다.
+
+## 6. 검증
+
+- 정상 사건 저장과 이미지 복원
+- 같은 요청 재전송의 `DUPLICATE`
+- 같은 event_id의 다른 내용 `REJECTED`
+- 잘못된 robot, event type, 미래 시각, 이미지 형식·크기 거절
+- DB 실패 시 성공 응답 금지
+- Dashboard에서 제어 인터페이스 발행 불가
+- 실제 AMR 감지 측과 Service 종단시험
+
+상세 통합 순서는 [integration.md](integration.md)의 IT-04를 따른다.
 
 ## TBD
 
-| ID | 미정 사항 | 영향 단위 | 상태 |
-|---|---|---|---|
-| TBD-MON-001 | 내부 DB 엔진·컬럼·ID 관계·인덱스, 저장 스키마·보존·백업(공용 로그 계약은 TBD-IF-011) | 시스템 모니터; 데이터 계약 변경 시 AMR·관제·비전 | OPEN |
-| TBD-MON-002 | 증적/DB 저장 실패, 버퍼·재시도·중복 저장, 제어에 미치는 영향 | 시스템 모니터·관제·AMR | OPEN |
-| TBD-MON-003 | Dashboard 구성·갱신·조회 범위·접근 방식, 판단 토픽 미수신 시 화면 표현 | 시스템 모니터 | OPEN |
-
-공용 인터페이스 변화가 생기면 [수정 요청서](change_requests/README.md)를 통해 생산자·소비자 적용 여부를 추적한다.
+| ID | 미정 사항 | 영향 단위 |
+|---|---|---|
+| TBD-MON-001 | DB 엔진·인덱스·보존·백업 | 시스템 모니터 |
+| TBD-MON-002 | 장기 저장 실패 시 재시도와 운영 알림 | 시스템 모니터·관제 |
+| TBD-MON-003 | Dashboard 상세 화면과 조회 범위 | 시스템 모니터 |

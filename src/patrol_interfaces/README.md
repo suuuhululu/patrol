@@ -7,8 +7,7 @@
 ```text
 patrol_interfaces/
 ├── action/
-│   ├── Patrol.action
-│   └── DetectEvent.action
+│   └── Patrol.action
 ├── msg/
 │   ├── PatrolCommand.msg
 │   ├── DriveToken.msg
@@ -22,9 +21,12 @@ patrol_interfaces/
 
 `EStop`은 타입과 토픽 이름만 예약하며 현재 기본 구현 범위에는 포함하지 않는다.
 
-`MissionExecutionEvent`의 `RESULT_STORED` payload는 제거된 `PatrolReport`를
-참조하지 않는다. 대신 `Patrol.action` Result의 `outcome`, `reason_code`,
-`reason`을 `result_*` 필드에 평탄화해 전달한다.
+AMR 제어와 로컬 감지 구현 사이에 별도 공용 Action을 두지 않는다. 감지 진행과
+확정 상태는 `Patrol` Feedback으로 관제에 전달하고, 확정 사건과 증거 사진 저장은
+`ReportDetection` Service를 사용한다.
+
+`MissionExecutionEvent`의 `RESULT_STORED` payload는 `Patrol.action` Result의
+`outcome`, `reason_code`, `reason`을 `result_*` 필드에 평탄화해 전달한다.
 
 각 PC는 같은 Git commit의 패키지를 빌드해야 한다. `2.0.0`은 이전 wire schema와 호환되지 않으므로 소비 노드를 함께 갱신하기 전에는 실제 통합 실행이나 주행시험을 하지 않는다.
 
