@@ -7,13 +7,13 @@
 | 개발 단위 | 통합 실행 위치 | 책임 |
 |---|---|---|
 | AMR | PC 1·2 | 임무 실행, Nav2·위치 추정, 로컬 안전, 배터리·도킹, 로컬 감지·증적 |
-| 관제 | PC 3 | Control Server, 명령·권한·안전 중재, Keepout·교대 |
+| 관제 | PC 3 | Control Server, Patrol Action·명령·주행 권한 중재 |
 | 시스템 모니터 | PC 3 | 토픽 수신·표시, 이력 저장·조회, 읽기 전용 Dashboard |
 | 비전 | PC 4 | CCTV 차량 이벤트와 순찰 허용 조건 |
 
 관제와 시스템 모니터는 별도 개발 팀이다. 통합 실행 시 두 팀의 코드를 관제 PC(PC 3)에서 함께 실행해도 개발 책임·코드 변경 범위는 합쳐지지 않는다. 개발용 PC 번호는 공용 문서에서 지정하지 않는다.
 
-로봇 식별·네트워크 기준은 [architecture.md](docs/architecture.md), 통신 계약은 [interfaces.md](docs/interfaces.md)를 따른다. 외부 임무 명령은 MissionCommand를 사용하고, Nav2 Action은 AMR 내부에서 사용한다. 최종 주행 속도 출력은 AMR의 local_safety_supervisor가 통제한다.
+로봇 식별·네트워크 기준은 [architecture.md](docs/architecture.md), 통신 계약은 [interfaces.md](docs/interfaces.md)를 따른다. 외부 순찰 임무는 `Patrol` Action을 사용하고, Nav2 Action은 AMR 내부에서 사용한다. 최종 주행 속도 출력은 AMR의 local_safety_supervisor가 통제한다.
 
 ## 승인과 코드 변경
 

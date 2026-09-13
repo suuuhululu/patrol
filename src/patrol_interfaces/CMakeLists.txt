@@ -15,7 +15,6 @@ find_package(builtin_interfaces REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   # patrol_interfaces 2.0.0: 기본 순찰 시나리오의 최소 공용 계약.
   "action/Patrol.action"
-  "action/DetectEvent.action"
   "msg/PatrolCommand.msg"
   "msg/DriveToken.msg"
   "msg/EStop.msg"

@@ -1,25 +1,25 @@
 # [관제] patrol_interfaces v2 전환
 
-- 상태: 반영 중
+- 상태: 최종 계약 확정 · 소비 코드 전환 중
 - 최초 작성 시각: 2026-09-10 15:26 KST
 - 요청자: 사용자
 - 요청 단위: 관제
 - 대상 단위 및 로봇: AMR(robot1·robot6), 관제, System monitor, 비전
 - 관련 TBD ID: 해당 없음
 - 기준 문서·절: [공용 인터페이스](../interfaces.md)
-- 결정 일자·근거: 2026-09-10 사용자 확정
+- 결정 일자·근거: 2026-09-10 최초 확정, 2026-09-13 최종 인터페이스 목록 확정
 - 코드 변경 승인 근거·범위: 2026-09-10 사용자 요청으로 `src/patrol_interfaces` 전면 변경 승인
 
 ## 변경 이유
 
-기본 순찰 시나리오에 필요한 인터페이스만 유지하고 순찰 명령·상태·방문·결과를 하나의 Action으로 통합한다. 로봇별 주행 권한, AMR 내부 감지 Action, 시스템 모니터 감지 보고 Service를 새 기준으로 사용한다.
+기본 순찰 시나리오에 필요한 인터페이스만 유지하고 순찰 명령·진행·결과를 하나의 Action으로 통합한다. 로봇별 주행 권한과 시스템 모니터 감지 보고 Service를 새 기준으로 사용한다. 2026-09-13 최종 결정으로 AMR 내부 감지용 공용 Action은 사용하지 않는다.
 
 ## 변경 전 → 변경 후
 
 - 외부 순찰 명령·상태·방문·결과는 `/{robot}/patrol_action`의 Goal·Feedback·Result로 통합한다.
 - 안전구역 이동과 재개는 `/{robot}/patrol_command`로 전달한다.
 - 주행 권한은 단순화한 `/{robot}/drive_token`으로 전달한다.
-- AMR 내부 감지·정렬은 `/{robot}/detect_event` Action으로 처리한다.
+- AMR 제어와 로컬 감지 사이의 호출 방식은 AMR 내부 구현으로 두고 별도 공용 감지 Action을 만들지 않는다.
 - 확정 사건과 사진은 `/system_monitor/report_detection` Service로 저장한다.
 - CCTV `CameraState`와 `patrol_allowed`는 유지한다.
 - `/control/estop` 타입은 예약하지만 현재 동작을 구현하지 않는다.
@@ -29,7 +29,7 @@
 
 | 대상 단위 | 필요한 변경·검토 | 대상 경로 또는 기능 | 담당 |
 |---|---|---|---|
-| AMR | Patrol Action Server, PatrolCommand·DriveToken 소비, DetectEvent Action과 ReportDetection Client 반영 | `patrol_amr`, `patrol_amr_safety`, AMR 감지 노드 | AMR |
+| AMR | Patrol Action Server, PatrolCommand·DriveToken 소비, 로컬 감지 상태의 Patrol Feedback 연결과 ReportDetection Client 반영 | `patrol_amr`, `patrol_amr_safety`, AMR 감지 노드 | AMR |
 | 관제 | Patrol Action Client, PatrolCommand·DriveToken 발행, Action Feedback·Result 처리 | `src/patrol_control` | 관제 |
 | System monitor | ReportDetection Service 유지, 제거 타입 import·구독·저장 경로 정리 | `src/patrol_sysmon` | System monitor |
 | 비전 | CameraState wire schema 호환 확인. PC 4 CCTV에는 그 외 변경 없음 | `src/patrol_vision` CCTV 노드 | 비전 |
@@ -42,8 +42,8 @@
 
 | 단위·로봇 | 상태 | 반영 버전·근거 | 남은 작업 |
 |---|---|---|---|
-| AMR / robot1 | 미반영 | - | v2 Action·메시지 소비 코드 전환 |
-| AMR / robot6 | 미반영 | - | v2 Action·메시지 소비 코드 전환 |
+| AMR / robot1 | 전환 필요 | ReportDetection Client 일부 존재 | Patrol Action Server·PatrolCommand·DriveToken·Feedback 연결 |
+| AMR / robot6 | 전환 필요 | ReportDetection Client 일부 존재 | Patrol Action Server·PatrolCommand·DriveToken·Feedback 연결 |
 | 관제 | 반영 | `patrol_interfaces 2.0.0`, `patrol_control 0.2.0`; 빌드·단위시험·노드 생성 smoke test PASS | 실제 AMR·CCTV 종단시험 |
 | System monitor | 반영 | `patrol_interfaces 2.0.0` 재빌드. 제거 타입(RobotStatus·PatrolVisit·PatrolReport·KeepoutStatus·DetectionEvent·EvidenceChunk·IngestionAck) 구독·저장 경로 정리, ReportDetection 서버 유지. 로봇 상태·방문·결과는 `patrol_action` 피드백·상태 토픽과 `battery_state`를 수동 구독해 표시. 격리 DDS e2e 확인 | 실제 AMR·관제 종단시험, Action 숨은 토픽 수동 구독을 관제 팀과 공유 |
 | 비전 | 검토 필요 | CameraState 유지 | v2 패키지 재빌드·CCTV 호환 확인 |
@@ -52,7 +52,7 @@
 
 - 관련 integration.md 시험 ID: 새 인터페이스 기준으로 추후 갱신
 - 추가 시험·기대 결과: 공용 패키지 빌드, Action·메시지·Service 타입 조회, 각 단위 종단 통신
-- 실제 실행 결과와 증거: 2026-09-10 임시 build/install/log 경로에서 `colcon build --packages-select patrol_interfaces` 성공. `colcon test`의 copyright·lint_cmake·xmllint 3개 통과. 소스·설치 타입 검증 PASS, v2 manifest SHA-256 `4237fb14a28817517384d9a189b16f3e13b226675f91cc3d79ee37a761020805`.
+- 실제 실행 결과와 증거: 2026-09-13 Python 3.12 격리 경로에서 `patrol_interfaces`, `patrol_control` 빌드 성공. 소스·설치 타입 검증 PASS, 인터페이스 8개, manifest SHA-256 `dd239a7635270f5be06795f69235b78fa4e2de13985883d9fd81c3be8072223f`. `patrol_interfaces` lint 3건과 `patrol_control` pytest 28건 통과.
 - 미실행 또는 BLOCKED 항목: 소비 노드 전환 및 실제 장비 통합시험
 
 ## 검토·결정 이력
@@ -60,3 +60,4 @@
 | 일자 | 검토자·단위 | 결정·의견 | 근거 |
 |---|---|---|---|
 | 2026-09-10 | 사용자·관제 | 기본 인터페이스 트리와 `ReportDetection.srv`를 기준으로 공용 패키지 전면 전환 승인 | 사용자 대화 |
+| 2026-09-13 | 사용자·관제 | 현재 `patrol_interfaces`의 8개 타입을 최종 계약으로 확정하고 사용하지 않는 감지 Action을 제거 | 사용자 대화 |

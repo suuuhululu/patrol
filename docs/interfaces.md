@@ -1,6 +1,6 @@
 # 공용 ROS 2 인터페이스
 
-> 기준일: 2026-09-10
+> 기준일: 2026-09-13
 >
 > 상태: 공용 타입 구현 완료 · 소비 코드 전환 및 통합시험 전
 >
@@ -34,9 +34,10 @@ flowchart LR
     Control -->|PatrolCommand| Mission
     Control -->|DriveToken| Safety[local_safety_supervisor]
 
-    Mission -->|DetectEvent Goal| Detect[detection/alignment node]
-    Detect -->|DetectEvent Feedback / Result| Mission
+    Mission -->|MissionExecutionEvent| Gateway[AMR command gateway]
+    Detect[AMR 감지 확정 측] -->|감지 상태| Mission
     Detect -->|ReportDetection 요청| Monitor[System monitor]
+    Detect -.->|DetectionEvidence<br/>전용 토픽 미확정| Evidence[AMR 증적 처리]
 
     Mission -->|내부 Action| Nav2[Nav2]
     Nav2 -->|주행 후보| Safety
@@ -55,15 +56,17 @@ flowchart LR
 │   ├── mission_supervisor
 │   │   ├── Action Server  patrol_action
 │   │   ├── Subscriber     patrol_command
-│   │   └── Action Client  detect_event
+│   │   └── Publisher      mission_execution_event
+│   ├── command gateway
+│   │   └── Subscriber     mission_execution_event
 │   ├── local_safety_supervisor
 │   │   └── Subscriber     drive_token
 │   └── detection/alignment node
-│       ├── Action Server  detect_event
-│       └── Service Client /system_monitor/report_detection
+│       ├── Service Client /system_monitor/report_detection
+│       └── 공용 보조 타입 DetectionEvidence (전용 토픽 미확정)
 ├── CCTV 비전
-│   ├── gate_cam      → /vision/cctv/gate_event
-│   ├── center_cam    → /vision/cctv/center_event
+│   ├── gate_cam      → CameraState /vision/cctv/gate_event
+│   ├── center_cam    → CameraState /vision/cctv/center_event
 │   └── cam_master    → /vision/cctv/patrol_allowed
 └── System monitor
     └── Service Server /system_monitor/report_detection
@@ -77,7 +80,7 @@ flowchart LR
 | `/{robot}/patrol_command` | `patrol_interfaces/msg/PatrolCommand` | Control Server → AMR `mission_supervisor` | 안전구역 이동과 순찰 재개 |
 | `/{robot}/drive_token` | `patrol_interfaces/msg/DriveToken` | Control Server → AMR `local_safety_supervisor` | 주행 권한 부여·갱신·회수 |
 | `/{robot}/mission_execution_event` | `patrol_interfaces/msg/MissionExecutionEvent` | AMR mission 실행부 → AMR command gateway | 명령 수용·시작·저장 완료 수명 이벤트 |
-| `/{robot}/detect_event` | `patrol_interfaces/action/DetectEvent` | AMR `mission_supervisor` ↔ AMR 감지 노드 | AMR 내부 정렬·연속 검증 |
+| 전용 토픽 미확정 | `patrol_interfaces/msg/DetectionEvidence` | AMR 감지·증적 내부 | event ID와 압축 이미지 묶음 |
 | `/system_monitor/report_detection` | `patrol_interfaces/srv/ReportDetection` | AMR 감지 노드 → System monitor | 확정 사건과 증거 사진 저장 |
 | `/vision/cctv/gate_event` | `patrol_interfaces/msg/CameraState` | `gate_cam` → `cam_master` | 차량 진입·이탈 상태 |
 | `/vision/cctv/center_event` | `patrol_interfaces/msg/CameraState` | `center_cam` → `cam_master` | 차량 주차·출차 상태 |
@@ -254,54 +257,7 @@ deadline: 200 ms
 lifespan: 500 ms
 ```
 
-## 7. DetectEvent Action
-
-이 Action은 AMR 내부 인터페이스다. Control Server는 직접 호출하지 않는다.
-
-### 7.1 Goal
-
-```text
-string detection_id
-uint8 event_type
-float32 min_confidence
-```
-
-- `detection_id`는 소문자 UUID v4를 사용한다.
-- 확정된 경우 같은 값을 `ReportDetection.event_id`와 Patrol Feedback의 `event_id`로 사용한다.
-- 검증 시간은 내부적으로 1초로 고정한다.
-
-### 7.2 Feedback
-
-```text
-uint8 state
-float32 confirm_elapsed
-float32 current_confidence
-float32 average_confidence
-```
-
-```text
-ALIGNING  = 1
-VERIFYING = 2
-```
-
-- confidence가 `min_confidence` 이상인 상태가 1초 연속 유지되면 확정한다.
-- 기준 미달이나 Detection 단절 시 `confirm_elapsed`를 0으로 초기화한다.
-
-### 7.3 Result
-
-```text
-bool confirmed
-string robot_id
-geometry_msgs/PoseStamped current_pose
-uint8 event_type
-float32 average_confidence
-builtin_interfaces/Time event_time
-```
-
-- `confirmed=true`이면 `mission_supervisor`가 Patrol Feedback으로 `detection_id`와 `event_type`을 보고한다.
-- 감지 노드는 같은 사건을 `ReportDetection` 서비스로 시스템 모니터에 보고한다.
-
-## 8. ReportDetection Service
+## 7. ReportDetection Service
 
 서비스 이름:
 
@@ -348,21 +304,58 @@ REJECTED  = 2
 - 응답을 받지 못했을 때만 같은 `event_id`와 같은 내용으로 재시도한다.
 - 같은 `event_id`에 다른 내용을 보내면 `REJECTED`다.
 
-### 8.1 지원 메시지
+### 7.1 DetectionEvidence
 
-`DetectionEvidence`는 `robot_id`, `event_id`, `evidence_id`와
-`sensor_msgs/CompressedImage` 한 장을 묶는 공용 타입이다. 현재 기본 감지 보고는
-`ReportDetection.image`를 사용하며, `DetectionEvidence`의 별도 토픽 이름과 송수신
-주체는 아직 확정하지 않는다.
+```text
+std_msgs/Header header
+string robot_id
+string event_id
+string evidence_id
+sensor_msgs/CompressedImage image
+```
 
-`MissionExecutionEvent`는 `/{robot}/mission_execution_event`에서 AMR mission
-실행부가 command gateway에 명령 수용·거절·시작·저장 완료를 전달하는 내부
-메시지다. QoS는 RELIABLE / TRANSIENT_LOCAL / KEEP_LAST(20)이다.
-`RESULT_STORED`에서는 `has_result=true`로 설정하고 `result_outcome`,
-`result_reason_code`, `result_reason`에 [Patrol Action Result](#43-result)의 값을
-그대로 복사한다. 제거된 `PatrolReport` 타입은 사용하지 않는다.
+- `robot_id`는 `robot1` 또는 `robot6`이다.
+- `event_id`는 같은 확정 사건의 Patrol Feedback과 ReportDetection 요청에 사용한
+  식별자와 일치해야 한다.
+- `evidence_id`는 한 증적 이미지를 식별한다.
+- `image`는 압축 이미지 한 장이다.
+- 별도 토픽 이름과 생산자·소비자는 현재 확정하지 않았다.
+- 기본 감지 저장 경로에서는 `ReportDetection.image`를 사용한다.
 
-## 9. CCTV 차량 상태
+### 7.2 MissionExecutionEvent
+
+```text
+uint8 ADMITTED=1
+uint8 REJECTED=2
+uint8 STARTED=3
+uint8 NONTERMINAL_STORED=4
+uint8 RESULT_STORED=5
+
+std_msgs/Header header
+string command_id
+string mission_id
+string robot_id
+uint8 event_type
+string source_session_id
+uint64 sequence
+uint8 mission_state
+uint32 reason_code
+string reason
+bool has_result
+uint8 result_outcome
+uint16 result_reason_code
+string result_reason
+```
+
+- 토픽은 `/{robot}/mission_execution_event`다.
+- AMR mission 실행부가 생산하고 AMR command gateway가 소비한다.
+- QoS는 RELIABLE / TRANSIENT_LOCAL / KEEP_LAST(20)이다.
+- `sequence`는 `source_session_id` 안에서 증가한다.
+- `RESULT_STORED`에서는 `has_result=true`로 설정한다.
+- `result_outcome`, `result_reason_code`, `result_reason`은
+  [Patrol Action Result](#43-result)의 값을 그대로 사용한다.
+
+## 8. CCTV 차량 상태
 
 `CameraState`:
 
@@ -391,7 +384,7 @@ STATE_EXITING  = 4
 - `patrol_allowed=true`이면 필요한 조건을 확인한 뒤 `RESUME_PATROL`을 보낸다.
 - `patrol_allowed`는 주행 명령이 아니라 허용 조건이다.
 
-## 10. EStop 예약 인터페이스
+## 9. EStop 예약 인터페이스
 
 ```text
 std_msgs/Header header
@@ -406,9 +399,9 @@ uint64 sequence
 - 현재 기본 구현에는 publisher, subscriber, 상태 판단을 포함하지 않는다.
 - 세부 reason과 활성·해제 정책은 구현 승인 시 별도로 확정한다.
 
-## 11. 기본 시나리오
+## 10. 기본 시나리오
 
-### 11.1 순찰
+### 10.1 순찰
 
 ```text
 Patrol Goal → WAITING_FOR_TOKEN → DriveToken → UNDOCKING
@@ -416,32 +409,31 @@ Patrol Goal → WAITING_FOR_TOKEN → DriveToken → UNDOCKING
 → DOCKING → Patrol Result
 ```
 
-### 11.2 차량 회피와 재개
+### 10.2 차량 회피와 재개
 
 ```text
 patrol_allowed=false → MOVE_TO_SAFE_ZONE → MOVING_TO_SAFE_ZONE
 patrol_allowed=true  → RESUME_PATROL → RESUMING → PATROLLING
 ```
 
-### 11.3 감지 보고
+### 10.3 감지 보고
 
 ```text
-감지 후보 → DetectEvent Action → confirmed
+AMR 내부 감지·확정
 ├── Patrol Feedback: DETECTION_CONFIRMED
 └── ReportDetection: 사건과 증거 사진 저장
 ```
 
-### 11.4 화재 Token hold
+### 10.4 화재 Token hold
 
 `DETECTION_CONFIRMED`와 `FIRE`를 받은 Control Server는 내부 `fire_hold`를 활성화한다. 현재 순찰 중인 AMR의 Token 갱신은 임무 종료까지 허용하고 다음 AMR의 Token 발행은 보류한다. `fire_hold`는 운영자가 명시적으로 해제하며 자동 해제하지 않는다.
 
-## 12. 공용 패키지 목표 구조
+## 11. 공용 패키지 최종 구조
 
 ```text
 src/patrol_interfaces/
 ├── action/
-│   ├── Patrol.action
-│   └── DetectEvent.action
+│   └── Patrol.action
 ├── msg/
 │   ├── PatrolCommand.msg
 │   ├── DriveToken.msg

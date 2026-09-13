@@ -1,6 +1,6 @@
 # 전체 시스템 구성
 
-상태: v1.0 공용 계약 확정 · 차기 버전 TBD·장비 통합 별도 · 관련: [인터페이스](interfaces.md), [통합](integration.md)
+상태: `patrol_interfaces 2.0.0` 최종 계약 반영 · 장비 통합 별도 · 관련: [인터페이스](interfaces.md), [통합](integration.md)
 
 ## 1. 개발 단위와 실행 위치
 
@@ -8,7 +8,7 @@
 |---|---|---|
 | AMR | PC 1 | AMR1 제어: 센서, 임무, Nav2·AMCL, 로컬 안전, 배터리, 도킹, Detection·증적 |
 | AMR | PC 2 | AMR2 제어: PC 1과 공통 기능, AMR2 LiDAR 위치 검증 관련 역할 |
-| 관제 | PC 3 | Control Server, Safety Arbiter, 명령·권한·안전·교대 판단 |
+| 관제 | PC 3 | Control Server, Patrol Action·명령·주행 권한 중재 |
 | 시스템 모니터 | PC 3 | 판단 결과 토픽 수신·표시, DB, 읽기 전용 Dashboard |
 | 비전 | PC 4 | gate_cam·center_cam, cam_master, CameraState·patrol_allowed |
 
@@ -24,7 +24,6 @@ PC 1·2의 역할과 TB4 내부 컴퓨터의 실제 프로세스 배치를 동�
 | 두 번째 AMR | PC 2 | robot6 | /robot6 | AMR2 | 6 |
 
 - 공통 관제 namespace는 /control, CCTV 비전 namespace는 /vision이다.
-- 로봇별 Keepout은 해당 로봇 namespace의 global/local costmap을 대상으로 한다.
 - robot_id와 holder_robot_id는 robot1 또는 robot6을 사용한다. 화면 표시명을 메시지 식별자로 쓰지 않는다.
 - 매핑은 YAML로 관리할 계획이며 파일명·배포 위치는 TBD-ARCH-001이다.
 - ROS_DOMAIN_ID=6과 두 번째 로봇의 Onboard 서버 ID=6은 별개 설정이다.
@@ -34,22 +33,21 @@ PC 1·2의 역할과 TB4 내부 컴퓨터의 실제 프로세스 배치를 동�
 ~~~mermaid
 flowchart LR
     V[PC4: CCTV / cam_master] -->|patrol_allowed| C[PC3: Control Server]
-    C -->|MissionCommand| M[PC1·2: mission_supervisor]
-    C -->|Drive Token / heartbeat| S[AMR: local_safety_supervisor]
-    E[PC3: Safety Arbiter] -->|E-stop| S
-    C -->|Keepout parameter transaction| N[AMR: Nav2 costmaps]
+    C -->|Patrol Action / PatrolCommand| M[PC1·2: mission_supervisor]
+    C -->|DriveToken| S[AMR: local_safety_supervisor]
+    E[향후 Safety Arbiter] -.->|예약 EStop| S
     M -->|내부 Action| N
     N -->|속도 명령 경로| S
     S -->|최종 cmd_vel| B[로봇 구동부]
-    A[AMR: 상태 / 결과 / 확정 이벤트 / 증적] --> O[PC3: 모니터링·저장]
-    A --> C
+    M -->|Patrol Feedback / Result| C
+    A[AMR 감지 확정 측] -->|ReportDetection| O[PC3: 모니터링·저장]
     C -->|운영 판단 결과 / 경고 / 로그 토픽| O
     O --> D[읽기 전용 Dashboard]
 ~~~
 
-Nav2와 local safety 사이의 속도 경로는 [TBD-IF-009 결정](interfaces.md#tbd)에 따라 확정됐다. Nav2 후보 `/robotN/cmd_vel_safe`와 yaw 후보 `/robotN/cmd_vel_yaw`는 `geometry_msgs/TwistStamped`, 최종 `/robotN/cmd_vel`은 `geometry_msgs/Twist`를 사용하며 `local_safety_supervisor`가 최종 토픽의 유일한 발행자다. 후보 신선도는 Q-17의 0.5초를 적용한다. 두 후보 사이의 중재만 TBD-AMR-001에 남는다.
+Nav2와 로컬 감지에서 생기는 모든 주행 후보는 AMR 내부의 `local_safety_supervisor`를 통과한다. 최종 `/{robot}/cmd_vel`은 이 노드만 발행하며, 유효한 DriveToken이 없거나 만료되면 정지 출력을 사용한다. 내부 후보 토픽과 중재 방식은 공용 ROS 계약에 포함하지 않는다.
 
-AMR 로컬 Detection은 OAK-D 입력에서 후보·정렬·확정을 처리한다. PC 4의 CCTV 차량 상태 파이프라인과 별개다. 시스템 모니터는 확정 이벤트와 증적을 수집·저장하고, 관제는 제어 판단에 필요한 이벤트를 사용한다. `patrol_interfaces 1.0.0`의 Detection wire schema는 고정됐으며 event_type 의미·중재·재전송의 세부 계약은 차기 버전 TBD-IF-006·007이다.
+AMR 로컬 Detection은 OAK-D 입력에서 후보·정렬·확정을 처리하며 PC 4의 CCTV 차량 상태 파이프라인과 별개다. AMR 제어와 로컬 감지 구현 사이에는 별도 공용 Action을 두지 않는다. 관제는 `Patrol` Feedback으로 감지 진행·확정을 받고, 시스템 모니터는 `ReportDetection` Service로 확정 사건과 증거 사진을 저장한다.
 
 ## 4. Discovery 구성
 

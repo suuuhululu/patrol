@@ -1,6 +1,6 @@
 # CCTV 비전 기능 설계
 
-상태: patrol_interfaces v1.0 적용 · 실제 PC 간 통합시험 미실시 · 담당: 비전(PC 4) · 공통 계약: [interfaces.md](interfaces.md)
+상태: `patrol_interfaces 2.0.0` CameraState 계약 적용 · 실제 PC 간 통합시험 미실시 · 담당: 비전(PC 4) · 공통 계약: [interfaces.md](interfaces.md)
 
 ## 1. 책임
 
@@ -18,7 +18,7 @@ PC 4 ROS 참여자는 PC 3 Offboard Discovery Server의 Client다. 구체적 CCT
 
 CameraState 필드는 interfaces.md 6절을 따른다. vehicle_track_id는 제거된 항목이다. topic별로 허용되지 않은 enum 또는 camera_id는 폐기하고 진단 로그를 남긴다(문서 하단 CR 반영 내역, cam_master가 topic-camera_id 일치도 함께 검증한다).
 
-cam_master는 event_id를 Q-13 동안 보관해 같은 이벤트를 한 번만 처리한다. CCTV 이벤트는 RELIABLE/VOLATILE이며 과거 이벤트 재생을 위해 TRANSIENT_LOCAL을 사용하지 않는다. v1.0의 CameraState는 UNKNOWN=0, ENTERING=1, EXITED=2, PARKED=3, EXITING=4이며 ID 생성·camera_id 규칙은 문서 하단 CR 반영 내역을 따른다.
+cam_master는 event_id를 로컬 중복 제거 기간 동안 보관해 같은 이벤트를 한 번만 처리한다. CCTV 이벤트는 RELIABLE/VOLATILE이며 과거 이벤트 재생을 위해 TRANSIENT_LOCAL을 사용하지 않는다. 최종 CameraState는 UNKNOWN=0, ENTERING=1, EXITED=2, PARKED=3, EXITING=4이며 ID 생성·camera_id 규칙은 문서 하단 CR 반영 내역을 따른다.
 
 confidence 필드는 존재하며, 차량 상태 확정에 쓰인 유효 구간(문서 하단 CR 반영 내역 참조)의 평균 conf를 담는다. AMR Detection의 1초 의도를 CCTV에 적용하지 않는다.
 
@@ -68,15 +68,15 @@ patrol_allowed는 관제 판단 조건이며 AMR에 직접 주행·정지 명령
 
 ## 5. 검증
 
-정상 진입 쌍과 독립 출차 쌍, topic별 enum·camera_id 검증, 중복 제거, timeout 시 마지막 값 유지, 관제 대피·재개 연계를 확인한다. [통합시험 IT-05·06](integration.md#4-통합시험-명세)을 참조한다.
+정상 진입 쌍과 독립 출차 쌍, topic별 enum·camera_id 검증, 중복 제거, timeout 시 마지막 값 유지, 관제 대피·재개 연계를 확인한다. [CCTV 통합시험](integration.md#it-07-cctv)을 참조한다.
 
-v1.0 호환 자동 시험은 `src/patrol_vision/test/test_p0_camerastate.py`에 있다. 현재 2개 시험은 CameraState enum 0~4, camera ID, topic별 허용 상태, patrol_allowed 매핑과 5 Hz 상수를 확인한다. event_id·source_session_id 생성, restart_sequence, 0.2초 실측 경계, topic-camera_id 거부, 순서 역전과 실제 프레임 처리는 이 시험 범위 밖이며 IT-05·06·07에서 확인한다.
+CameraState 자동 시험은 `src/patrol_vision/test/test_p0_camerastate.py`에 있다. 현재 2개 시험은 CameraState enum 0~4, camera ID, topic별 허용 상태, patrol_allowed 매핑과 5 Hz 상수를 확인한다. event_id·source_session_id 생성, restart_sequence, 0.2초 실측 경계, topic-camera_id 거부, 순서 역전과 실제 프레임 처리는 이 시험 범위 밖이며 통합시험에서 확인한다.
 
 ## TBD
 
 TBD-VIS-001(카메라 입력·확정 기준·장애 판단)과 TBD-VIS-002(순서 역전·재시작 정책)는 2026-09-07 확정되어 각각 2-1절·4-1절 본문에 반영됐다. 비전 내부 TBD는 없지만 카메라 장애의 공용 전달은 차기 버전 TBD-IF-010이다.
 
-CameraState 패키지·필드·enum·event_id·camera_id·QoS는 v1.0으로 확정됐다. permit 5 Hz와 관제 5초 timeout도 CR-관제_09-07_17-53_비전_CameraState와_permit_반영에 따라 v1.0에 포함한다. 카메라 장애 공용 전달 경로와 TBD-IF-010의 다른 단위 세부 항목은 차기 버전이다.
+CameraState 패키지·필드·enum·event_id·camera_id·QoS는 `patrol_interfaces 2.0.0` 최종 계약을 따른다. permit 5 Hz는 기존 비전 구현 기준을 유지한다. 카메라 장애의 별도 공용 전달 인터페이스는 현재 최종 목록에 포함하지 않는다.
 
 ## CR 반영 내역: CR-관제_09-07_17-53_비전_CameraState와_permit_반영 (2026-09-07)
 
